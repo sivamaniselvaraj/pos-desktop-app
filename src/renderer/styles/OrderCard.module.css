@@ -1,0 +1,154 @@
+.card {
+  padding: 15px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  background: #fff;
+  transition: box-shadow 0.2s, transform 0.2s, border-color 0.2s;
+}
+
+.card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateX(2px);
+}
+
+.selected {
+  background: #eff6ff;
+  border-left-color: var(--primary);
+}
+
+.pending {
+  border-left-color: var(--warning);
+}
+.printing {
+  border-left-color: var(--primary);
+}
+.printed {
+  border-left-color: var(--success);
+  opacity: 0.65;
+}
+.failed {
+  border-left-color: var(--danger);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.orderId {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.time {
+  font-size: 12px;
+  color: var(--gray);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.badge.pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+.badge.printing {
+  background: #dbeafe;
+  color: #1e40af;
+}
+.badge.printed {
+  background: #dcfce7;
+  color: #15803d;
+}
+.badge.failed {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+.details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  font-size: 13px;
+  margin-bottom: 10px;
+  color: var(--gray);
+}
+
+.details strong {
+  display: block;
+  color: var(--dark);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.items {
+  background: var(--light);
+  padding: 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--gray);
+  margin-bottom: 10px;
+}
+
+.itemLine {
+  color: var(--dark);
+  margin-top: 2px;
+}
+
+.errorMsg {
+  background: #fef2f2;
+  color: var(--danger);
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.actionBtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dark);
+}
+
+.actionBtn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.danger:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: #fef2f2;
+}

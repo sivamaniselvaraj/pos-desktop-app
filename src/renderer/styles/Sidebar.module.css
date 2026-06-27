@@ -1,0 +1,157 @@
+.sidebar {
+  width: 250px;
+  background: var(--dark);
+  color: #fff;
+  padding: 20px;
+  overflow-y: auto;
+  transition: width 0.3s ease, padding 0.3s ease;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.collapsed {
+  width: 72px;
+  padding: 15px 10px;
+}
+
+.toggle {
+  position: absolute;
+  top: 18px;
+  right: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toggle:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 16px;
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  min-height: 40px;
+}
+
+.collapsed .logo {
+  justify-content: center;
+}
+
+.logoIcon {
+  width: 32px;
+  height: 32px;
+  background: var(--primary);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.navItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 6px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  text-align: left;
+}
+
+.collapsed .navItem {
+  justify-content: center;
+  padding: 12px;
+}
+
+.navItem:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.navActive {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+.printers {
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.printersTitle {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.printerEmpty {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.printerItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.collapsed .printerItem {
+  justify-content: center;
+  padding: 8px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotOnline {
+  background: var(--success);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+}
+
+.dotOffline {
+  background: var(--danger);
+}
+
+.printerName {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.printerStatus {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+}
