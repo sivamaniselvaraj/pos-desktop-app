@@ -15,7 +15,6 @@ function getClient(): SupabaseClient | null {
 // Maps a raw DB row (snake_case) into our camelCase FoodOrder.
 function mapRow(row: Record<string, unknown>): FoodOrder {
   const items = (row.items as OrderItem[]) ?? [];
-  console.log("mapRow ", items)
   return {
     id: String(row.id ?? ''),
     orderId: String(row.id ?? ''),
