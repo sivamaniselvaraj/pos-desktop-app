@@ -45,7 +45,7 @@ export function OrderCard({ order, selected, onSelect, onRetry, onCancel }: Orde
           {order.customerName}
         </div>
         <div>
-          <strong>Total</strong>${order.total.toFixed(2)}
+          <strong>Total</strong>₹{order.total.toFixed(2)}
         </div>
       </div>
 

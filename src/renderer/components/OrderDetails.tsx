@@ -36,13 +36,13 @@ export function OrderDetails({ order }: OrderDetailsProps) {
           <Row
             key={item.id}
             label={`${item.quantity} × ${item.name}`}
-            value={`$${(item.price * item.quantity).toFixed(2)}`}
+            value={`₹${(item.unit_price * item.quantity).toFixed(2)}`}
           />
         ))}
         <div className={styles.divider} />
-        <Row label="Subtotal" value={`$${order.subtotal.toFixed(2)}`} />
-        <Row label="Tax" value={`$${order.tax.toFixed(2)}`} />
-        <Row label="Total" value={`$${order.total.toFixed(2)}`} emphasize />
+        <Row label="Subtotal" value={`₹${order.subtotal.toFixed(2)}`} />
+        <Row label="Tax" value={`₹${order.tax.toFixed(2)}`} />
+        <Row label="Total" value={`₹${order.total.toFixed(2)}`} emphasize />
         {order.specialNotes && (
           <>
             <div className={styles.divider} />
