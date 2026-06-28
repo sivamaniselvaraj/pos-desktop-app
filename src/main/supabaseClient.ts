@@ -62,6 +62,20 @@ export async function fetchOrderById(orderId: string): Promise<FoodOrder | null>
   return data ? mapRow(data as Record<string, unknown>) : null;
 }
 
+export async function updatePrinterSettings(outletId: string): Promise<FoodOrder | null> {
+  return null;
+}
+
+export async function removePrinterSettings(outletId: string, key: string): Promise<FoodOrder | null> {
+  return null;
+}
+export async function loadSettings(outletId: string): Promise<FoodOrder | null> {
+  return null;
+}
+
+
+
+
 export async function isDatabaseReachable(): Promise<boolean> {
   const supabase = getClient();
   if (!supabase) return false;

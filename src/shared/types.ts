@@ -102,7 +102,14 @@ export const IpcChannels = {
   RETRY_PRINT: 'retry-print',
   CANCEL_ORDER: 'cancel-order',
   CLEAR_PRINTED: 'clear-printed',
+  // printers (renderer -> main, invoke)
   GET_PRINTERS: 'get-printers',
+  // settings (renderer -> main, invoke)
+  GET_SETTINGS: 'get-settings',
+  UPDATE_SETTINGS: 'update-settings',
+  REMOVE_PRINTER: 'remove-printer',
+  GET_MAX_PRINTERS: 'get-max-printers',
+  // server (renderer -> main, invoke)
   GET_SERVER_STATUS: 'get-server-status',
   // main -> renderer (send)
   ORDER_RECEIVED: 'order-received',
@@ -121,6 +128,10 @@ export interface ElectronApi {
   cancelOrder(orderId: string): Promise<void>;
   clearPrinted(): Promise<void>;
   getPrinters(): Promise<PrinterInfo[]>;
+  getSettings(): Promise<Record<string, string>>;
+  updateSettings(printerType: string, deviceName: string): Promise<void>;
+  removePrinter(printerType: string): Promise<void>;
+  getMaxPrinters(): Promise<number>;
   getServerStatus(): Promise<ServerStatus>;
   onOrderReceived(cb: (order: OrderWithStatus) => void): () => void;
   onOrderStatusChanged(cb: (order: OrderWithStatus) => void): () => void;

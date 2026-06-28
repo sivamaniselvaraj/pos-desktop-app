@@ -78,3 +78,11 @@ export const config = {
 
 export const isConfigured = (): boolean =>
   Boolean(config.supabase.url && config.supabase.anonKey);
+
+
+/**
+ * Manually save/persist config to disk
+ */
+export function saveConfig(): void {
+  persist();
+}
