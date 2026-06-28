@@ -27,7 +27,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select to_jsonb(o) || jsonb_build_object('table_number', tbls.table_number)
+   select to_jsonb(o)||jsonb_build_object('table_number', tbls.table_number) || jsonb_build_object('outlet', oLet)
          || jsonb_build_object(
               'items',
               coalesce(
@@ -42,9 +42,10 @@ as $$
                 '[]'::jsonb
               )
             )
-  from orders o, tables tbls
+  from orders o, tables tbls, outlets oLet
   where 
   tbls.id = o.table_id and
+  oLet.id = o.outlet_id and
   o.id = p_order_id;
 $$;
 

@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config, isConfigured } from './config';
-import type { FoodOrder, OrderItem, OrderType } from '../shared/types';
+import type { FoodOrder, OrderItem, OrderType, OutletInfo } from '../shared/types';
 
 let client: SupabaseClient | null = null;
 
@@ -12,14 +12,28 @@ function getClient(): SupabaseClient | null {
   return client;
 }
 
+function mapOutlet(row: Record<string, unknown>): OutletInfo {
+  return {
+    id: String(row.id ?? ''),
+    name: String(row.name ?? 'Restaurant'),
+    city: row.city ? String(row.city) : undefined,
+    phone: row.phone ? String(row.phone) : undefined,
+    gstNumber: row.gst_number ? String(row.gst_number) : undefined,
+    address: row.address ? String(row.address) : undefined,
+  };
+}
+
+
 // Maps a raw DB row (snake_case) into our camelCase FoodOrder.
 function mapRow(row: Record<string, unknown>): FoodOrder {
   const items = (row.items as OrderItem[]) ?? [];
+  const outletRaw = row.outlet ? (row.outlet as Record<string, unknown>) : null;
   return {
     id: String(row.id ?? ''),
     orderId: String(row.id ?? ''),
     orderNumber: Number(row.order_number ?? 0),
     tableNumber: Number(row.table_number ?? 0),
+    outlet: outletRaw ? mapOutlet(outletRaw) : undefined,
     customerName: String(row.customer_name ?? 'Unknown'),
     customerPhone: row.customer_phone ? String(row.customer_phone) : undefined,
     deliveryAddress: row.delivery_address ? String(row.delivery_address) : undefined,
@@ -27,6 +41,7 @@ function mapRow(row: Record<string, unknown>): FoodOrder {
     subtotal: Number(row.subtotal ?? 0),
     tax: Number(row.tax_amount ?? 0),
     total: Number(row.total_amount ?? 0),
+    discount: row.discount_amount ? Number(row.discount_amount) : undefined,
     orderType: (row.order_type as OrderType) ?? 'pickup',
     specialNotes: row.special_notes ? String(row.special_notes) : undefined,
     createdAt: String(row.created_at ?? new Date().toISOString()),
@@ -38,6 +53,7 @@ export async function fetchOrderById(orderId: string): Promise<FoodOrder | null>
   if (!supabase) throw new Error('Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.');
 
   const { data, error } = await supabase.rpc('get_order_with_items', {p_order_id: orderId})
+  
    
   if (error) {
     if (error.code === 'PGRST116') return null; // no rows

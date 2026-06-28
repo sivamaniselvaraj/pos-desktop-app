@@ -12,11 +12,21 @@ export interface OrderItem {
 
 export type OrderType = 'delivery' | 'pickup' | 'dine-in';
 
+export interface OutletInfo {
+  id: string;
+  name: string;
+  city?: string;
+  phone?: string;
+  gstNumber?: string;
+  address?: string;
+}
+
 export interface FoodOrder {
   id: string;
   orderId: string;
   orderNumber: number;
   tableNumber: number;
+  outlet?: OutletInfo;
   customerName: string;
   customerPhone?: string;
   deliveryAddress?: string;
@@ -24,6 +34,7 @@ export interface FoodOrder {
   subtotal: number;
   tax: number;
   total: number;
+  discount?: number;
   orderType: OrderType;
   specialNotes?: string;
   createdAt: string;
