@@ -135,3 +135,8 @@ db/
   `retryCount` / `autoRetry`).
 - The renderer never touches Node APIs directly — everything goes through the typed
   `window.api` exposed by `preload.ts`.
+- The preload is bundled by esbuild (`build:preload`) into a single file with
+  `electron` external. This keeps Electron's renderer **sandbox enabled**: a
+  sandboxed preload cannot `require` local files, so bundling (which inlines
+  shared code) is what lets `contextIsolation: true` + `sandbox: true` work
+  without a "module not found" error.

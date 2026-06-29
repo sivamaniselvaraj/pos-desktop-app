@@ -23,6 +23,7 @@
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
+    "node-thermal-printer": "^4.6.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
@@ -49,21 +50,45 @@
     "wait-on": "^9.0.10"
   },
   "build": {
-    "appId": "com.example.foodorderprinter",
+    "appId": "com.foodorderprinter.app",
     "productName": "Food Order Printer",
+    "artifactName": "${productName}-${version}.${ext}",
     "files": [
       "dist/**/*",
       "node_modules/**/*",
       "package.json"
     ],
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64", "ia32"]
+        },
+        "portable"
+      ],
+      "certificateFile": null,
+      "certificatePassword": null,
+      "signingHashAlgorithms": ["sha256"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Food Order Printer",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
     },
     "mac": {
       "target": "dmg"
-    },
-    "win": {
-      "target": "nsis"
     },
     "linux": {
       "target": "AppImage"
