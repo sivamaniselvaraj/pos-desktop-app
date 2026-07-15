@@ -19,6 +19,8 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\""
   },
   "dependencies": {
+    "@grandchef/node-printer": "^0.8.0",
+    "@mapbox/node-pre-gyp": "^2.0.3",
     "@supabase/supabase-js": "^2.108.2",
     "cors": "^2.8.6",
     "express": "^5.2.1",
@@ -28,6 +30,7 @@
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.1.0",
     "@eslint/js": "^9.39.4",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
@@ -66,13 +69,18 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64", "ia32"]
+          "arch": [
+            "x64",
+            "ia32"
+          ]
         },
         "portable"
       ],
       "certificateFile": null,
       "certificatePassword": null,
-      "signingHashAlgorithms": ["sha256"]
+      "signingHashAlgorithms": [
+        "sha256"
+      ]
     },
     "nsis": {
       "oneClick": false,

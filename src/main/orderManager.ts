@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { fetchOrderById } from './supabaseClient';
-import { printOrder } from './printerManager';
+import { printOrder, printOrderEscpos, printOrderPosPrinter } from './printerManager';
 import { config } from './config';
 import type { OrderWithStatus, PrintOrderResponse, PrintStatus } from '../shared/types';
 
@@ -74,7 +74,9 @@ class OrderManager extends EventEmitter {
       order.retryCount = attempt;
       this.setStatus(orderId, 'printing');
       try {
-        await printOrder(order);
+        // await printOrder(order); // Plain-text fallback
+        await printOrderEscpos(order);  //ng thermal printer
+        //await printOrderPosPrinter(); //electron printer
         this.setStatus(orderId, 'printed');
         return true;
       } catch (err) {

@@ -7,11 +7,85 @@ import { randomUUID } from 'crypto';
 import { config } from './config';
 import type { FoodOrder, PrinterInfo } from '../shared/types';
 import { CharacterSet, PrinterTypes, ThermalPrinter, printer } from 'node-thermal-printer';
+import {PosPrinter, PosPrintData, PosPrintOptions} from "electron-pos-printer";
 
 const electron = typeof process !== 'undefined' && process.versions && !!process.versions.electron;
 
 const execFileAsync = promisify(execFile);
 const isWindows = process.platform === 'win32';
+
+// ---- Printer options printers ----------------------------------------------------
+const options: PosPrintOptions = {
+   preview: false,
+   margin: '0 0 0 0',    
+   copies: 1,
+   printerName: 'HP_Smart_Tank_580_590_series__8E5406_',
+   timeOutPerLine: 400,
+   pageSize: '80mm', // page size
+   silent: false
+}
+
+const data: PosPrintData[] = [
+  {
+        type: 'text',                                       // 'text' | 'barCode' | 'qrCode' | 'image' | 'table
+        value: 'SAMPLE HEADING',
+        style: {fontWeight: "700", textAlign: 'center', fontSize: "24px"}
+    },
+    {
+        type: 'text',                       // 'text' | 'barCode' | 'qrCode' | 'image' | 'table'
+        value: 'Secondary text',
+        style: {textDecoration: "underline", fontSize: "10px", textAlign: "center", color: "red"}
+    },{
+        type: 'table',
+        // style the table
+        style: {border: '1px solid #ddd'},
+        // list of the columns to be rendered in the table header
+        tableHeader: ['Animal', 'Age'],
+        // multi dimensional array depicting the rows and columns of the table body
+        tableBody: [
+            ['Cat', '2'],
+            ['Dog', '4'],
+            ['Horse', '12'],
+            ['Pig', '4'],
+        ],
+        // list of columns to be rendered in the table footer
+        tableFooter: ['Animal', 'Age'],
+        // custom style for the table header
+        tableHeaderStyle: { backgroundColor: '#000', color: 'white'},
+        // custom style for the table body
+        tableBodyStyle: {'border': '0.5px solid #ddd'},
+        // custom style for the table footer
+        tableFooterStyle: {backgroundColor: '#000', color: 'white'},
+    }
+]
+
+// ---- OS spooler driver ---------------------------------------------------
+// node-thermal-printer's `printer:Name` interface needs a native driver
+// injected via the `driver` option; the library ships none (that's the
+// "No driver set!" error). We use @grandchef/node-printer, the maintained
+// fork. It's a native addon compiled per-platform/Electron ABI, so it may be
+// absent or unbuilt in some environments — load it lazily and fail with a
+// clear, actionable message rather than crashing at startup.
+let cachedDriver: object | null = null;
+ 
+function loadSpoolerDriver(): object {
+  if (cachedDriver) return cachedDriver;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const driver = require('@grandchef/node-printer') as object;
+    cachedDriver = driver;
+    console.log("cachedDriver ", cachedDriver)
+    return driver;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      'Printer driver (@grandchef/node-printer) could not be loaded. Ensure it is installed and rebuilt for Electron: ' +
+        'npm install @grandchef/node-printer && npx electron-rebuild -f -w @grandchef/node-printer. ' +
+        `Details: ${detail}`,
+    );
+  }
+}
+
 
 // ---- Listing printers ----------------------------------------------------
 
@@ -41,14 +115,149 @@ async function listPrintersWindows(): Promise<string[]> {
   }
 }
 
+// ---- Virtual / software printer filtering ---------------------------------
+// Windows (and macOS/Linux) ship software "printers" that render to a file
+// rather than to paper — OneNote, XPS, Print to PDF, Fax, etc. They can never
+// drive a thermal head, so they only clutter the picker. Match on substrings,
+// case-insensitively, so localized and versioned variants are caught too
+// (e.g. "OneNote (Desktop)", "OneNote for Windows 10", "Microsoft Print to PDF").
+const VIRTUAL_PRINTER_PATTERNS = [
+  'onenote',
+  'microsoft print to pdf',
+  'microsoft xps document writer',
+  'xps document writer',
+  'send to onenote',
+  'print to pdf',
+  'pdfcreator',
+  'adobe pdf',
+  'cups-pdf',
+  'fax',
+];
+
+/**
+ * True if `name` looks like a software/virtual printer rather than physical
+ * hardware.
+ */
+export function isVirtualPrinter(name: string): boolean {
+  const n = name.toLowerCase();
+  return VIRTUAL_PRINTER_PATTERNS.some((pattern) => n.includes(pattern));
+}
+
 export async function getPrinters(): Promise<PrinterInfo[]> {
   const names = isWindows ? await listPrintersWindows() : await listPrintersUnix();
   const defaultName = config.kitchenPrinter;
-  return names.map((name) => ({
-    name,
-    isDefault: name === defaultName,
-    online: true, // OS only lists installed printers; treat listed as available.
-  }));
+  return names
+    .filter((name) => !isVirtualPrinter(name))
+    .map((name) => ({
+      name,
+      isDefault: name === defaultName,
+      online: true, // OS only lists installed printers; treat listed as available.
+    }));
+}
+
+// ---- Rupee symbol (raw-byte emission) --------------------------------------
+// printer.println() encodes text through iconv-lite. No iconv codepage
+// contains U+20B9 (₹), so it is substituted with 0x3F ('?') BEFORE the bytes
+// ever reach the printer — even on a printer whose font has the glyph.
+//
+// The fix is to bypass the encoder: select the printer's code page that holds
+// the rupee glyph (ESC t n) and emit its byte directly via append(Buffer).
+//
+// These two values are PRINTER-SPECIFIC. Discover them by running the printer
+// self-test (hold FEED while powering on) or probeCodePages() below, then set
+// them here. Set RUPEE_BYTE to null to fall back to "Rs." instead.
+const RUPEE_CODEPAGE: number | null = 0xBD; // ESC t <n>; null = leave codepage as-is
+const RUPEE_BYTE: number | null = null; // e.g. 0xD5 — set after probing
+
+const ESC = 0x1b;
+
+interface RawPrinter {
+  append(data: Buffer | string): void;
+}
+
+/** Emit raw bytes, bypassing the iconv text encoder. */
+function raw(printer: RawPrinter, bytes: number[]): void {
+  printer.append(Buffer.from(bytes));
+}
+
+/** Select a printer code page (ESC t n). */
+function selectCodePage(printer: RawPrinter, n: number): void {
+  raw(printer, [ESC, 0x74, n]);
+}
+
+/**
+ * Print a line, emitting any '₹' as a raw printer byte rather than letting
+ * iconv mangle it to '?'. Column maths are unaffected: '₹' counts as one
+ * character in the padded string and prints as one byte.
+ */
+function line(printer: RawPrinter & { newLine(): void }, text: string): void {
+  if (RUPEE_BYTE === null || !text.includes('₹')) {
+    printer.append(text.replace(/₹/g, 'Rs.'));
+    printer.newLine();
+    return;
+  }
+
+  const parts = text.split('₹');
+  for (let i = 0; i < parts.length; i++) {
+    if (i > 0) {
+      if (RUPEE_CODEPAGE !== null) selectCodePage(printer, RUPEE_CODEPAGE);
+      raw(printer, [RUPEE_BYTE]);
+    }
+    if (parts[i]) printer.append(parts[i]);
+  }
+  printer.newLine();
+}
+
+
+// ---- Receipt layout --------------------------------------------------------
+// Column widths must sum to exactly RECEIPT_WIDTH (48) or rows overflow and
+// the printer hard-wraps them, breaking alignment.
+const RECEIPT_WIDTH = 48;
+const ITEM_COL = 22; // left
+const QTY_COL = 4; // right
+const PRICE_COL = 11; // right
+const AMT_COL = 11; // right
+// 22 + 4 + 11 + 11 = 48
+
+/**
+ * Break `text` into lines of at most `width` chars, preferring word
+ * boundaries and hard-splitting any single word longer than `width`.
+ * Always returns at least one line.
+ */
+function wrapText(text: string, width: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [''];
+
+  const lines: string[] = [];
+  let current = '';
+
+  for (const word of words) {
+    if (word.length > width) {
+      // A single word too long for the column: flush, then hard-split it.
+      if (current) {
+        lines.push(current);
+        current = '';
+      }
+      let rest = word;
+      while (rest.length > width) {
+        lines.push(rest.slice(0, width));
+        rest = rest.slice(width);
+      }
+      current = rest;
+      continue;
+    }
+
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= width) {
+      current = candidate;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+
+  if (current) lines.push(current);
+  return lines;
 }
 
 // ---- Receipt formatting (80mm thermal, 48-char width) -----------------------
@@ -70,7 +279,7 @@ function formatCurrency(amount: number): string {
 }
 
 export function formatReceipt(order: FoodOrder): string {
-  const width = 48;
+  const width = RECEIPT_WIDTH;
   const separator = '='.repeat(width);
   const dashedSeparator = '-'.repeat(width);
   const rows: string[] = [];
@@ -109,7 +318,14 @@ export function formatReceipt(order: FoodOrder): string {
   rows.push('');
 
   // Item table header
-  rows.push('Item' + rightAlign('Qty.', 28) + rightAlign('Price', 10) + rightAlign('Amt', 6));
+  
+    rows.push(
+    padRight('Item', ITEM_COL) +
+      rightAlign('Qty', QTY_COL) +
+      rightAlign('Price', PRICE_COL) +
+      rightAlign('Amount', AMT_COL),
+  );
+
   rows.push(dashedSeparator);
 
   // Items
@@ -120,24 +336,21 @@ export function formatReceipt(order: FoodOrder): string {
     const priceStr = formatCurrency(item.unit_price);
     const amountStr = formatCurrency(item.unit_price * item.quantity);
 
-    const itemLine = item.name;
-    if (itemLine.length > 28) {
+       // First line carries the numeric columns; any remaining name lines are
+    // indented continuations. (Previously the remainder was re-tested after
+    // being reassigned, so names longer than 2 columns were dropped.)
+    const nameLines = wrapText(item.name, ITEM_COL);
+
       rows.push(
-        itemLine.substring(0, 28) +
-          rightAlign(qtyStr, 5) +
-          rightAlign(priceStr, 12) +
-          rightAlign(amountStr, 8),
-      );
-      rows.push(itemLine.substring(28));
-    } else {
-      rows.push(
-        itemLine +
-          ' '.repeat(Math.max(0, 28 - itemLine.length)) +
-          rightAlign(qtyStr, 5) +
-          rightAlign(priceStr, 12) +
-          rightAlign(amountStr, 8),
-      );
+      padRight(nameLines[0], ITEM_COL) +
+        rightAlign(qtyStr, QTY_COL) +
+        rightAlign(priceStr, PRICE_COL) +
+        rightAlign(amountStr, AMT_COL),
+    );
+    for (const cont of nameLines.slice(1)) {
+      rows.push('  ' + cont);
     }
+
 
     if (item.specialInstructions) {
       rows.push('  * ' + item.specialInstructions);
@@ -174,12 +387,17 @@ export function formatReceipt(order: FoodOrder): string {
   rows.push(center('Thank you! Please visit again.', width));
   rows.push(center('Powered by PrintPro', width));
   rows.push(separator);
-  rows.push('');
-  rows.push('');
-
   return rows.join('\n');
 }
 
+
+export async function printOrderPosPrinter(): Promise<void>{
+  PosPrinter.print(data, options)
+ .then(console.log)
+ .catch((error) => {
+    console.error(error);
+  });
+}
 
 // ---- Printing (ESC/POS format) -----------------------------------------------
  
@@ -195,39 +413,46 @@ export async function printOrderEscpos(order: FoodOrder): Promise<void> {
   }
  
   try {
+
+     // Print through the OS spooler. node-thermal-printer's `printer:Name`
+    // interface hands the raw ESC/POS buffer to the injected driver, which
+    // submits it to the Windows spooler / CUPS as a RAW job. The printer must
+    // be installed in the OS as a RAW/generic-text device so bytes pass
+    // through untouched. `Name` must match the OS printer name exactly
+    // (Get-Printer on Windows, lpstat -p on macOS/Linux).
+    const driver = loadSpoolerDriver();
+
     const printer = new ThermalPrinter({
-      type: PrinterTypes.EPSON,
-      //driver: MyCustomDriver,
-      //interface: 'auto', // Device name (e.g., 'COM1', '/dev/usb/lp0', 'USB001')
-      //interface:printerName, 
-      //interface: 'tcp://192.168.0.111:9100/',
-      interface: 'HP_Smart_Tank_580_590_series__8E5406_',
+      type: PrinterTypes.STAR,
+      interface: `printer:${printerName}`,
+      driver,
       characterSet: CharacterSet.WPC1252,
-      lineCharacter: '─',
+      lineCharacter: '-', // must be single-byte ASCII: drawLine() does no codepage conversion
       width: 48,
-      //driver: require(electron ? 'electron-printer' : 'printer')
     });
 
     const isConnected = await printer.isPrinterConnected();
 
-    console.log("is connected? ", isConnected)
+     if (!isConnected) {
+      throw new Error(
+        `Printer "${printerName}" was not found or is unavailable. Check it is installed in the OS (Get-Printer / lpstat -p) and the name matches exactly.`,
+      );
+    }
     
-    //console.log("printer status. ",  printer.getStatus())
-
     const raw = await printer.raw(Buffer.from("Hello world"));
  
-    // Build receipt
+     // Build receipt
     printer.alignCenter();
     printer.setTextSize(1, 1);
     printer.bold(true);
     printer.println(order.outlet?.name ?? 'FOOD ORDER PRINTER');
     printer.bold(false);
- 
+
     if (order.outlet?.address) {
       printer.setTextSize(0, 0);
       printer.println(order.outlet.address);
     }
- 
+
     if (order.outlet?.city || order.outlet?.phone || order.outlet?.gstNumber) {
       const headerLine = [order.outlet?.city, order.outlet?.phone, order.outlet?.gstNumber]
         .filter(Boolean)
@@ -237,80 +462,82 @@ export async function printOrderEscpos(order: FoodOrder): Promise<void> {
         printer.println(headerLine);
       }
     }
- 
+
     printer.setTextSize(0, 0);
-    printer.drawLine();
- 
+    solidLine(printer);
+
     printer.alignLeft();
     printer.println(`Name: ${order.customerName}`);
     printer.println('');
- 
+
     const dateTime = new Date(order.createdAt).toLocaleString('en-IN');
     printer.println(formatKeyValue('Date', dateTime));
     printer.println(formatKeyValue('Bill No.', String(order.orderNumber)));
     printer.println(formatKeyValue('Type', order.orderType.toUpperCase()));
- 
+
     if (order.customerPhone) printer.println(formatKeyValue('Phone', order.customerPhone));
     if (order.deliveryAddress) printer.println(formatKeyValue('Address', order.deliveryAddress));
     printer.println('');
-    printer.drawLine();
- 
+    solidLine(printer);
+
     printer.bold(true);
-    printer.println('Item' + padRight('Qty.', 10) + padRight('Price', 12) + 'Amt');
+    printer.println(
+      padRight('Item', ITEM_COL) +
+        rightAlign('Qty', QTY_COL) +
+        rightAlign('Price', PRICE_COL) +
+        rightAlign('Amount', AMT_COL),
+    );
     printer.bold(false);
-    printer.drawLine();
- 
+    solidLine(printer);
+
     let totalQty = 0;
     for (const item of order.items) {
       totalQty += item.quantity;
       const qtyStr = String(item.quantity);
       const priceStr = formatCurrency(item.unit_price);
       const amountStr = formatCurrency(item.unit_price * item.quantity);
- 
-      let itemName = item.name;
-      if (itemName.length > 20) {
-        printer.println(itemName.substring(0, 20));
-        itemName = itemName.substring(20);
+
+      // First line carries the numeric columns; remaining name lines are
+      // indented continuations.
+      const nameLines = wrapText(item.name, ITEM_COL);
+      line(
+        printer,
+        padRight(nameLines[0], ITEM_COL) +
+          rightAlign(qtyStr, QTY_COL) +
+          rightAlign(priceStr, PRICE_COL) +
+          rightAlign(amountStr, AMT_COL),
+      );
+      for (const cont of nameLines.slice(1)) {
+        printer.println('  ' + cont);
       }
- 
-      const line =
-        padRight(itemName, 20) +
-        padRight(qtyStr, 6) +
-        padRight(priceStr, 12) +
-        padLeft(amountStr, 10);
-      printer.println(line);
- 
-      if (itemName.length > 20) {
-        printer.println(itemName.substring(0, 20));
-      }
- 
+
       if (item.specialInstructions) {
         printer.println('  * ' + item.specialInstructions);
       }
     }
- 
-    printer.drawLine();
- 
+
+    solidLine(printer);
+
     printer.alignLeft();
     printer.println(formatKeyValue('Total Qty', String(totalQty)));
-    printer.println(formatKeyValue('Subtotal', formatCurrency(order.subtotal)));
+    line(printer, formatKeyValue('Subtotal', formatCurrency(order.subtotal)));
     printer.println('');
-    printer.println(formatKeyValue('Tax (GST)', formatCurrency(order.tax)));
- 
+    line(printer, formatKeyValue('Tax (GST)', formatCurrency(order.tax)));
+
     if (order.discount && order.discount > 0) {
-      printer.println(formatKeyValue('Discount', '-' + formatCurrency(order.discount)));
+      line(printer, formatKeyValue('Discount', '-' + formatCurrency(order.discount)));
     }
- 
-    printer.drawLine();
- 
+
+    solidLineThick(printer);
+
     printer.bold(true);
     printer.setTextSize(1, 1);
     printer.alignCenter();
-    printer.println('TOTAL ' + formatCurrency(order.total));
+    line(printer, 'TOTAL ' + formatCurrency(order.total));
     printer.bold(false);
     printer.setTextSize(0, 0);
-    printer.drawLine();
- 
+    solidLineThick(printer);
+
     if (order.specialNotes) {
       printer.alignCenter();
       printer.bold(true);
@@ -320,17 +547,15 @@ export async function printOrderEscpos(order: FoodOrder): Promise<void> {
       printer.println(order.specialNotes);
       printer.println('');
     }
- 
+
     printer.alignCenter();
     printer.println('Thank you! Please visit again.');
     printer.println('Powered by PrintPro');
-    printer.drawLine();
-    printer.println('');
-    printer.println('');
+    solidLine(printer);
+    printer.cut();
 
-    console.log("printer content ", printer)
- 
     await printer.execute();
+ 
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to print with ESC/POS';
     throw new Error(message);
@@ -338,6 +563,57 @@ export async function printOrderEscpos(order: FoodOrder): Promise<void> {
 }
  
 // Helper functions
+
+// ---- Solid rules (ESC/POS) -------------------------------------------------
+// NOTE: printer.drawLine() appends its character with Buffer.from(), with NO
+// codepage conversion. A multi-byte character such as '─' (U+2500) therefore
+// emits its 3 raw UTF-8 bytes (E2 94 80) per column and prints as garbage.
+// Only single-byte ASCII is safe with drawLine().
+//
+// To get a genuinely SOLID (unbroken) rule we don't use a character at all —
+// we switch on a print mode and emit spaces, so the printer fills the row
+// itself. This is codepage-independent and works on any ESC/POS device.
+
+
+// Minimal structural type: avoids depending on the library's exported class
+// type while still being type-safe about what we call.
+interface RuleCapablePrinter {
+  underline(enabled: boolean): void;
+  underlineThick(enabled: boolean): void;
+  invert(enabled: boolean): void;
+  println(text: string): void;
+}
+
+/**
+ * Thin solid rule — a continuous hairline across the paper.
+ * Underline mode over a row of spaces.
+ */
+export function solidLine(printer: RuleCapablePrinter, width = RECEIPT_WIDTH): void {
+  printer.underline(true);
+  printer.println(' '.repeat(width));
+  printer.underline(false);
+}
+
+/**
+ * Heavy solid rule — a thicker continuous line.
+ */
+export function solidLineThick(printer: RuleCapablePrinter, width = RECEIPT_WIDTH): void {
+  printer.underlineThick(true);
+  printer.println(' '.repeat(width));
+  printer.underlineThick(false);
+}
+
+/**
+ * Solid black bar — inverted (white-on-black) spaces fill the row completely.
+ * Use for strong section breaks, e.g. above the grand total.
+ */
+export function solidBar(printer: RuleCapablePrinter, width = RECEIPT_WIDTH): void {
+  printer.invert(true);
+  printer.println(' '.repeat(width));
+  printer.invert(false);
+}
+
+
 function formatKeyValue(key: string, value: string): string {
   const maxKeyWidth = 15;
   const padding = Math.max(0, maxKeyWidth - key.length);
