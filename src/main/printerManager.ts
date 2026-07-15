@@ -119,8 +119,8 @@ export async function getPrinters(): Promise<PrinterInfo[]> {
 // These two values are PRINTER-SPECIFIC. Discover them by running the printer
 // self-test (hold FEED while powering on) or probeCodePages() below, then set
 // them here. Set RUPEE_BYTE to null to fall back to "Rs." instead.
-const RUPEE_CODEPAGE: number | null = 0xBD; // ESC t <n>; null = leave codepage as-is
-const RUPEE_BYTE: number | null = null; // e.g. 0xD5 — set after probing
+const RUPEE_CODEPAGE: number | null = 0xB9; // ESC t <n>; null = leave codepage as-is
+const RUPEE_BYTE: number | null = 0xBD; // e.g. 0xD5 — set after probing
 
 const ESC = 0x1b;
 
@@ -129,7 +129,7 @@ interface RawPrinter {
 }
 
 /** Emit raw bytes, bypassing the iconv text encoder. */
-function raw(printer: RawPrinter, bytes: number[]): void {
+function raw(printer: RawPrinter, bytes: any[]): void {
   printer.append(Buffer.from(bytes));
 }
 
@@ -154,7 +154,7 @@ function line(printer: RawPrinter & { newLine(): void }, text: string): void {
   for (let i = 0; i < parts.length; i++) {
     if (i > 0) {
       if (RUPEE_CODEPAGE !== null) selectCodePage(printer, RUPEE_CODEPAGE);
-      raw(printer, [RUPEE_BYTE]);
+      //raw(printer, ['₹']);
     }
     if (parts[i]) printer.append(parts[i]);
   }
@@ -168,9 +168,9 @@ function line(printer: RawPrinter & { newLine(): void }, text: string): void {
 const RECEIPT_WIDTH = 48;
 const ITEM_COL = 20; // left
 const QTY_COL = 4; // right
-const PRICE_COL = 11; // right
-const AMT_COL = 13; // right
-// 22 + 4 + 11 + 11 = 48
+const PRICE_COL = 12; // right
+const AMT_COL = 12; // right
+// 22 + 4 + 12 + 12 = 48
 
 /**
  * Break `text` into lines of at most `width` chars, preferring word
@@ -380,7 +380,7 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
         `Printer "${printerName}" was not found or is unavailable. Check it is installed in the OS (Get-Printer / lpstat -p) and the name matches exactly.`,
       );
     }
-    
+    //printer.raw(Buffer.from("₹ 32"));
      // Build receipt
     printer.alignCenter();
     printer.setTextSize(1, 1);
