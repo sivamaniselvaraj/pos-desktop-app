@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { fetchOrderById } from './supabaseClient';
-import { printOrder, printOrderEscpos, printOrderPosPrinter } from './printerManager';
+import { printOrder, printOrderEscpos } from './printerManager';
 import { config } from './config';
 import type { OrderWithStatus, PrintOrderResponse, PrintStatus } from '../shared/types';
 
@@ -75,7 +75,7 @@ class OrderManager extends EventEmitter {
       this.setStatus(orderId, 'printing');
       try {
         // await printOrder(order); // Plain-text fallback
-        await printOrderEscpos(order);  //ng thermal printer
+        await printOrderEscpos(order, 'RP3160 GOLD(U) 1');  //ng thermal printer
         //await printOrderPosPrinter(); //electron printer
         this.setStatus(orderId, 'printed');
         return true;

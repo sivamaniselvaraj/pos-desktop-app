@@ -7,57 +7,11 @@ import { randomUUID } from 'crypto';
 import { config } from './config';
 import type { FoodOrder, PrinterInfo } from '../shared/types';
 import { CharacterSet, PrinterTypes, ThermalPrinter, printer } from 'node-thermal-printer';
-import {PosPrinter, PosPrintData, PosPrintOptions} from "electron-pos-printer";
 
 const electron = typeof process !== 'undefined' && process.versions && !!process.versions.electron;
 
 const execFileAsync = promisify(execFile);
 const isWindows = process.platform === 'win32';
-
-// ---- Printer options printers ----------------------------------------------------
-const options: PosPrintOptions = {
-   preview: false,
-   margin: '0 0 0 0',    
-   copies: 1,
-   printerName: 'HP_Smart_Tank_580_590_series__8E5406_',
-   timeOutPerLine: 400,
-   pageSize: '80mm', // page size
-   silent: false
-}
-
-const data: PosPrintData[] = [
-  {
-        type: 'text',                                       // 'text' | 'barCode' | 'qrCode' | 'image' | 'table
-        value: 'SAMPLE HEADING',
-        style: {fontWeight: "700", textAlign: 'center', fontSize: "24px"}
-    },
-    {
-        type: 'text',                       // 'text' | 'barCode' | 'qrCode' | 'image' | 'table'
-        value: 'Secondary text',
-        style: {textDecoration: "underline", fontSize: "10px", textAlign: "center", color: "red"}
-    },{
-        type: 'table',
-        // style the table
-        style: {border: '1px solid #ddd'},
-        // list of the columns to be rendered in the table header
-        tableHeader: ['Animal', 'Age'],
-        // multi dimensional array depicting the rows and columns of the table body
-        tableBody: [
-            ['Cat', '2'],
-            ['Dog', '4'],
-            ['Horse', '12'],
-            ['Pig', '4'],
-        ],
-        // list of columns to be rendered in the table footer
-        tableFooter: ['Animal', 'Age'],
-        // custom style for the table header
-        tableHeaderStyle: { backgroundColor: '#000', color: 'white'},
-        // custom style for the table body
-        tableBodyStyle: {'border': '0.5px solid #ddd'},
-        // custom style for the table footer
-        tableFooterStyle: {backgroundColor: '#000', color: 'white'},
-    }
-]
 
 // ---- OS spooler driver ---------------------------------------------------
 // node-thermal-printer's `printer:Name` interface needs a native driver
@@ -74,7 +28,6 @@ function loadSpoolerDriver(): object {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const driver = require('@grandchef/node-printer') as object;
     cachedDriver = driver;
-    console.log("cachedDriver ", cachedDriver)
     return driver;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
@@ -213,10 +166,10 @@ function line(printer: RawPrinter & { newLine(): void }, text: string): void {
 // Column widths must sum to exactly RECEIPT_WIDTH (48) or rows overflow and
 // the printer hard-wraps them, breaking alignment.
 const RECEIPT_WIDTH = 48;
-const ITEM_COL = 22; // left
+const ITEM_COL = 20; // left
 const QTY_COL = 4; // right
 const PRICE_COL = 11; // right
-const AMT_COL = 11; // right
+const AMT_COL = 13; // right
 // 22 + 4 + 11 + 11 = 48
 
 /**
@@ -390,24 +343,15 @@ export function formatReceipt(order: FoodOrder): string {
   return rows.join('\n');
 }
 
-
-export async function printOrderPosPrinter(): Promise<void>{
-  PosPrinter.print(data, options)
- .then(console.log)
- .catch((error) => {
-    console.error(error);
-  });
-}
-
 // ---- Printing (ESC/POS format) -----------------------------------------------
  
 /**
  * Print order using ESC/POS format directly to a thermal printer.
  * Requires a connected USB or network thermal printer.
  */
-export async function printOrderEscpos(order: FoodOrder): Promise<void> {
-  console.log("printing on pos" , electron)
-  const printerName = 'HP_Smart_Tank_580_590_series__8E5406_' //config.kitchenPrinter;
+export async function printOrderEscpos(order: FoodOrder, printerName:string): Promise<void> {
+  console.log("printing for the order" , order.id)
+  //const printerName = 'RP3160 GOLD(U) 1' //config.kitchenPrinter;
   if (!printerName) {
     throw new Error('No printer configured. Set KITCHEN_PRINTER in .env.local');
   }
@@ -421,16 +365,14 @@ export async function printOrderEscpos(order: FoodOrder): Promise<void> {
     // through untouched. `Name` must match the OS printer name exactly
     // (Get-Printer on Windows, lpstat -p on macOS/Linux).
     const driver = loadSpoolerDriver();
-
     const printer = new ThermalPrinter({
-      type: PrinterTypes.STAR,
-      interface: `printer:${printerName}`,
-      driver,
+      type: PrinterTypes.CUSTOM,
+      interface: 'printer:'+printerName,
+      driver: require(electron ? '@grandchef/node-printer' : 'printer') as object,
       characterSet: CharacterSet.WPC1252,
       lineCharacter: '-', // must be single-byte ASCII: drawLine() does no codepage conversion
       width: 48,
     });
-
     const isConnected = await printer.isPrinterConnected();
 
      if (!isConnected) {
@@ -439,8 +381,6 @@ export async function printOrderEscpos(order: FoodOrder): Promise<void> {
       );
     }
     
-    const raw = await printer.raw(Buffer.from("Hello world"));
- 
      // Build receipt
     printer.alignCenter();
     printer.setTextSize(1, 1);

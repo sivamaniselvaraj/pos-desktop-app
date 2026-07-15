@@ -101,5 +101,8 @@
     "linux": {
       "target": "AppImage"
     }
+  },
+  "allowScripts": {
+    "@grandchef/node-printer@0.8.0": true
   }
 }
