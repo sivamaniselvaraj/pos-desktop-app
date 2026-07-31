@@ -33,6 +33,7 @@ function mapRow(row: Record<string, unknown>): FoodOrder {
     orderId: String(row.id ?? ''),
     orderNumber: Number(row.order_number ?? 0),
     tableNumber: Number(row.table_number ?? 0),
+    tokenNumber: Number(row.token_number ?? 0),
     outlet: outletRaw ? mapOutlet(outletRaw) : undefined,
     customerName: String(row.customer_name ?? 'Unknown'),
     customerPhone: row.customer_phone ? String(row.customer_phone) : undefined,
