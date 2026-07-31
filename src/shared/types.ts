@@ -25,6 +25,7 @@ export interface FoodOrder {
   id: string;
   orderId: string;
   orderNumber: number;
+  tokenNumber: number;
   tableNumber: number;
   outlet?: OutletInfo;
   customerName: string;

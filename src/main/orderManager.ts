@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { fetchOrderById } from './supabaseClient';
-import { printOrder, printOrderEscpos } from './printerManager';
+import { printOrderEscpos } from './printerManager';
 import { config } from './config';
 import type { OrderWithStatus, PrintOrderResponse, PrintStatus } from '../shared/types';
 

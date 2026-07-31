@@ -108,17 +108,21 @@ export async function getPrinters(): Promise<PrinterInfo[]> {
     }));
 }
 
-// ---- Rupee symbol (raw-byte emission) --------------------------------------
+// ---- Receipt formatting (80mm thermal, 48-char width) -----------------------
+
+// ---- Rupee symbol emission -------------------------------------------------
 // printer.println() encodes text through iconv-lite. No iconv codepage
 // contains U+20B9 (₹), so it is substituted with 0x3F ('?') BEFORE the bytes
 // ever reach the printer — even on a printer whose font has the glyph.
 //
-// The fix is to bypass the encoder: select the printer's code page that holds
-// the rupee glyph (ESC t n) and emit its byte directly via append(Buffer).
-//
-// These two values are PRINTER-SPECIFIC. Discover them by running the printer
-// self-test (hold FEED while powering on) or probeCodePages() below, then set
-// them here. Set RUPEE_BYTE to null to fall back to "Rs." instead.
+// Three strategies, selected by RUPEE_MODE:
+//   'image' — render ₹ as an ESC/POS bit image (raw dot data). Font/codepage
+//             independent: works on ANY ESC/POS printer. Default.
+//   'byte'  — emit a single raw byte from the printer's own font. Needs the
+//             printer-specific RUPEE_CODEPAGE/RUPEE_BYTE (find via
+//             probeCodePages() or the self-test). Cheapest, perfectly inline.
+//   'text'  — fall back to the ASCII string "Rs.".
+const RUPEE_MODE: 'image' | 'byte' | 'text' = 'image';
 const RUPEE_CODEPAGE: number | null = 0xB9; // ESC t <n>; null = leave codepage as-is
 const RUPEE_BYTE: number | null = 0xBD; // e.g. 0xD5 — set after probing
 
@@ -138,13 +142,90 @@ function selectCodePage(printer: RawPrinter, n: number): void {
   raw(printer, [ESC, 0x74, n]);
 }
 
+// Rupee glyph as a 12-wide x 24-tall bitmap, authored row-major for
+// readability (MSB = leftmost column). Sized to ~one Font-A character cell so
+// it slots into the monospace columns without disturbing alignment. Tweak the
+// dots here if the printed shape needs refining.
+// prettier-ignore
+const RUPEE_GLYPH_ROWS: string[] = [
+  '000000000000',
+  '001111111000',
+  '001111111000',
+  '000000000000',
+  '001111111000',
+  '001111111000',
+  '001100011000',
+  '001100011000',
+  '001111111000',
+  '001111111000',
+  '001100000000',
+  '001100000000',
+  '000110000000',
+  '000011000000',
+  '000001100000',
+  '000000110000',
+  '000000011000',
+  '000000001100',
+  '000000000110',
+  '000000000000',
+  '000000000000',
+  '000000000000',
+  '000000000000',
+  '000000000000',
+];
+
+// Build the ESC * (bit image) command for the rupee glyph once.
+// ESC * m=32 (24-dot single density): 3 bytes per column, bit7=top row.
+let cachedRupeeImage: Buffer | null = null;
+
+function buildRupeeImage(): Buffer {
+  if (cachedRupeeImage) return cachedRupeeImage;
+
+  const rows = RUPEE_GLYPH_ROWS;
+  const height = rows.length; // 24
+  const width = rows[0].length; // 12
+  const bytesPerCol = Math.ceil(height / 8); // 3
+
+  const data: number[] = [];
+  for (let col = 0; col < width; col++) {
+    for (let band = 0; band < bytesPerCol; band++) {
+      let byte = 0;
+      for (let bit = 0; bit < 8; bit++) {
+        const row = band * 8 + bit;
+        if (row < height && rows[row][col] === '1') {
+          byte |= 0x80 >> bit; // bit7 = topmost row of the band
+        }
+      }
+      data.push(byte);
+    }
+  }
+
+  // ESC * m nL nH  d1..dk    (m=32 -> 24-dot single density)
+  const nL = width & 0xff;
+  const nH = (width >> 8) & 0xff;
+  cachedRupeeImage = Buffer.from([ESC, 0x2a, 32, nL, nH, ...data]);
+  return cachedRupeeImage;
+}
+
+/** Emit the rupee glyph inline as a raw bit-image buffer. */
+function emitRupeeImage(printer: RawPrinter): void {
+  printer.append(buildRupeeImage());
+}
+
 /**
- * Print a line, emitting any '₹' as a raw printer byte rather than letting
- * iconv mangle it to '?'. Column maths are unaffected: '₹' counts as one
- * character in the padded string and prints as one byte.
+ * Print a line, emitting any '₹' via the configured RUPEE_MODE rather than
+ * letting iconv mangle it to '?'. Column maths are unaffected: '₹' counts as
+ * one character in the padded string and prints as ~one character width.
  */
 function line(printer: RawPrinter & { newLine(): void }, text: string): void {
-  if (RUPEE_BYTE === null || !text.includes('₹')) {
+  if (RUPEE_MODE === 'text' || !text.includes('₹')) {
+    printer.append(text.replace(/₹/g, 'Rs.'));
+    printer.newLine();
+    return;
+  }
+
+  if (RUPEE_MODE === 'byte' && RUPEE_BYTE === null) {
+    // byte mode requested but not configured — degrade to "Rs." safely.
     printer.append(text.replace(/₹/g, 'Rs.'));
     printer.newLine();
     return;
@@ -153,13 +234,18 @@ function line(printer: RawPrinter & { newLine(): void }, text: string): void {
   const parts = text.split('₹');
   for (let i = 0; i < parts.length; i++) {
     if (i > 0) {
-      if (RUPEE_CODEPAGE !== null) selectCodePage(printer, RUPEE_CODEPAGE);
-      //raw(printer, ['₹']);
+      if (RUPEE_MODE === 'image') {
+        emitRupeeImage(printer);
+      } else {
+        if (RUPEE_CODEPAGE !== null) selectCodePage(printer, RUPEE_CODEPAGE);
+        raw(printer, [RUPEE_BYTE as number]);
+      }
     }
     if (parts[i]) printer.append(parts[i]);
   }
   printer.newLine();
 }
+
 
 
 // ---- Receipt layout --------------------------------------------------------
@@ -338,7 +424,6 @@ export function formatReceipt(order: FoodOrder): string {
   }
 
   rows.push(center('Thank you! Please visit again.', width));
-  rows.push(center('Powered by PrintPro', width));
   rows.push(separator);
   return rows.join('\n');
 }
@@ -351,11 +436,12 @@ export function formatReceipt(order: FoodOrder): string {
  */
 export async function printOrderEscpos(order: FoodOrder, printerName:string): Promise<void> {
   console.log("printing for the order" , order.id)
-  //const printerName = 'RP3160 GOLD(U) 1' //config.kitchenPrinter;
-  if (!printerName) {
+
+  // Validate printer is configured
+  if (!printerName || printerName.trim() === '') {
     throw new Error('No printer configured. Set KITCHEN_PRINTER in .env.local');
   }
- 
+
   try {
 
      // Print through the OS spooler. node-thermal-printer's `printer:Name`
@@ -367,11 +453,11 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
     const driver = loadSpoolerDriver();
     const printer = new ThermalPrinter({
       type: PrinterTypes.CUSTOM,
-      interface: 'printer:'+printerName,
+      interface: 'printer:' + printerName,
       driver: require(electron ? '@grandchef/node-printer' : 'printer') as object,
       characterSet: CharacterSet.WPC1252,
       lineCharacter: '-', // must be single-byte ASCII: drawLine() does no codepage conversion
-      width: 48,
+      width: RECEIPT_WIDTH,
     });
     const isConnected = await printer.isPrinterConnected();
 
@@ -380,7 +466,6 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
         `Printer "${printerName}" was not found or is unavailable. Check it is installed in the OS (Get-Printer / lpstat -p) and the name matches exactly.`,
       );
     }
-    //printer.raw(Buffer.from("₹ 32"));
      // Build receipt
     printer.alignCenter();
     printer.setTextSize(1, 1);
@@ -405,19 +490,22 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
 
     printer.setTextSize(0, 0);
     solidLine(printer);
+    printer.drawLine(); 
 
     printer.alignLeft();
     printer.println(`Name: ${order.customerName}`);
-    printer.println('');
+    solidLine(printer);
+    //printer.println('');
 
     const dateTime = new Date(order.createdAt).toLocaleString('en-IN');
     printer.println(formatKeyValue('Date', dateTime));
     printer.println(formatKeyValue('Bill No.', String(order.orderNumber)));
     printer.println(formatKeyValue('Type', order.orderType.toUpperCase()));
+     printer.println(formatKeyValue('Token No.', String(order.tokenNumber)));
 
     if (order.customerPhone) printer.println(formatKeyValue('Phone', order.customerPhone));
     if (order.deliveryAddress) printer.println(formatKeyValue('Address', order.deliveryAddress));
-    printer.println('');
+
     solidLine(printer);
 
     printer.bold(true);
@@ -458,7 +546,15 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
 
     solidLine(printer);
 
-    printer.alignLeft();
+
+    printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
+      { text:"Item", align:"LEFT", cols:ITEM_COL, bold:true },
+      { text:"Qty", align:"CENTER", cols:QTY_COL, bold:true },
+      { text:"Price", align:"RIGHT", cols:PRICE_COL , bold:true},
+      { text:"Amount", align:"RIGHT", cols:AMT_COL , bold:true}
+    ]);
+
+    printer.alignRight();
     printer.println(formatKeyValue('Total Qty', String(totalQty)));
     line(printer, formatKeyValue('Subtotal', formatCurrency(order.subtotal)));
     printer.println('');
@@ -472,8 +568,8 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
 
     printer.bold(true);
     printer.setTextSize(1, 1);
-    printer.alignCenter();
-    line(printer, 'TOTAL ' + formatCurrency(order.total));
+    printer.alignRight();
+    line(printer, 'Grand Total ' + formatCurrency(order.total));
     printer.bold(false);
     printer.setTextSize(0, 0);
     solidLineThick(printer);
@@ -489,8 +585,10 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
     }
 
     printer.alignCenter();
+    printer.bold(true);
     printer.println('Thank you! Please visit again.');
-    printer.println('Powered by PrintPro');
+    printer.bold(false);
+    //printer.setTextSize(0, 0);
     solidLine(printer);
     printer.cut();
 
