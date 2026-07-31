@@ -501,7 +501,7 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
     printer.println(formatKeyValue('Date', dateTime));
     printer.println(formatKeyValue('Bill No.', String(order.orderNumber)));
     printer.println(formatKeyValue('Type', order.orderType.toUpperCase()));
-     printer.println(formatKeyValue('Token No.', String(order.tokenNumber)));
+    printer.println(formatKeyValue('Token No.', String(order.tokenNumber)));
 
     if (order.customerPhone) printer.println(formatKeyValue('Phone', order.customerPhone));
     if (order.deliveryAddress) printer.println(formatKeyValue('Address', order.deliveryAddress));
@@ -553,6 +553,21 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
       { text:"Price", align:"RIGHT", cols:PRICE_COL , bold:true},
       { text:"Amount", align:"RIGHT", cols:AMT_COL , bold:true}
     ]);
+    for (const item of order.items) {
+      const qtyStr = String(item.quantity);
+      const priceStr = formatCurrency(item.unit_price);
+      const amountStr = formatCurrency(item.unit_price * item.quantity);
+
+      // First line carries the numeric columns; remaining name lines are
+      // indented continuations.
+    const nameLines = wrapText(item.name, ITEM_COL);
+     printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
+      { text:nameLines[0], align:"LEFT", cols:ITEM_COL, bold:false },
+      { text:qtyStr, align:"CENTER", cols:QTY_COL, bold:false },
+      { text:priceStr, align:"RIGHT", cols:PRICE_COL , bold:false},
+      { text:amountStr, align:"RIGHT", cols:AMT_COL , bold:false}
+    ]);
+    }
 
     printer.alignRight();
     printer.println(formatKeyValue('Total Qty', String(totalQty)));
@@ -589,7 +604,7 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
     printer.println('Thank you! Please visit again.');
     printer.bold(false);
     //printer.setTextSize(0, 0);
-    solidLine(printer);
+    //solidLine(printer);
     printer.cut();
 
     await printer.execute();
