@@ -21,6 +21,17 @@ export interface OutletInfo {
   address?: string;
 }
 
+/**
+ * Printer header/footer configuration, typically stored as a JSON string.
+ * headerText / footerText may contain `<br>` (any case) as line breaks.
+ */
+export interface HeaderConfig {
+  restaurantName?: string;
+  headerText?: string;
+  footerText?: string;
+  containerChargePercent?: string;
+}
+
 export interface FoodOrder {
   id: string;
   orderId: string;
@@ -39,6 +50,7 @@ export interface FoodOrder {
   orderType: OrderType;
   specialNotes?: string;
   createdAt: string;
+  headerConfig?: HeaderConfig
 }
 
 export type PrintStatus = 'pending' | 'printing' | 'printed' | 'failed';

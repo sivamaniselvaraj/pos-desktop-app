@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config, isConfigured } from './config';
-import type { FoodOrder, OrderItem, OrderType, OutletInfo } from '../shared/types';
+import type { FoodOrder, HeaderConfig, OrderItem, OrderType, OutletInfo } from '../shared/types';
 
 let client: SupabaseClient | null = null;
 
@@ -23,11 +23,20 @@ function mapOutlet(row: Record<string, unknown>): OutletInfo {
   };
 }
 
+function mapHeaderConfig(row: Record<string, unknown>): HeaderConfig {
+  return {
+    restaurantName: row.restaurantName ? String(row.restaurantName ?? ''): undefined,
+    headerText: row.headerText ? String(row.headerText ?? 'Restaurant'): undefined,
+    footerText: row.footerText ? String(row.footerText) : undefined,
+    containerChargePercent: row.containerChargePercent ? String(row.containerChargePercent) : undefined,
+  };
+}
 
 // Maps a raw DB row (snake_case) into our camelCase FoodOrder.
 function mapRow(row: Record<string, unknown>): FoodOrder {
   const items = (row.items as OrderItem[]) ?? [];
   const outletRaw = row.outlet ? (row.outlet as Record<string, unknown>) : null;
+  const headerConfigRaw = row.headerConfig ? (row.headerConfig as Record<string, unknown>) : null;
   return {
     id: String(row.id ?? ''),
     orderId: String(row.id ?? ''),
@@ -46,6 +55,7 @@ function mapRow(row: Record<string, unknown>): FoodOrder {
     orderType: (row.order_type as OrderType) ?? 'pickup',
     specialNotes: row.special_notes ? String(row.special_notes) : undefined,
     createdAt: String(row.created_at ?? new Date().toISOString()),
+    headerConfig: headerConfigRaw ? mapHeaderConfig(headerConfigRaw) : undefined,
   };
 }
 

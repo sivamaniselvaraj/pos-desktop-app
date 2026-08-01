@@ -5,7 +5,7 @@ import { join } from 'path';
 import { promisify } from 'util';
 import { randomUUID } from 'crypto';
 import { config } from './config';
-import type { FoodOrder, PrinterInfo } from '../shared/types';
+import type { FoodOrder, HeaderConfig, PrinterInfo } from '../shared/types';
 import { CharacterSet, PrinterTypes, ThermalPrinter, printer } from 'node-thermal-printer';
 
 const electron = typeof process !== 'undefined' && process.versions && !!process.versions.electron;
@@ -246,6 +246,46 @@ function line(printer: RawPrinter & { newLine(): void }, text: string): void {
   printer.newLine();
 }
 
+// ---- Header / footer config -----------------------------------------------
+ 
+/**
+ * Parse the header config, which may arrive as a JSON string or an already
+ * parsed object. Returns null if it can't be parsed.
+ */
+export function parseHeaderConfig(input: unknown): HeaderConfig | null {
+  if (!input) return null;
+  let obj: unknown = input;
+  if (typeof input === 'string') {
+    try {
+      obj = JSON.parse(input);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof obj !== 'object' || obj === null) return null;
+  const o = obj as Record<string, unknown>;
+  const str = (v: unknown): string | undefined =>
+    typeof v === 'string' ? v : v == null ? undefined : String(v);
+  return {
+    restaurantName: str(o.restaurantName),
+    headerText: str(o.headerText),
+    footerText: str(o.footerText),
+    containerChargePercent: str(o.containerChargePercent),
+  };
+}
+ 
+/**
+ * Split a text value on `<br>` (any case, any surrounding whitespace) into
+ * individual lines, trimmed, with empty lines dropped. Each returned line is
+ * meant to be printed as its own println.
+ */
+export function splitBrLines(text?: string): string[] {
+  if (!text) return [];
+  return text
+    .split(/\s*<br\s*\/?>\s*/i)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
 
 
 // ---- Receipt layout --------------------------------------------------------
@@ -466,26 +506,28 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
         `Printer "${printerName}" was not found or is unavailable. Check it is installed in the OS (Get-Printer / lpstat -p) and the name matches exactly.`,
       );
     }
-     // Build receipt
+    
+    // Build receipt header. Prefer the JSON headerConfig (restaurantName +
+    // headerText with <br> line breaks); fall back to outlet fields.
+    const header = parseHeaderConfig(order.headerConfig);
+ 
     printer.alignCenter();
     printer.setTextSize(1, 1);
     printer.bold(true);
-    printer.println(order.outlet?.name ?? 'FOOD ORDER PRINTER');
+    printer.println(header?.restaurantName?.trim() || order.outlet?.name || 'FOOD ORDER PRINTER');
     printer.bold(false);
-
-    if (order.outlet?.address) {
-      printer.setTextSize(0, 0);
-      printer.println(order.outlet.address);
-    }
-
-    if (order.outlet?.city || order.outlet?.phone || order.outlet?.gstNumber) {
-      const headerLine = [order.outlet?.city, order.outlet?.phone, order.outlet?.gstNumber]
+    printer.setTextSize(0, 0);
+ 
+    const headerLines = splitBrLines(header?.headerText);
+    if (headerLines.length > 0) {
+      for (const hl of headerLines) printer.println(hl);
+    } else {
+      // Fall back to the outlet fields when no headerText is configured.
+      if (order.outlet?.address) printer.println(order.outlet.address);
+      const metaLine = [order.outlet?.city, order.outlet?.phone, order.outlet?.gstNumber]
         .filter(Boolean)
         .join(' | ');
-      if (headerLine) {
-        printer.setTextSize(0, 0);
-        printer.println(headerLine);
-      }
+      if (metaLine) printer.println(metaLine);
     }
 
     printer.setTextSize(0, 0);
@@ -508,55 +550,20 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
 
     solidLine(printer);
 
-    printer.bold(true);
-    printer.println(
-      padRight('Item', ITEM_COL) +
-        rightAlign('Qty', QTY_COL) +
-        rightAlign('Price', PRICE_COL) +
-        rightAlign('Amount', AMT_COL),
-    );
-    printer.bold(false);
-    solidLine(printer);
-
     let totalQty = 0;
-    for (const item of order.items) {
-      totalQty += item.quantity;
-      const qtyStr = String(item.quantity);
-      const priceStr = formatCurrency(item.unit_price);
-      const amountStr = formatCurrency(item.unit_price * item.quantity);
-
-      // First line carries the numeric columns; remaining name lines are
-      // indented continuations.
-      const nameLines = wrapText(item.name, ITEM_COL);
-      line(
-        printer,
-        padRight(nameLines[0], ITEM_COL) +
-          rightAlign(qtyStr, QTY_COL) +
-          rightAlign(priceStr, PRICE_COL) +
-          rightAlign(amountStr, AMT_COL),
-      );
-      for (const cont of nameLines.slice(1)) {
-        printer.println('  ' + cont);
-      }
-
-      if (item.specialInstructions) {
-        printer.println('  * ' + item.specialInstructions);
-      }
-    }
-
-    solidLine(printer);
-
-
+   
     printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
       { text:"Item", align:"LEFT", cols:ITEM_COL, bold:true },
       { text:"Qty", align:"CENTER", cols:QTY_COL, bold:true },
-      { text:"Price", align:"RIGHT", cols:PRICE_COL , bold:true},
-      { text:"Amount", align:"RIGHT", cols:AMT_COL , bold:true}
+      { text:"Price", align:"LEFT", cols:PRICE_COL , bold:true},
+      { text:"Amount", align:"LEFT", cols:AMT_COL , bold:true}
     ]);
+    solidLine(printer);
     for (const item of order.items) {
+      totalQty += item.quantity;
       const qtyStr = String(item.quantity);
-      const priceStr = formatCurrency(item.unit_price);
-      const amountStr = formatCurrency(item.unit_price * item.quantity);
+      const priceStr = String(item.unit_price);
+      const amountStr = String(item.unit_price * item.quantity);
 
       // First line carries the numeric columns; remaining name lines are
       // indented continuations.
@@ -568,18 +575,27 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
       { text:amountStr, align:"RIGHT", cols:AMT_COL , bold:false}
     ]);
     }
+    solidLine(printer);
 
     printer.alignRight();
     printer.println(formatKeyValue('Total Qty', String(totalQty)));
     line(printer, formatKeyValue('Subtotal', formatCurrency(order.subtotal)));
     printer.println('');
-    line(printer, formatKeyValue('Tax (GST)', formatCurrency(order.tax)));
+    line(printer, formatKeyValue('CGST 2.5%', formatCurrency(order.tax / 2)));
+    line(printer, formatKeyValue('SGST 2.5%', formatCurrency(order.tax / 2)));
+    //line(printer, formatKeyValue('Tax (GST)', formatCurrency(order.tax)));
 
     if (order.discount && order.discount > 0) {
       line(printer, formatKeyValue('Discount', '-' + formatCurrency(order.discount)));
     }
 
     solidLineThick(printer);
+
+  let grandTotal = Number.parseInt(order?.total.toString());
+  let roundOff = (grandTotal - order.total).toFixed(2);
+
+    printer.alignRight();
+    printer.println(`Round off: ${roundOff}`);
 
     printer.bold(true);
     printer.setTextSize(1, 1);
