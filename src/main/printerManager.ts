@@ -354,7 +354,7 @@ function rightAlign(text: string, width: number): string {
 }
 
 function formatCurrency(amount: number): string {
-  return `₹ ${amount.toFixed(2)}`;
+  return `${Math.floor(amount).toFixed(2)}`;
 }
 
 export function formatReceipt(order: FoodOrder): string {
@@ -539,11 +539,24 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
     solidLine(printer);
     //printer.println('');
 
-    const dateTime = new Date(order.createdAt).toLocaleString('en-IN');
+    const dateTime = new Date(order.createdAt).toLocaleString('en-IN', {day:'2-digit', month: '2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false});
     printer.println(formatKeyValue('Date', dateTime));
     printer.println(formatKeyValue('Bill No.', String(order.orderNumber)));
     printer.println(formatKeyValue('Type', order.orderType.toUpperCase()));
     printer.println(formatKeyValue('Token No.', String(order.tokenNumber)));
+
+    printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
+      { text:formatKeyValue('Date', dateTime), align:"LEFT"},
+      { text:order.orderType.toUpperCase(), align:"LEFT", bold:true},
+    ]);
+    printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
+      { text:"", align:"LEFT"},
+      { text:formatKeyValue('Bill No.', String(order.orderNumber)), align:"LEFT", bold:true},
+    ]);
+    printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
+      { text:formatKeyValue('Token No.', String(order.tokenNumber)), align:"LEFT", bold:true},
+      { text:"", align:"LEFT"},
+    ]);
 
     if (order.customerPhone) printer.println(formatKeyValue('Phone', order.customerPhone));
     if (order.deliveryAddress) printer.println(formatKeyValue('Address', order.deliveryAddress));
@@ -562,8 +575,8 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
     for (const item of order.items) {
       totalQty += item.quantity;
       const qtyStr = String(item.quantity);
-      const priceStr = String(item.unit_price);
-      const amountStr = String(item.unit_price * item.quantity);
+      const priceStr = formatCurrency(item.unit_price);
+      const amountStr = formatCurrency(item.unit_price * item.quantity);
 
       // First line carries the numeric columns; remaining name lines are
       // indented continuations.
@@ -600,7 +613,7 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
     printer.bold(true);
     printer.setTextSize(1, 1);
     printer.alignRight();
-    line(printer, 'Grand Total ' + formatCurrency(order.total));
+    line(printer, 'Grand Total ₹' + formatCurrency(grandTotal));
     printer.bold(false);
     printer.setTextSize(0, 0);
     solidLineThick(printer);
