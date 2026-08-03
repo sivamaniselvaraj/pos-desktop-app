@@ -519,6 +519,8 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
     printer.setTextSize(0, 0);
  
     const headerLines = splitBrLines(header?.headerText);
+    const footerLines = splitBrLines(header?.footerText);
+
     if (headerLines.length > 0) {
       for (const hl of headerLines) printer.println(hl);
     } else {
@@ -630,7 +632,11 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
 
     printer.alignCenter();
     printer.bold(true);
-    printer.println('Thank you! Please visit again.');
+    if (footerLines.length > 0) {
+      for (const fl of footerLines) printer.println(fl);
+    }else{
+      printer.println('Thank you! Please visit again.');
+    } 
     printer.bold(false);
     //printer.setTextSize(0, 0);
     //solidLine(printer);
