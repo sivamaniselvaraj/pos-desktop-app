@@ -533,7 +533,7 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
     }
 
     printer.setTextSize(0, 0);
-    solidLine(printer);
+    solidLineThick(printer);
 
     printer.alignLeft();
     printer.println(`Name: ${order.customerName}`);
@@ -569,8 +569,8 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
     printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
       { text:"Item", align:"LEFT", cols:ITEM_COL, bold:true },
       { text:"Qty", align:"CENTER", cols:QTY_COL, bold:true },
-      { text:"Price", align:"LEFT", cols:PRICE_COL , bold:true},
-      { text:"Amount", align:"LEFT", cols:AMT_COL , bold:true}
+      { text:"Price", align:"RIGHT", cols:PRICE_COL , bold:true},
+      { text:"Amount", align:"RIGHT", cols:AMT_COL , bold:true}
     ]);
     solidLine(printer);
     for (const item of order.items) {
