@@ -534,7 +534,6 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
 
     printer.setTextSize(0, 0);
     solidLine(printer);
-    printer.drawLine(); 
 
     printer.alignLeft();
     printer.println(`Name: ${order.customerName}`);
