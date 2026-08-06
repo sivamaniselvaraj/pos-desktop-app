@@ -10,7 +10,7 @@ export interface OrderItem {
   specialInstructions?: string;
 }
 
-export type OrderType = 'delivery' | 'pickup' | 'dine-in';
+export type OrderType = 'delivery' | 'pickup' | 'dine-in' | 'takeaway';
 
 export interface OutletInfo {
   id: string;

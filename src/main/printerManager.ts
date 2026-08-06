@@ -354,7 +354,7 @@ function rightAlign(text: string, width: number): string {
 }
 
 function formatCurrency(amount: number): string {
-  return `${Math.floor(amount).toFixed(2)}`;
+  return `${amount.toFixed(2)}`;
 }
 
 export function formatReceipt(order: FoodOrder): string {
@@ -537,27 +537,31 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
 
     printer.alignLeft();
     printer.println(`Name: ${order.customerName}`);
-    solidLine(printer);
+    solidLineThick(printer);
     //printer.println('');
 
     const dateTime = new Date(order.createdAt).toLocaleString('en-IN', {day:'2-digit', month: '2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false});
-    printer.println(formatKeyValue('Date', dateTime));
-    printer.println(formatKeyValue('Bill No.', String(order.orderNumber)));
-    printer.println(formatKeyValue('Type', order.orderType.toUpperCase()));
-    printer.println(formatKeyValue('Token No.', String(order.tokenNumber)));
+    // printer.println(formatKeyValue('Date', dateTime));
+    // printer.println(formatKeyValue('Bill No.', String(order.orderNumber)));
+    // printer.println(formatKeyValue('Type', order.orderType.toUpperCase()));
+    // printer.println(formatKeyValue('Token No.', String(order.tokenNumber)));
+
+    const orderType = order.orderType === "pickup" || order.orderType === "takeaway" ? "Pick Up" : "Dine In";
 
     printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
       { text:formatKeyValue('Date', dateTime), align:"LEFT"},
-      { text:order.orderType.toUpperCase(), align:"LEFT", bold:true},
+      { text:orderType.toUpperCase(), align:"LEFT", bold:true},
     ]);
     printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
       { text:"", align:"LEFT"},
       { text:formatKeyValue('Bill No.', String(order.orderNumber)), align:"LEFT", bold:true},
     ]);
-    printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
-      { text:formatKeyValue('Token No.', String(order.tokenNumber)), align:"LEFT", bold:true},
-      { text:"", align:"LEFT"},
-    ]);
+    if(orderType === "Pick Up"){
+      printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
+        { text:formatKeyValue('Token No.', String(order.tokenNumber)), align:"LEFT", bold:true},
+        { text:"", align:"LEFT"},
+      ]);
+    }
 
     if (order.customerPhone) printer.println(formatKeyValue('Phone', order.customerPhone));
     if (order.deliveryAddress) printer.println(formatKeyValue('Address', order.deliveryAddress));
@@ -582,7 +586,7 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
       // First line carries the numeric columns; remaining name lines are
       // indented continuations.
     const nameLines = wrapText(item.name, ITEM_COL);
-     printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
+    printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
       { text:nameLines[0], align:"LEFT", cols:ITEM_COL, bold:false },
       { text:qtyStr, align:"CENTER", cols:QTY_COL, bold:false },
       { text:priceStr, align:"RIGHT", cols:PRICE_COL , bold:false},
@@ -599,14 +603,44 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
     line(printer, formatKeyValue('SGST 2.5%', formatCurrency(order.tax / 2)));
     //line(printer, formatKeyValue('Tax (GST)', formatCurrency(order.tax)));
 
+    printer.tableCustom([                                       
+      { text: "Total Qty", align:"RIGHT", cols:ITEM_COL, bold:false },
+      { text: String(totalQty), align:"RIGHT", cols:QTY_COL, bold:false },
+    ]);
+    printer.tableCustom([                                       
+      { text: "Sub Total", align:"RIGHT", cols:QTY_COL, bold:true },
+      { text: formatCurrency(order.subtotal), align:"RIGHT", cols:ITEM_COL, bold:true },
+    ]);
+    printer.tableCustom([                                      
+      { text: "CGST 2.5%", align:"RIGHT", cols:QTY_COL, bold:true },
+      { text: formatCurrency(order.tax / 2), align:"RIGHT", cols:ITEM_COL, bold:true },
+    ]);
+    printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
+      { text: "SGST 2.5%", align:"RIGHT", cols:QTY_COL, bold:true },
+      { text: formatCurrency(order.tax / 2), align:"RIGHT", cols:ITEM_COL, bold:true },
+    ]);
+
     if (order.discount && order.discount > 0) {
-      line(printer, formatKeyValue('Discount', '-' + formatCurrency(order.discount)));
+       printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
+        { text: "Discount", align:"RIGHT", cols:QTY_COL, bold:true },
+        { text: formatCurrency(order.discount), align:"RIGHT", cols:ITEM_COL, bold:true },
+      ]);
+      //line(printer, formatKeyValue('Discount', '-' + formatCurrency(order.discount)));
     }
 
     solidLineThick(printer);
 
   let grandTotal = Number.parseInt(order?.total.toString());
   let roundOff = (grandTotal - order.total).toFixed(2);
+
+    printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
+      { text: "Round off", align:"RIGHT", cols:ITEM_COL, bold:false },
+      { text: roundOff, align:"RIGHT", cols:QTY_COL, bold:false },
+    ]);
+    printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
+      { text: "Grand Total", align:"RIGHT", cols:QTY_COL, bold:true },
+      { text: formatCurrency(grandTotal), align:"RIGHT", cols:ITEM_COL, bold:true },
+    ]);
 
     printer.alignRight();
     printer.println(`Round off: ${roundOff}`);
@@ -701,9 +735,10 @@ export function solidBar(printer: RuleCapablePrinter, width = RECEIPT_WIDTH): vo
 }
 
 
-function formatKeyValue(key: string, value: string): string {
+function formatKeyValue(key: string, value: string, padded:boolean = false): string {
   const maxKeyWidth = 15;
-  const padding = Math.max(0, maxKeyWidth - key.length);
+  const maxKeyValue = !padded ? 1 : maxKeyWidth - key.length;
+  const padding = Math.max(0, maxKeyValue);
   return key + ' '.repeat(padding) + ': ' + value;
 }
  
