@@ -4,9 +4,6 @@ import type { FoodOrder, HeaderConfig, OrderItem, OrderType, OutletInfo } from '
 
 let client: SupabaseClient | null = null;
 
-const ITEMS_TABLE = 'order_items';
-const ORDER_RPC = 'get_order_with_items';
-
 function getClient(): SupabaseClient | null {
   if (!isConfigured()) return null;
   if (!client) {
@@ -191,11 +188,7 @@ export async function fetchUnprintedItems(orderId: string): Promise<OrderItem[]>
   const id = await resolveOrderId(orderId);
   if (!id) return [];
 
-  const { data, error } = await supabase
-    .from(ITEMS_TABLE_NAME)
-    .select('*')
-    .eq('order_id', id)
-    .eq('kot_printed', false);
+  const { data, error } = await supabase.rpc('get_pending_kot_items', {p_order_id: orderId})
   if (error) throw new Error(error.message);
   return (data as Record<string, unknown>[] | null)?.map(mapItem) ?? [];
 }

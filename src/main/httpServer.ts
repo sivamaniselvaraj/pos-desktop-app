@@ -52,6 +52,8 @@ const machineLimiter = rateLimit({
       });
     }
     const type = body.type ?? 'bill';
+
+     console.log("printing for the order " , body.orderId, "TYPE - ", type);
     if (type !== 'bill' && type !== 'kot' && type !== 'settle') {
       return res.status(400).json({
         success: false,

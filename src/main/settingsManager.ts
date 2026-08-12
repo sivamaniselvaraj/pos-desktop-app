@@ -37,6 +37,7 @@ export async function loadSettings(): Promise<PrinterConfig> {
   // Start with environment/local config
   cachedSettings = {
     printer_kitchen: config.kitchenPrinter,
+    printer_waiter: config.waiterPrinter,
   };
 
   // Try to fetch from Supabase if configured
@@ -81,6 +82,7 @@ export function getAllPrinters(): PrinterConfig {
 export function getPrinterFor(role: string): string | undefined {
   const key = role.startsWith('printer_') ? role : normalizePrinterType(role);
   const value = cachedSettings[key];
+  console.log(role , "printer--- key ", key, "value ", value)
   return value && value.trim() ? value.trim() : undefined;
 }
 

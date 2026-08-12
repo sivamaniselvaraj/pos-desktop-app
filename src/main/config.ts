@@ -9,12 +9,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 
 interface PersistedConfig {
   kitchenPrinter: string;
+  waiterPrinter: string;
   autoRetry: boolean;
   retryCount: number;
 }
 
 const defaults: PersistedConfig = {
   kitchenPrinter: process.env.KITCHEN_PRINTER ?? '',
+  waiterPrinter: process.env.WAITER_PRINTER ?? '',
   autoRetry: true,
   retryCount: 3,
 };
@@ -66,6 +68,13 @@ export const config = {
   },
   set kitchenPrinter(value: string) {
     load().kitchenPrinter = 'HP_Smart_Tank_580_590_series__8E5406_';
+    persist();
+  },
+  get waiterPrinter(): string {
+    return load().waiterPrinter;
+  },
+  set waiterPrinter(value: string) {
+    load().waiterPrinter = 'RP3160 GOLD(U) 1';
     persist();
   },
   get autoRetry(): boolean {

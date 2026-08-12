@@ -296,6 +296,7 @@ const ITEM_COL = 20; // left
 const QTY_COL = 4; // right
 const PRICE_COL = 12; // right
 const AMT_COL = 12; // right
+const INFO_COL =  RECEIPT_WIDTH - AMT_COL;
 // 22 + 4 + 12 + 12 = 48
 
 /**
@@ -475,8 +476,7 @@ export function formatReceipt(order: FoodOrder): string {
  * Requires a connected USB or network thermal printer.
  */
 export async function printOrderEscpos(order: FoodOrder, printerName:string): Promise<void> {
-  console.log("printing for the order" , order.id)
-
+ 
   // Validate printer is configured
   if (!printerName || printerName.trim() === '') {
     throw new Error('No printer configured. Set KITCHEN_PRINTER in .env.local');
@@ -604,26 +604,26 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
     //line(printer, formatKeyValue('Tax (GST)', formatCurrency(order.tax)));
 
     printer.tableCustom([                                       
-      { text: "Total Qty", align:"RIGHT", cols:ITEM_COL, bold:false },
-      { text: String(totalQty), align:"RIGHT", cols:QTY_COL, bold:false },
+      { text: "Total Qty", align:"RIGHT", cols:INFO_COL, bold:false },
+      { text: String(totalQty), align:"RIGHT", cols:AMT_COL, bold:false },
     ]);
     printer.tableCustom([                                       
-      { text: "Sub Total", align:"RIGHT", cols:QTY_COL, bold:true },
-      { text: formatCurrency(order.subtotal), align:"RIGHT", cols:ITEM_COL, bold:true },
+      { text: "Sub Total", align:"RIGHT",  cols:INFO_COL, bold:true },
+      { text: formatCurrency(order.subtotal), align:"RIGHT", cols:AMT_COL, bold:true },
     ]);
     printer.tableCustom([                                      
-      { text: "CGST 2.5%", align:"RIGHT", cols:QTY_COL, bold:true },
-      { text: formatCurrency(order.tax / 2), align:"RIGHT", cols:ITEM_COL, bold:true },
+      { text: "CGST 2.5%", align:"RIGHT", cols:INFO_COL, bold:true },
+      { text: formatCurrency(order.tax / 2), align:"RIGHT", cols:AMT_COL, bold:true },
     ]);
     printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
-      { text: "SGST 2.5%", align:"RIGHT", cols:QTY_COL, bold:true },
-      { text: formatCurrency(order.tax / 2), align:"RIGHT", cols:ITEM_COL, bold:true },
+      { text: "SGST 2.5%", align:"RIGHT", cols:INFO_COL, bold:true },
+      { text: formatCurrency(order.tax / 2), align:"RIGHT", cols:AMT_COL, bold:true },
     ]);
 
     if (order.discount && order.discount > 0) {
        printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
-        { text: "Discount", align:"RIGHT", cols:QTY_COL, bold:true },
-        { text: formatCurrency(order.discount), align:"RIGHT", cols:ITEM_COL, bold:true },
+        { text: "Discount", align:"RIGHT", cols:INFO_COL, bold:true },
+        { text: formatCurrency(order.discount), align:"RIGHT", cols:AMT_COL, bold:true },
       ]);
       //line(printer, formatKeyValue('Discount', '-' + formatCurrency(order.discount)));
     }
@@ -634,12 +634,12 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
   let roundOff = (grandTotal - order.total).toFixed(2);
 
     printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
-      { text: "Round off", align:"RIGHT", cols:ITEM_COL, bold:false },
-      { text: roundOff, align:"RIGHT", cols:QTY_COL, bold:false },
+      { text: "Round off", align:"RIGHT", cols:INFO_COL, bold:false },
+      { text: roundOff, align:"RIGHT", cols:AMT_COL, bold:false },
     ]);
     printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
-      { text: "Grand Total", align:"RIGHT", cols:QTY_COL, bold:true },
-      { text: formatCurrency(grandTotal), align:"RIGHT", cols:ITEM_COL, bold:true },
+      { text: "Grand Total", align:"RIGHT", cols:INFO_COL, bold:true },
+      { text: formatCurrency(grandTotal), align:"RIGHT", cols:AMT_COL, bold:true },
     ]);
 
     printer.alignRight();
@@ -739,8 +739,8 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
     printer.setTextSize(0, 0);
     printer.bold(false);
 
-    printer.println(`Order #: ${order.orderNumber}`);
-    printer.println(`Type   : ${order.orderType.toUpperCase()}`);
+   // printer.println(`Order #: ${order.orderNumber}`);
+   // printer.println(`Type   : ${order.orderType.toUpperCase()}`);
     printer.println(`Time   : ${new Date(order.createdAt).toLocaleString('en-IN')}`);
     solidLine(printer);
 

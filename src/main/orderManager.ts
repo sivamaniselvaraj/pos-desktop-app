@@ -79,7 +79,7 @@ class OrderManager extends EventEmitter {
         return { success: false, orderId, message: 'Order not in queue', printStatus: 'failed', error: 'NOT_FOUND' };
       }
   
-      const waiterPrinter = getPrinterFor('waiter');
+      const waiterPrinter = 'RP3160 GOLD(U) 1';// getPrinterFor('waiter');
       if (!waiterPrinter) {
         const msg = 'No waiter printer configured. Add a "Waiter" printer in Settings to print KOTs.';
         this.setStatus(orderId, 'failed', msg);
