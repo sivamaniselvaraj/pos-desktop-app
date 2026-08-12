@@ -594,15 +594,6 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
     ]);
     }
     solidLine(printer);
-
-    printer.alignRight();
-    printer.println(formatKeyValue('Total Qty', String(totalQty)));
-    line(printer, formatKeyValue('Subtotal', formatCurrency(order.subtotal)));
-    printer.println('');
-    line(printer, formatKeyValue('CGST 2.5%', formatCurrency(order.tax / 2)));
-    line(printer, formatKeyValue('SGST 2.5%', formatCurrency(order.tax / 2)));
-    //line(printer, formatKeyValue('Tax (GST)', formatCurrency(order.tax)));
-
     printer.tableCustom([                                       
       { text: "Total Qty", align:"RIGHT", cols:INFO_COL, bold:false },
       { text: String(totalQty), align:"RIGHT", cols:AMT_COL, bold:false },
@@ -642,15 +633,6 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
       { text: formatCurrency(grandTotal), align:"RIGHT", cols:AMT_COL, bold:true },
     ]);
 
-    printer.alignRight();
-    printer.println(`Round off: ${roundOff}`);
-
-    printer.bold(true);
-    printer.setTextSize(1, 1);
-    printer.alignRight();
-    line(printer, 'Grand Total ₹' + formatCurrency(grandTotal));
-    printer.bold(false);
-    printer.setTextSize(0, 0);
     solidLineThick(printer);
 
     if (order.specialNotes) {
