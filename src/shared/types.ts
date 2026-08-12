@@ -2,12 +2,15 @@
 
 export interface OrderItem {
   id: string;
+  menuItemId?: string;
   name: string;
   quantity: number;
   unit_price: number;
   total_price: number
-  status: string
+  //status: string;
   specialInstructions?: string;
+  kotPrinted?: boolean;
+  kotPrintedAt?: string;
 }
 
 export type OrderType = 'delivery' | 'pickup' | 'dine-in' | 'takeaway';
@@ -63,8 +66,12 @@ export interface OrderWithStatus extends FoodOrder {
 }
 
 // ---- HTTP contract (Android app -> local server) ----
+export type PrintType = 'bill' | 'kot' | 'settle';
+
+// ---- HTTP contract (Android app -> local server) ----
 export interface PrintOrderRequest {
   orderId: string;
+  type?: PrintType;
 }
 
 export interface PrintOrderResponse {

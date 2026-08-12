@@ -682,6 +682,125 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
     throw new Error(message);
   }
 }
+
+/**
+ * Print a KOT (Kitchen Order Ticket) to a specific printer.
+ *
+ * A KOT is intentionally minimal — no prices, no branding — just what the
+ * kitchen/waiter needs to prepare and route the order: table number, items
+ * with quantities, and the total quantity. `printerName` is the resolved
+ * device (typically the waiter printer).
+ */
+export async function printKot(order: FoodOrder, printerName: string): Promise<void> {
+  const name = (printerName ?? '').trim();
+  if (!name) {
+    throw new Error(
+      'No waiter printer configured. Add a "Waiter" printer in Settings to print KOTs.',
+    );
+  }
+
+  try {
+    const driver = loadSpoolerDriver();
+
+    const printer = new ThermalPrinter({
+      type: PrinterTypes.CUSTOM,
+      interface: 'printer:' + printerName,
+      driver: require(electron ? '@grandchef/node-printer' : 'printer') as object,
+      characterSet: CharacterSet.WPC1252,
+      lineCharacter: '-',
+      width: RECEIPT_WIDTH,
+    });
+
+    const connected = await printer.isPrinterConnected();
+    if (!connected) {
+      throw new Error(
+        `Printer "${name}" was not found or is unavailable. Check it is installed in the OS and the name matches exactly.`,
+      );
+    }
+
+    // Title
+    printer.alignCenter();
+    printer.bold(true);
+    printer.setTextSize(1, 1);
+    printer.println('KOT');
+    printer.setTextSize(0, 0);
+    printer.bold(false);
+    solidLine(printer);
+
+    // Order meta: table number (prominent), order number, time, type
+    printer.alignLeft();
+    printer.bold(true);
+    printer.setTextSize(1, 1);
+    const tableLabel =
+      order.tableNumber != null && String(order.tableNumber).trim() !== ''
+        ? String(order.tableNumber)
+        : '-';
+    printer.println(`Table: ${tableLabel}`);
+    printer.setTextSize(0, 0);
+    printer.bold(false);
+
+    printer.println(`Order #: ${order.orderNumber}`);
+    printer.println(`Type   : ${order.orderType.toUpperCase()}`);
+    printer.println(`Time   : ${new Date(order.createdAt).toLocaleString('en-IN')}`);
+    solidLine(printer);
+
+    // Column header: Qty | Item
+    printer.bold(true);
+    printer.println(padRight('Qty', 5) + 'Item');
+    printer.bold(false);
+    solidLine(printer);
+
+    // Items — quantity emphasised, no prices on a KOT.
+    let totalQty = 0;
+    for (const item of order.items) {
+      totalQty += item.quantity;
+      const qtyStr = padRight(String(item.quantity), 5);
+      const nameLines = wrapText(item.name, RECEIPT_WIDTH - 5);
+      printer.println(qtyStr + nameLines[0]);
+      for (const cont of nameLines.slice(1)) {
+        printer.println(' '.repeat(5) + cont);
+      }
+      if (item.specialInstructions) {
+        printer.println('     * ' + item.specialInstructions);
+      }
+    }
+
+    solidLine(printer);
+
+    // Total quantity
+    printer.bold(true);
+    printer.setTextSize(1, 1);
+    printer.println(`Total Qty: ${totalQty}`);
+    printer.setTextSize(0, 0);
+    printer.bold(false);
+
+    if (order.specialNotes) {
+      solidLine(printer);
+      printer.bold(true);
+      printer.println('Notes:');
+      printer.bold(false);
+      printer.println(order.specialNotes);
+    }
+
+    solidLine(printer);
+    printer.println('');
+    printer.println('');
+    printer.cut();
+
+    await printer.execute();
+  } catch (err) {
+    let message = 'Failed to print KOT';
+    if (err instanceof Error) {
+      message = err.message;
+      if (message.includes('No driver set')) {
+        message = `Print driver not initialized for "${name}". The @grandchef/node-printer module is missing or not rebuilt for Electron.`;
+      } else if (/not found|unavailable|NOT-AVAILABLE/i.test(message)) {
+        message = `Printer "${name}" not found in the OS spooler. Verify the name matches Get-Printer / lpstat -p exactly and the printer is online.`;
+      }
+    }
+    throw new Error(message);
+  }
+}
  
 // Helper functions
 

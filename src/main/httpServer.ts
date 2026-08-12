@@ -51,8 +51,18 @@ const machineLimiter = rateLimit({
         error: 'BAD_REQUEST',
       });
     }
+    const type = body.type ?? 'bill';
+    if (type !== 'bill' && type !== 'kot' && type !== 'settle') {
+      return res.status(400).json({
+        success: false,
+        orderId: body.orderId,
+        message: `Invalid type "${type}". Expected "bill", "kot", or "settle".`,
+        printStatus: 'failed',
+        error: 'BAD_REQUEST',
+      });
+    }
     try {
-      const result = await orderManager.handleIncoming(body.orderId);
+      const result = await orderManager.handleIncoming(body.orderId, type);
       res.status(result.success ? 200 : 502).json(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';

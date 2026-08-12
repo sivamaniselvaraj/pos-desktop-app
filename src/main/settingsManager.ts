@@ -73,6 +73,18 @@ export function getAllPrinters(): PrinterConfig {
 }
 
 /**
+ * Resolve the device name configured for a printer role, e.g.
+ * getPrinterFor('waiter') -> cachedSettings['printer_waiter'].
+ * Accepts a plain role ('waiter') or a full key ('printer_waiter').
+ * Returns undefined if that role has no printer configured.
+ */
+export function getPrinterFor(role: string): string | undefined {
+  const key = role.startsWith('printer_') ? role : normalizePrinterType(role);
+  const value = cachedSettings[key];
+  return value && value.trim() ? value.trim() : undefined;
+}
+
+/**
  * Add or update a printer configuration
  */
 export async function updatePrinter(
