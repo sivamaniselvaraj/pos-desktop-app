@@ -197,15 +197,12 @@ export async function fetchUnprintedItems(orderId: string): Promise<OrderItem[]>
  * KOT write: stamp exactly the given item rows as sent to the kitchen.
  * Called AFTER a successful KOT print so a failed print doesn't lose the delta.
  */
-export async function markItemsKotPrinted(itemIds: string[]): Promise<void> {
-  if (itemIds.length === 0) return;
+export async function markItemsKotPrinted(orderId: string): Promise<void> {
+  if (orderId.length === 0) return;
   const supabase = getClient();
   if (!supabase) throw new Error('Supabase is not configured.');
 
-  const { error } = await supabase
-    .from(ITEMS_TABLE_NAME)
-    .update({ kot_printed: true, kot_printed_at: new Date().toISOString() })
-    .in('id', itemIds);
+  const { error } = await supabase.rpc('mark_order_kot_printed', {p_order_id: orderId})
   if (error) throw new Error(error.message);
 }
 

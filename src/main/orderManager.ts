@@ -109,7 +109,7 @@ class OrderManager extends EventEmitter {
       }
   
       // Stamp only after a successful print.
-      await markItemsKotPrinted(deltaItems.map((i) => i.id));
+      await markItemsKotPrinted(orderId);
       this.setStatus(orderId, 'printed');
       return {
         success: true,
