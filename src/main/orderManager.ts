@@ -59,25 +59,11 @@ class OrderManager extends EventEmitter {
     if (type === 'settle') return this.handleSettle(orderId, order);
 
     return {
-        success: false,
-        orderId,
-        message: `Billing Type not found`,
-        printStatus: 'failed',
-        error: 'NOT_FOUND',
-      };
-  }
-
-  /** Plain bill print (no KOT delta / settle semantics). */
-  private async handleBill(orderId: string, order: FoodOrder): Promise<PrintOrderResponse> {
-    const working: OrderWithStatus = { ...order, printStatus: 'pending', retryCount: 0 };
-    const ok = await this.attemptPrint(working);
-    this.cacheForDisplay(working);
-    return {
-      success: ok,
+      success: false,
       orderId,
-      message: ok ? 'Order printed' : 'Print failed',
-      printStatus: working.printStatus,
-      error: ok ? undefined : working.errorMessage,
+      message: `Billing Type not found`,
+      printStatus: 'failed',
+      error: 'NOT_FOUND',
     };
   }
 
@@ -147,10 +133,10 @@ class OrderManager extends EventEmitter {
    * order and free the table.
    */
   private async handleSettle(orderId: string, order: FoodOrder): Promise<PrintOrderResponse> {
-
     const cashierPrinter = 'RP3160 GOLD(U) 1'; // getPrinterFor('waiter');
     if (!cashierPrinter) {
-      const msg = 'No cashier printer configured. Add a "Cashier" printer in Settings to print Bill.';
+      const msg =
+        'No cashier printer configured. Add a "Cashier" printer in Settings to print Bill.';
       this.cacheForDisplay({ ...order, printStatus: 'failed', errorMessage: msg, retryCount: 0 });
       return { success: false, orderId, message: msg, printStatus: 'failed', error: 'NO_PRINTER' };
     }
