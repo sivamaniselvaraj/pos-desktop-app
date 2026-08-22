@@ -4,6 +4,7 @@ import { Header } from './components/Header';
 import { Dashboard } from './pages/Dashboard';
 import { Settings } from './pages/Settings';
 import { History } from './pages/History';
+import { SalesReport } from './pages/SalesReport';
 import { About } from './pages/About';
 import { Login } from './pages/Login';
 import { useStatus } from './hooks/useStatus';
@@ -38,6 +39,7 @@ export default function App() {
           {page === 'dashboard' && <Dashboard />}
           {page === 'settings' && <Settings />}
           {page === 'history' && <History />}
+          {page === 'sales-report' && <SalesReport />}
           {page === 'about' && <About />}
         </div>
       </main>

@@ -7,6 +7,8 @@ import type {
   OrderWithStatus,
   PrinterInfo,
   PrintOrderResponse,
+  SalesReportRow,
+  TopItemRow,
   ServerStatus,
 } from './shared/types';
 
@@ -28,6 +30,10 @@ const api: ElectronApi = {
   cancelOrder: (orderId) => ipcRenderer.invoke(IpcChannels.CANCEL_ORDER, orderId) as Promise<void>,
   clearPrinted: () => ipcRenderer.invoke(IpcChannels.CLEAR_PRINTED) as Promise<void>,
   getPrinters: () => ipcRenderer.invoke(IpcChannels.GET_PRINTERS) as Promise<PrinterInfo[]>,
+  getSalesReport: (from, to, bucket) =>
+    ipcRenderer.invoke(IpcChannels.GET_SALES_REPORT, from, to, bucket) as Promise<SalesReportRow[]>,
+  getTopItems: (from, to) =>
+    ipcRenderer.invoke(IpcChannels.GET_TOP_ITEMS, from, to) as Promise<TopItemRow[]>,
   getSettings: () =>
     ipcRenderer.invoke(IpcChannels.GET_SETTINGS) as Promise<Record<string, string>>,
   updateSettings: (printerType, deviceName) =>
@@ -35,8 +41,7 @@ const api: ElectronApi = {
   removePrinter: (printerType) =>
     ipcRenderer.invoke(IpcChannels.REMOVE_PRINTER, printerType) as Promise<void>,
   getMaxPrinters: () => ipcRenderer.invoke(IpcChannels.GET_MAX_PRINTERS) as Promise<number>,
-  getServerStatus: () =>
-    ipcRenderer.invoke(IpcChannels.GET_SERVER_STATUS) as Promise<ServerStatus>,
+  getServerStatus: () => ipcRenderer.invoke(IpcChannels.GET_SERVER_STATUS) as Promise<ServerStatus>,
   onOrderReceived: (cb) => on<OrderWithStatus>(IpcChannels.ORDER_RECEIVED, cb),
   onOrderStatusChanged: (cb) => on<OrderWithStatus>(IpcChannels.ORDER_STATUS_CHANGED, cb),
   onPrinterStatus: (cb) => on<PrinterInfo[]>(IpcChannels.PRINTER_STATUS, cb),

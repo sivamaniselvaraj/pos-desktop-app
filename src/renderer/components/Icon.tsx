@@ -3,6 +3,7 @@ import type { CSSProperties, ReactElement } from 'react';
 type IconName =
   | 'printer'
   | 'dashboard'
+  | 'reports'
   | 'history'
   | 'settings'
   | 'info'
@@ -51,6 +52,14 @@ const paths: Record<IconName, ReactElement> = {
     <>
       <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2" />
       <polyline fill="none" stroke="currentColor" strokeWidth="2" points="12 7 12 12 16 14" />
+    </>
+  ),
+  reports: (
+    <>
+      <line x1="4" y1="20" x2="20" y2="20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <rect x="6" y="12" width="3" height="7" fill="currentColor" />
+      <rect x="11" y="8" width="3" height="11" fill="currentColor" />
+      <rect x="16" y="4" width="3" height="15" fill="currentColor" />
     </>
   ),
   settings: (

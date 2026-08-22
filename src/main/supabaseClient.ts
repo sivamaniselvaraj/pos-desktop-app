@@ -1,6 +1,16 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config, isConfigured } from './config';
-import type { FoodOrder, HeaderConfig, OrderItem, OrderType, OutletInfo } from '../shared/types';
+import { getAuthedClient } from './supabaseAuthClient';
+import type {
+  FoodOrder,
+  HeaderConfig,
+  OrderItem,
+  OrderType,
+  OutletInfo,
+  ReportBucket,
+  SalesReportRow,
+  TopItemRow,
+} from '../shared/types';
 
 let client: SupabaseClient | null = null;
 
@@ -43,10 +53,12 @@ function mapOutlet(row: Record<string, unknown>): OutletInfo {
 
 function mapHeaderConfig(row: Record<string, unknown>): HeaderConfig {
   return {
-    restaurantName: row.restaurantName ? String(row.restaurantName ?? ''): undefined,
-    headerText: row.headerText ? String(row.headerText ?? 'Restaurant'): undefined,
+    restaurantName: row.restaurantName ? String(row.restaurantName ?? '') : undefined,
+    headerText: row.headerText ? String(row.headerText ?? 'Restaurant') : undefined,
     footerText: row.footerText ? String(row.footerText) : undefined,
-    containerChargePercent: row.containerChargePercent ? String(row.containerChargePercent) : undefined,
+    containerChargePercent: row.containerChargePercent
+      ? String(row.containerChargePercent)
+      : undefined,
   };
 }
 
@@ -79,11 +91,11 @@ function mapRow(row: Record<string, unknown>): FoodOrder {
 
 export async function fetchOrderById(orderId: string): Promise<FoodOrder | null> {
   const supabase = getClient();
-  if (!supabase) throw new Error('Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.');
+  if (!supabase)
+    throw new Error('Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.');
 
-  const { data, error } = await supabase.rpc('get_order_with_items', {p_order_id: orderId})
-  
-   
+  const { data, error } = await supabase.rpc('get_order_with_items', { p_order_id: orderId });
+
   if (error) {
     if (error.code === 'PGRST116') return null; // no rows
     throw new Error(error.message);
@@ -95,7 +107,10 @@ export async function updatePrinterSettings(outletId: string): Promise<FoodOrder
   return null;
 }
 
-export async function removePrinterSettings(outletId: string, key: string): Promise<FoodOrder | null> {
+export async function removePrinterSettings(
+  outletId: string,
+  key: string,
+): Promise<FoodOrder | null> {
   return null;
 }
 export async function loadSettings(outletId: string): Promise<FoodOrder | null> {
@@ -111,7 +126,8 @@ export async function isDatabaseReachable(): Promise<boolean> {
 
 export async function fetchOutletById(outletId: string): Promise<OutletInfo | null> {
   const supabase = getClient();
-  if (!supabase) throw new Error('Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.');
+  if (!supabase)
+    throw new Error('Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.');
 
   const { data, error } = await supabase.rpc('get_outlet_by_id', { p_outlet_id: outletId });
 
@@ -188,7 +204,7 @@ export async function fetchUnprintedItems(orderId: string): Promise<OrderItem[]>
   const id = await resolveOrderId(orderId);
   if (!id) return [];
 
-  const { data, error } = await supabase.rpc('get_pending_kot_items', {p_order_id: orderId})
+  const { data, error } = await supabase.rpc('get_pending_kot_items', { p_order_id: orderId });
   if (error) throw new Error(error.message);
   return (data as Record<string, unknown>[] | null)?.map(mapItem) ?? [];
 }
@@ -202,7 +218,7 @@ export async function markItemsKotPrinted(orderId: string): Promise<void> {
   const supabase = getClient();
   if (!supabase) throw new Error('Supabase is not configured.');
 
-  const { error } = await supabase.rpc('mark_order_kot_printed', {p_order_id: orderId})
+  const { error } = await supabase.rpc('mark_order_kot_printed', { p_order_id: orderId });
   if (error) throw new Error(error.message);
 }
 
@@ -218,10 +234,7 @@ export async function fetchAggregatedItems(orderId: string): Promise<OrderItem[]
   const id = await resolveOrderId(orderId);
   if (!id) return [];
 
-  const { data, error } = await supabase
-    .from(ITEMS_TABLE_NAME)
-    .select('*')
-    .eq('order_id', id);
+  const { data, error } = await supabase.from(ITEMS_TABLE_NAME).select('*').eq('order_id', id);
   if (error) throw new Error(error.message);
 
   const rows = (data as Record<string, unknown>[] | null)?.map(mapItem) ?? [];
@@ -265,4 +278,64 @@ export async function closeOrderAndFreeTable(orderId: string): Promise<void> {
   if (tableId != null) {
     await supabase.from('tables').update({ state: 'open' }).eq('id', tableId);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Sales report data access.
+//
+// These RPCs resolve outlet + role from auth.uid() inside Postgres, so they
+// MUST be called on this module's session-bearing client — the anon client
+// in supabaseClient.ts has no signed-in user and auth.uid() there is null,
+// which the RPCs treat as "no access" (empty result), not an error.
+// ---------------------------------------------------------------------------
+
+/**
+ * Settled orders for the signed-in user's outlet, aggregated by day or
+ * month — one row per bucket, never per order. Empty array if not signed
+ * in, no outlet assigned, or the role isn't manager/owner/admin — the RPC
+ * enforces this server-side; the caller doesn't need to check separately.
+ */
+export async function fetchSalesReport(
+  from: string,
+  to: string,
+  bucket: ReportBucket = 'day',
+): Promise<SalesReportRow[]> {
+  const supabase = getAuthedClient();
+  if (!supabase) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabase.rpc('get_sales_report_uid', {
+    p_from: from,
+    p_to: to,
+    p_bucket: bucket,
+  });
+  if (error) throw new Error(error.message);
+
+  return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+    date: String(row.bucket_date ?? ''),
+    orderCount: Number(row.order_count ?? 0),
+    taxTotal: Number(row.tax_total ?? 0),
+    netTotal: Number(row.net_total ?? 0),
+    avgOrderValue: Number(row.avg_order_value ?? 0),
+  }));
+}
+
+/**
+ * Top-selling items (by quantity sold) for the signed-in user's outlet, in
+ * the given date range. Same access rules as fetchSalesReport.
+ */
+export async function fetchTopItems(from: string, to: string, limit = 10): Promise<TopItemRow[]> {
+  const supabase = getAuthedClient();
+  if (!supabase) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabase.rpc('get_top_items', {
+    p_from: from,
+    p_to: to,
+    p_limit: limit,
+  });
+  if (error) throw new Error(error.message);
+
+  return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+    menuItemId: String(row.menu_item_id ?? ''),
+    name: String(row.name ?? 'Item'),
+    quantitySold: Number(row.quantity_sold ?? 0),
+    revenue: Number(row.revenue ?? 0),
+  }));
 }

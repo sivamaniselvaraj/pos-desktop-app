@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Icon, type IconName } from './Icon';
+import { useAuth } from '../context/AuthContext';
 import type { PrinterInfo } from '@shared/types';
 import styles from '../styles/Sidebar.module.css';
 
@@ -16,6 +17,12 @@ const NAV: NavItem[] = [
   { id: 'about', label: 'About', icon: 'info' },
 ];
 
+// Roles allowed to see the Sales Report nav item. This is convenience/UX
+// only — the real access boundary is enforced server-side by the report
+// RPCs (get_sales_report / get_top_items check the caller's role via
+// auth.uid()), so hiding the link here doesn't substitute for that.
+const REPORT_ROLES = ['manager', 'owner', 'admin'];
+
 interface SidebarProps {
   active: string;
   onNavigate: (id: string) => void;
@@ -23,6 +30,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ active, onNavigate, printers }: SidebarProps) {
+  const { user } = useAuth();
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('sidebarCollapsed') === 'true',
   );
@@ -34,6 +42,11 @@ export function Sidebar({ active, onNavigate, printers }: SidebarProps) {
       return next;
     });
   };
+
+    const canViewReports = !!user && REPORT_ROLES.includes(user.role.toLowerCase());
+  const navItems = canViewReports
+    ? [...NAV.slice(0, 2), { id: 'sales-report', label: 'Sales Report', icon: 'reports' as IconName }, ...NAV.slice(2)]
+    : NAV;
 
   return (
     <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''}`}>
@@ -49,7 +62,7 @@ export function Sidebar({ active, onNavigate, printers }: SidebarProps) {
       </div>
 
       <nav>
-        {NAV.map((item) => (
+        {navItems.map((item) => (
           <button
             key={item.id}
             className={`${styles.navItem} ${active === item.id ? styles.navActive : ''}`}

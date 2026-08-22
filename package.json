@@ -27,7 +27,8 @@
     "express-rate-limit": "^8.5.2",
     "node-thermal-printer": "^4.6.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.1.0",
@@ -42,6 +43,7 @@
     "cross-env": "^10.1.0",
     "electron": "^42.5.0",
     "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.1",
     "eslint": "^9.39.4",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",

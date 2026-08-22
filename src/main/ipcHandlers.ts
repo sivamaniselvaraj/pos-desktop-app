@@ -2,7 +2,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { orderManager } from './orderManager';
 import { getPrinters } from './printerManager';
 import { isServerRunning } from './httpServer';
-import { isDatabaseReachable } from './supabaseClient';
+import { isDatabaseReachable, fetchSalesReport, fetchTopItems } from './supabaseClient';
 import { signIn, signOut, getCurrentUser } from './authManager';
 import {
   getAllPrinters,
@@ -49,6 +49,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.GET_MAX_PRINTERS, () => getMaxPrinters());
 
   ipcMain.handle(IpcChannels.GET_SERVER_STATUS, () => buildServerStatus());
+
+    // Sales report (manager/owner/admin — enforced server-side by the RPC)
+    ipcMain.handle(IpcChannels.GET_SALES_REPORT, (_e, from: string, to: string, bucket: 'day' | 'month') =>
+      fetchSalesReport(from, to, bucket),
+    );
+    ipcMain.handle(IpcChannels.GET_TOP_ITEMS, (_e, from: string, to: string) =>
+      fetchTopItems(from, to),
+    );
 
 
   // main -> renderer (forward manager events to the active window)

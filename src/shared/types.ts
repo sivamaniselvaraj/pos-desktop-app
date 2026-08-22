@@ -82,6 +82,30 @@ export interface PrintOrderResponse {
   error?: string;
 }
 
+export type ReportBucket = 'day' | 'month';
+
+/** One row per bucket (day or month) — never per order. */
+export interface SalesReportRow {
+  date: string; // bucket_date, 'YYYY-MM-DD' (first-of-month for month buckets)
+  orderCount: number;
+  taxTotal: number;
+  netTotal: number;
+  avgOrderValue: number;
+}
+
+export interface TopItemRow {
+  menuItemId: string;
+  name: string;
+  quantitySold: number;
+  revenue: number;
+}
+
+export interface PrinterInfo {
+  name: string;
+  isDefault: boolean;
+  online: boolean;
+}
+
 // ---- Printer / server status ----
 export interface PrinterInfo {
   name: string;
@@ -124,6 +148,9 @@ export const IpcChannels = {
   CLEAR_PRINTED: 'clear-printed',
   // printers (renderer -> main, invoke)
   GET_PRINTERS: 'get-printers',
+  //report (renderer -> main, invoke)
+  GET_SALES_REPORT: 'get-sales-report',
+  GET_TOP_ITEMS: 'get-top-items',
   // settings (renderer -> main, invoke)
   GET_SETTINGS: 'get-settings',
   UPDATE_SETTINGS: 'update-settings',
@@ -148,6 +175,8 @@ export interface ElectronApi {
   cancelOrder(orderId: string): Promise<void>;
   clearPrinted(): Promise<void>;
   getPrinters(): Promise<PrinterInfo[]>;
+  getSalesReport(from: string, to: string, bucket: ReportBucket): Promise<SalesReportRow[]>;
+  getTopItems(from: string, to: string): Promise<TopItemRow[]>;
   getSettings(): Promise<Record<string, string>>;
   updateSettings(printerType: string, deviceName: string): Promise<void>;
   removePrinter(printerType: string): Promise<void>;
