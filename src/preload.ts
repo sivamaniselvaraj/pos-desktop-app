@@ -9,8 +9,10 @@ import type {
   PrintOrderResponse,
   SalesReportRow,
   TopItemRow,
+  ManagedUser,
+  OutletOption,
   ServerStatus,
-  ExportResult
+  ExportResult,
 } from './shared/types';
 
 // Helper to subscribe to a main->renderer channel and return an unsubscribe fn.
@@ -36,7 +38,13 @@ const api: ElectronApi = {
   getTopItems: (from, to) =>
     ipcRenderer.invoke(IpcChannels.GET_TOP_ITEMS, from, to) as Promise<TopItemRow[]>,
   exportSalesReport: (payload) =>
-      ipcRenderer.invoke(IpcChannels.EXPORT_SALES_REPORT, payload) as Promise<ExportResult>,
+    ipcRenderer.invoke(IpcChannels.EXPORT_SALES_REPORT, payload) as Promise<ExportResult>,
+  listUsers: () => ipcRenderer.invoke(IpcChannels.LIST_USERS) as Promise<ManagedUser[]>,
+  listOutlets: () => ipcRenderer.invoke(IpcChannels.LIST_OUTLETS) as Promise<OutletOption[]>,
+  createUser: (payload) => ipcRenderer.invoke(IpcChannels.CREATE_USER, payload) as Promise<void>,
+  updateUser: (payload) => ipcRenderer.invoke(IpcChannels.UPDATE_USER, payload) as Promise<void>,
+  setUserActive: (userId, isActive) =>
+    ipcRenderer.invoke(IpcChannels.SET_USER_ACTIVE, userId, isActive) as Promise<void>,
   getSettings: () =>
     ipcRenderer.invoke(IpcChannels.GET_SETTINGS) as Promise<Record<string, string>>,
   updateSettings: (printerType, deviceName) =>

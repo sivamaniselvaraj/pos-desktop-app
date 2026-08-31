@@ -10,6 +10,7 @@ import { Login } from './pages/Login';
 import { useStatus } from './hooks/useStatus';
 import { useAuth } from './context/AuthContext';
 import styles from './styles/App.module.css';
+import { UserManagement } from './pages/UserManagement';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -40,6 +41,7 @@ export default function App() {
           {page === 'settings' && <Settings />}
           {page === 'history' && <History />}
           {page === 'sales-report' && <SalesReport />}
+          {page === 'users' && <UserManagement />}
           {page === 'about' && <About />}
         </div>
       </main>

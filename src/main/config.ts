@@ -74,6 +74,7 @@ export const config = {
     url: process.env.SUPABASE_URL ?? 'https://pataijznwwviyzagcqjq.supabase.co',
     anonKey: process.env.SUPABASE_ANON_KEY ?? 'sb_publishable_sM19fNE8AXhje2IAeg_BwQ_VI208HL8',
     table: process.env.SUPABASE_TABLE ?? 'orders',
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'orders',
   },
   get kitchenPrinter(): string {
     return load().kitchenPrinter;

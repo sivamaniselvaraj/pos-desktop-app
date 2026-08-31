@@ -5,6 +5,13 @@ import { isServerRunning } from './httpServer';
 import { isDatabaseReachable, fetchSalesReport, fetchTopItems } from './supabaseClient';
 import { signIn, signOut, getCurrentUser } from './authManager';
 import {
+  listUsers,
+  listOutlets,
+  createUser,
+  updateUser,
+  setUserActive,
+} from './userAdmin';
+import {
   getAllPrinters,
   updatePrinter,
   removePrinter,
@@ -13,7 +20,7 @@ import {
 import { exportSalesReport } from './reportExport';
 import { config } from './config';
 import { IpcChannels } from '../shared/types';
-import type { ServerStatus, SalesReportExportPayload } from '../shared/types';
+import type { ServerStatus, SalesReportExportPayload, CreateUserPayload, UpdateUserPayload} from '../shared/types';
 
 async function buildServerStatus(): Promise<ServerStatus> {
   return {
@@ -61,6 +68,15 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.EXPORT_SALES_REPORT, (_e, payload: SalesReportExportPayload) =>
     exportSalesReport(getWindow(), payload),
   );
+    // User management (admin-only — enforced server-side by the RPCs / assertCallerIsAdmin)
+    ipcMain.handle(IpcChannels.LIST_USERS, () => listUsers());
+    ipcMain.handle(IpcChannels.LIST_OUTLETS, () => listOutlets());
+    ipcMain.handle(IpcChannels.CREATE_USER, (_e, payload: CreateUserPayload) => createUser(payload));
+    ipcMain.handle(IpcChannels.UPDATE_USER, (_e, payload: UpdateUserPayload) => updateUser(payload));
+    ipcMain.handle(IpcChannels.SET_USER_ACTIVE, (_e, userId: string, isActive: boolean) =>
+      setUserActive(userId, isActive),
+    );
+  
 
   // main -> renderer (forward manager events to the active window)
   const send = (channel: string, payload: unknown) => {

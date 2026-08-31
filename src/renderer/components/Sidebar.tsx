@@ -23,6 +23,11 @@ const NAV: NavItem[] = [
 // auth.uid()), so hiding the link here doesn't substitute for that.
 const REPORT_ROLES = ['manager', 'owner', 'admin'];
 
+// User Management is admin-only (narrower than the report page). Same
+// caveat: real enforcement is server-side (is_admin() / the user-management
+// RPCs), this only controls whether the link is shown.
+const USER_MANAGEMENT_ROLES = ['admin'];
+
 interface SidebarProps {
   active: string;
   onNavigate: (id: string) => void;
@@ -43,10 +48,19 @@ export function Sidebar({ active, onNavigate, printers }: SidebarProps) {
     });
   };
 
-    const canViewReports = !!user && REPORT_ROLES.includes(user.role.toLowerCase());
-  const navItems = canViewReports
-    ? [...NAV.slice(0, 2), { id: 'sales-report', label: 'Sales Report', icon: 'reports' as IconName }, ...NAV.slice(2)]
-    : NAV;
+    const role = user?.role.toLowerCase();
+  const canViewReports = !!role && REPORT_ROLES.includes(role);
+  const canManageUsers = !!role && USER_MANAGEMENT_ROLES.includes(role);
+  // Dashboard, History, [Sales Report], [Users], Settings, About — the
+  // conditional items are inserted between History and Settings in that order.
+  const navItems: NavItem[] = [
+    ...NAV.slice(0, 2),
+    ...(canViewReports
+      ? [{ id: 'sales-report', label: 'Sales Report', icon: 'reports' as IconName }]
+      : []),
+    ...(canManageUsers ? [{ id: 'users', label: 'Users', icon: 'users' as IconName }] : []),
+    ...NAV.slice(2),
+  ];
 
   return (
     <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''}`}>

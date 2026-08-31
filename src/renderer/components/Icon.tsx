@@ -3,8 +3,8 @@ import type { CSSProperties, ReactElement } from 'react';
 type IconName =
   | 'printer'
   | 'dashboard'
-  | 'reports'
   | 'history'
+  | 'reports'
   | 'settings'
   | 'info'
   | 'menu'
@@ -14,15 +14,17 @@ type IconName =
   | 'plus'
   | 'cancel'
   | 'success'
-  | 'error'
   | 'check'
+  | 'error'
   | 'alert'
   | 'pending'
   | 'spinner'
   | 'trash'
   | 'lock'
   | 'logout'
-  | 'user';
+  | 'user'
+  | 'users'
+  | 'edit';
 
 interface IconProps {
   name: IconName;
@@ -131,13 +133,6 @@ const paths: Record<IconName, ReactElement> = {
       points="20 6 9 17 4 12"
     />
   ),
-  error: (
-    <>
-      <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2" />
-      <line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </>
-  ),
   check: (
     <polyline
       fill="none"
@@ -147,6 +142,13 @@ const paths: Record<IconName, ReactElement> = {
       strokeLinejoin="round"
       points="20 6 9 17 4 12"
     />
+  ),
+  error: (
+    <>
+      <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2" />
+      <line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </>
   ),
   alert: (
     <>
@@ -239,6 +241,45 @@ const paths: Record<IconName, ReactElement> = {
       />
       <circle cx="12" cy="7" r="4" fill="none" stroke="currentColor" strokeWidth="2" />
     </>
+  ),
+  users: (
+    <>
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"
+      />
+      <circle cx="9" cy="7" r="4" fill="none" stroke="currentColor" strokeWidth="2" />
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M23 21v-2a4 4 0 0 0-3-3.87"
+      />
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M16 3.13a4 4 0 0 1 0 7.75"
+      />
+    </>
+  ),
+  edit: (
+    <path
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+    />
   ),
 };
 

@@ -115,7 +115,42 @@ export interface ExportResult {
   error?: string;
 }
 
-// ---- Printer / server status ----
+export type UserRole = 'staff' | 'manager' | 'owner' | 'admin';
+
+export interface ManagedUser {
+  userId: string;
+  email: string;
+  firstName: string;
+  phone?: string;
+  role: UserRole;
+  isActive: boolean;
+  outletId?: string;
+  outletName?: string;
+  createdAt: string;
+}
+
+export interface OutletOption {
+  id: string;
+  name: string;
+}
+
+export interface CreateUserPayload {
+  email: string;
+  password: string;
+  firstName: string;
+  phone?: string;
+  role: UserRole;
+  outletId?: string;
+}
+
+export interface UpdateUserPayload {
+  userId: string;
+  firstName: string;
+  phone?: string;
+  role: UserRole;
+  outletId?: string;
+}
+
 export interface PrinterInfo {
   name: string;
   isDefault: boolean;
@@ -161,6 +196,11 @@ export const IpcChannels = {
   GET_SALES_REPORT: 'get-sales-report',
   GET_TOP_ITEMS: 'get-top-items',
   EXPORT_SALES_REPORT: 'export-sales-report',
+  LIST_USERS: 'list-users',
+  LIST_OUTLETS: 'list-outlets',
+  CREATE_USER: 'create-user',
+  UPDATE_USER: 'update-user',
+  SET_USER_ACTIVE: 'set-user-active',
   // settings (renderer -> main, invoke)
   GET_SETTINGS: 'get-settings',
   UPDATE_SETTINGS: 'update-settings',
@@ -188,6 +228,11 @@ export interface ElectronApi {
   getSalesReport(from: string, to: string, bucket: ReportBucket): Promise<SalesReportRow[]>;
   getTopItems(from: string, to: string): Promise<TopItemRow[]>;
   exportSalesReport(payload: SalesReportExportPayload): Promise<ExportResult>;
+  listUsers(): Promise<ManagedUser[]>;
+  listOutlets(): Promise<OutletOption[]>;
+  createUser(payload: CreateUserPayload): Promise<void>;
+  updateUser(payload: UpdateUserPayload): Promise<void>;
+  setUserActive(userId: string, isActive: boolean): Promise<void>;
   getSettings(): Promise<Record<string, string>>;
   updateSettings(printerType: string, deviceName: string): Promise<void>;
   removePrinter(printerType: string): Promise<void>;
