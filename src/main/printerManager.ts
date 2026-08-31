@@ -39,6 +39,18 @@ function loadSpoolerDriver(): object {
   }
 }
 
+function loadPrinterDriver(printerName: string): ThermalPrinter {
+   const printer = new ThermalPrinter({
+      type: PrinterTypes.CUSTOM,
+      interface: 'printer:' + printerName,
+      driver: require(electron ? '@grandchef/node-printer' : 'printer') as object,
+      characterSet: CharacterSet.WPC1252,
+      lineCharacter: '-', // must be single-byte ASCII: drawLine() does no codepage conversion
+      width: RECEIPT_WIDTH,
+    });
+    return printer;
+}
+
 
 // ---- Listing printers ----------------------------------------------------
 
@@ -490,15 +502,7 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
     // be installed in the OS as a RAW/generic-text device so bytes pass
     // through untouched. `Name` must match the OS printer name exactly
     // (Get-Printer on Windows, lpstat -p on macOS/Linux).
-    const driver = loadSpoolerDriver();
-    const printer = new ThermalPrinter({
-      type: PrinterTypes.CUSTOM,
-      interface: 'printer:' + printerName,
-      driver: require(electron ? '@grandchef/node-printer' : 'printer') as object,
-      characterSet: CharacterSet.WPC1252,
-      lineCharacter: '-', // must be single-byte ASCII: drawLine() does no codepage conversion
-      width: RECEIPT_WIDTH,
-    });
+    const printer = loadPrinterDriver(printerName);
     const isConnected = await printer.isPrinterConnected();
 
      if (!isConnected) {
@@ -682,17 +686,7 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
   }
 
   try {
-    const driver = loadSpoolerDriver();
-
-    const printer = new ThermalPrinter({
-      type: PrinterTypes.CUSTOM,
-      interface: 'printer:' + printerName,
-      driver: require(electron ? '@grandchef/node-printer' : 'printer') as object,
-      characterSet: CharacterSet.WPC1252,
-      lineCharacter: '-',
-      width: RECEIPT_WIDTH,
-    });
-
+    const printer = loadPrinterDriver(printerName);
     const connected = await printer.isPrinterConnected();
     if (!connected) {
       throw new Error(

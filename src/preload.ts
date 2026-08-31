@@ -10,6 +10,7 @@ import type {
   SalesReportRow,
   TopItemRow,
   ServerStatus,
+  ExportResult
 } from './shared/types';
 
 // Helper to subscribe to a main->renderer channel and return an unsubscribe fn.
@@ -34,6 +35,8 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.GET_SALES_REPORT, from, to, bucket) as Promise<SalesReportRow[]>,
   getTopItems: (from, to) =>
     ipcRenderer.invoke(IpcChannels.GET_TOP_ITEMS, from, to) as Promise<TopItemRow[]>,
+  exportSalesReport: (payload) =>
+      ipcRenderer.invoke(IpcChannels.EXPORT_SALES_REPORT, payload) as Promise<ExportResult>,
   getSettings: () =>
     ipcRenderer.invoke(IpcChannels.GET_SETTINGS) as Promise<Record<string, string>>,
   updateSettings: (printerType, deviceName) =>

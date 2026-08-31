@@ -1,4 +1,4 @@
-import { config, saveConfig } from './config.js';
+import { config, saveConfig } from './config';
 
 /**
  * Settings Manager - Multi-Printer Configuration
@@ -143,7 +143,7 @@ export async function removePrinter(printerType: string): Promise<void> {
   try {
     const supabase = null;
     if (supabase) {
-      // const { error } = await supabase.from('settings').delete().eq('key', normalized);
+      //const { error } = await supabase.from('settings').delete().eq('key', normalized);
       // if (error) {
       //   console.error(`Failed to remove printer ${normalized}:`, error.message);
       // }

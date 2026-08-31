@@ -10,9 +10,10 @@ import {
   removePrinter,
   getMaxPrinters,
 } from './settingsManager';
+import { exportSalesReport } from './reportExport';
 import { config } from './config';
 import { IpcChannels } from '../shared/types';
-import type { ServerStatus } from '../shared/types';
+import type { ServerStatus, SalesReportExportPayload } from '../shared/types';
 
 async function buildServerStatus(): Promise<ServerStatus> {
   return {
@@ -57,7 +58,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     ipcMain.handle(IpcChannels.GET_TOP_ITEMS, (_e, from: string, to: string) =>
       fetchTopItems(from, to),
     );
-
+  ipcMain.handle(IpcChannels.EXPORT_SALES_REPORT, (_e, payload: SalesReportExportPayload) =>
+    exportSalesReport(getWindow(), payload),
+  );
 
   // main -> renderer (forward manager events to the active window)
   const send = (channel: string, payload: unknown) => {

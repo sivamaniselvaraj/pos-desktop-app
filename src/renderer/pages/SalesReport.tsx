@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import type { ReportBucket, SalesReportRow, TopItemRow } from '@shared/types';
+import type { ReportBucket, ReportExportFormat, SalesReportRow, TopItemRow } from '@shared/types';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/SalesReport.module.css';
 
@@ -47,6 +47,33 @@ export function SalesReport() {
   const [topItems, setTopItems] = useState<TopItemRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<ReportExportFormat | null>(null);
+  const [exportMessage, setExportMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(
+    null,
+  );
+
+  async function handleExport(format: ReportExportFormat) {
+    if (rows.length === 0 && topItems.length === 0) return;
+    try {
+      setExporting(format);
+      setExportMessage(null);
+      const result = await window.api.exportSalesReport({ rows, topItems, format, range });
+      if (result.success) {
+        setExportMessage({ type: 'success', text: `Saved to ${result.path}` });
+      } else if (result.error) {
+        setExportMessage({ type: 'error', text: result.error });
+      }
+      // No path and no error => the operator cancelled the save dialog; say nothing.
+    } catch (err) {
+      setExportMessage({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Export failed',
+      });
+    } finally {
+      setExporting(null);
+      setTimeout(() => setExportMessage(null), 5000);
+    }
+  }
 
   function selectMode(next: Mode) {
     setMode(next);
@@ -136,7 +163,30 @@ export function SalesReport() {
             />
           </label>
         </div>
+
+        <div className={styles.exportButtons}>
+          <button
+            className={styles.exportBtn}
+            onClick={() => handleExport('csv')}
+            disabled={loading || exporting !== null || (rows.length === 0 && topItems.length === 0)}
+          >
+            {exporting === 'csv' ? 'Exporting…' : 'Export CSV'}
+          </button>
+          <button
+            className={styles.exportBtn}
+            onClick={() => handleExport('xlsx')}
+            disabled={loading || exporting !== null || (rows.length === 0 && topItems.length === 0)}
+          >
+            {exporting === 'xlsx' ? 'Exporting…' : 'Export XLSX'}
+          </button>
+        </div>
       </div>
+
+      {exportMessage && (
+        <p className={exportMessage.type === 'error' ? styles.error : styles.exportSuccess}>
+          {exportMessage.text}
+        </p>
+      )}
 
       {error && <p className={styles.error}>{error}</p>}
       {loading && <p className={pageStyles.muted}>Loading report…</p>}

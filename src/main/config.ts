@@ -28,6 +28,7 @@ function getSettingsPath(): string {
   if (!settingsPath) {
     settingsPath = join(app.getPath('userData'), 'settings.json');
   }
+  console.log("setting path ", settingsPath);
   return settingsPath;
 }
 
@@ -57,6 +58,17 @@ export const config = {
   http: {
     port: Number(process.env.HTTP_PORT ?? 5001),
     host: process.env.HTTP_HOST ?? '0.0.0.0',
+    // Comma-separated list of browser origins allowed to call this server
+    // cross-origin, e.g. "http://localhost:3000,https://dashboard.example.com".
+    // Deliberately NOT relevant to the Android app or curl/Postman — CORS is
+    // a browser-only mechanism, enforced by fetch()/XHR, not by native HTTP
+    // clients — so leaving this empty does not block Android. It only stops
+    // an arbitrary web page the operator happens to have open from making a
+    // background fetch() to this local server and reading the response.
+    allowedOrigins: (process.env.ALLOWED_ORIGINS ?? '')
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean),
   },
   supabase: {
     url: process.env.SUPABASE_URL ?? 'https://pataijznwwviyzagcqjq.supabase.co',

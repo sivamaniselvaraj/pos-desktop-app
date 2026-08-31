@@ -8,7 +8,6 @@ import {
   closeOrderAndFreeTable,
 } from './supabaseClient';
 import { printOrderEscpos, printKot } from './printerManager';
-import { getPrinterFor } from './settingsManager';
 import { config } from './config';
 import type {
   FoodOrder,

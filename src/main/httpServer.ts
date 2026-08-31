@@ -13,7 +13,20 @@ let server: Server | null = null;
 export function startHttpServer(): Promise<void> {
 
   const app = express();
-  app.use(cors());
+  // CORS: deny cross-origin BROWSER access by default; only origins listed in
+    // ALLOWED_ORIGINS are permitted. Requests with no Origin header (Android's
+    // HTTP client, curl, Postman) are never subject to CORS at all — this only
+    // gates a web page's fetch()/XHR, so it's safe to leave restrictive without
+    // affecting the Android integration this server exists for.
+    app.use(
+      cors({
+        origin(origin, callback) {
+          if (!origin) return callback(null, true); // non-browser client — not a CORS request
+          if (config.http.allowedOrigins.includes(origin)) return callback(null, true);
+          callback(new Error(`Origin not allowed by CORS: ${origin}`));
+        },
+      }),
+    );
   app.use(express.json());
 
   // Define the rate limit configuration

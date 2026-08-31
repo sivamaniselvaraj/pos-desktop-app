@@ -100,10 +100,19 @@ export interface TopItemRow {
   revenue: number;
 }
 
-export interface PrinterInfo {
-  name: string;
-  isDefault: boolean;
-  online: boolean;
+export type ReportExportFormat = 'csv' | 'xlsx';
+
+export interface SalesReportExportPayload {
+  rows: SalesReportRow[];
+  topItems: TopItemRow[];
+  format: ReportExportFormat;
+  range: { from: string; to: string };
+}
+
+export interface ExportResult {
+  success: boolean;
+  path?: string;
+  error?: string;
 }
 
 // ---- Printer / server status ----
@@ -151,6 +160,7 @@ export const IpcChannels = {
   //report (renderer -> main, invoke)
   GET_SALES_REPORT: 'get-sales-report',
   GET_TOP_ITEMS: 'get-top-items',
+  EXPORT_SALES_REPORT: 'export-sales-report',
   // settings (renderer -> main, invoke)
   GET_SETTINGS: 'get-settings',
   UPDATE_SETTINGS: 'update-settings',
@@ -177,6 +187,7 @@ export interface ElectronApi {
   getPrinters(): Promise<PrinterInfo[]>;
   getSalesReport(from: string, to: string, bucket: ReportBucket): Promise<SalesReportRow[]>;
   getTopItems(from: string, to: string): Promise<TopItemRow[]>;
+  exportSalesReport(payload: SalesReportExportPayload): Promise<ExportResult>;
   getSettings(): Promise<Record<string, string>>;
   updateSettings(printerType: string, deviceName: string): Promise<void>;
   removePrinter(printerType: string): Promise<void>;
