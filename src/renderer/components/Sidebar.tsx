@@ -28,6 +28,10 @@ const REPORT_ROLES = ['manager', 'owner', 'admin'];
 // RPCs), this only controls whether the link is shown.
 const USER_MANAGEMENT_ROLES = ['admin'];
 
+// Orders List: view/edit/cancel/complete orders — same role set as Sales
+// Report, matching Cancel's mandatory manager/owner/admin requirement.
+const ORDERS_LIST_ROLES = ['manager', 'owner', 'admin'];
+
 interface SidebarProps {
   active: string;
   onNavigate: (id: string) => void;
@@ -48,13 +52,17 @@ export function Sidebar({ active, onNavigate, printers }: SidebarProps) {
     });
   };
 
-    const role = user?.role.toLowerCase();
+  const role = user?.role.toLowerCase();
   const canViewReports = !!role && REPORT_ROLES.includes(role);
   const canManageUsers = !!role && USER_MANAGEMENT_ROLES.includes(role);
   // Dashboard, History, [Sales Report], [Users], Settings, About — the
   // conditional items are inserted between History and Settings in that order.
+  const canViewOrdersList = !!role && ORDERS_LIST_ROLES.includes(role);
   const navItems: NavItem[] = [
     ...NAV.slice(0, 2),
+    ...(canViewOrdersList
+      ? [{ id: 'orders-list', label: 'Orders', icon: 'print' as IconName }]
+      : []),
     ...(canViewReports
       ? [{ id: 'sales-report', label: 'Sales Report', icon: 'reports' as IconName }]
       : []),

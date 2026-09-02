@@ -49,11 +49,16 @@ export interface FoodOrder {
   subtotal: number;
   tax: number;
   total: number;
+  /** Pickup orders only; 0/undefined for dine-in and delivery. */
+  containerCharge?: number;
   discount?: number;
   orderType: OrderType;
   specialNotes?: string;
   createdAt: string;
-  headerConfig?: HeaderConfig
+  /** 'open' | 'completed' | 'cancelled' — used e.g. to decide the DUPLICATE BILL banner on reprint. */
+  status?: string;
+  /** Raw header/footer config (JSON string or object) for the receipt. */
+  headerConfig?: string | HeaderConfig;
 }
 
 export type PrintStatus = 'pending' | 'printing' | 'printed' | 'failed';
@@ -134,6 +139,67 @@ export interface OutletOption {
   name: string;
 }
 
+export type OrderListStatus = 'active' | 'completed' | 'cancelled';
+
+export interface OrderListRow {
+  orderId: string;
+  orderNumber: string;
+  orderType: string;
+  createdAt: string;
+  itemCount: number;
+  subtotalAmount: number;
+  taxAmount: number;
+  containerChargeAmount: number;
+  discountAmount: number;
+  totalAmount: number;
+  status: string;
+  hasEdits: boolean;
+}
+
+export interface OrderListPage {
+  rows: OrderListRow[];
+  totalRows: number;
+}
+
+export interface OrderListFilter {
+  status: OrderListStatus | null;
+  from?: string;
+  to?: string;
+  page: number;
+  pageSize: number;
+}
+
+export interface OrderDetailItem {
+  orderItemId: string;
+  menuItemId: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  isDeleted: boolean;
+  editedAt?: string;
+}
+
+export interface EditOrderItemPayload {
+  orderItemId: string;
+  quantity: number;
+  reason?: string;
+}
+
+export interface OrderActivityLogEntry {
+  auditId: string;
+  orderItemId: string;
+  itemName: string;
+  action: 'edit' | 'delete';
+  changedAt: string;
+  changedByName: string;
+  oldQuantity?: number;
+  newQuantity?: number;
+  oldUnitPrice?: number;
+  newUnitPrice?: number;
+  reason?: string;
+}
+
 export interface CreateUserPayload {
   email: string;
   password: string;
@@ -201,6 +267,14 @@ export const IpcChannels = {
   CREATE_USER: 'create-user',
   UPDATE_USER: 'update-user',
   SET_USER_ACTIVE: 'set-user-active',
+  LIST_ORDERS: 'list-orders',
+  GET_ORDER_DETAIL: 'get-order-detail',
+  EDIT_ORDER_ITEM: 'edit-order-item',
+  DELETE_ORDER_ITEM: 'delete-order-item',
+  CANCEL_ORDER_WITH_REASON: 'cancel-order-with-reason',
+  COMPLETE_ORDER: 'complete-order',
+  REPRINT_ORDER: 'reprint-order',
+  GET_ORDER_ACTIVITY_LOG: 'get-order-activity-log',
   // settings (renderer -> main, invoke)
   GET_SETTINGS: 'get-settings',
   UPDATE_SETTINGS: 'update-settings',
@@ -233,6 +307,14 @@ export interface ElectronApi {
   createUser(payload: CreateUserPayload): Promise<void>;
   updateUser(payload: UpdateUserPayload): Promise<void>;
   setUserActive(userId: string, isActive: boolean): Promise<void>;
+  listOrders(filter: OrderListFilter): Promise<OrderListPage>;
+  getOrderDetail(orderId: string): Promise<OrderDetailItem[]>;
+  editOrderItem(payload: EditOrderItemPayload): Promise<void>;
+  deleteOrderItem(orderItemId: string, reason?: string): Promise<void>;
+  cancelOrderWithReason(orderId: string, reason: string): Promise<void>;
+  completeOrder(orderId: string): Promise<void>;
+  reprintOrder(orderId: string): Promise<void>;
+  getOrderActivityLog(orderId: string): Promise<OrderActivityLogEntry[]>;
   getSettings(): Promise<Record<string, string>>;
   updateSettings(printerType: string, deviceName: string): Promise<void>;
   removePrinter(printerType: string): Promise<void>;

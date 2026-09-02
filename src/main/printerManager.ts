@@ -459,6 +459,10 @@ export function formatReceipt(order: FoodOrder): string {
 
   rows.push(rightAlign('Tax (GST): ' + formatCurrency(order.tax), width));
 
+  if (order.containerCharge && order.containerCharge > 0) {
+    rows.push(rightAlign('Container Charge: ' + formatCurrency(order.containerCharge), width));
+  }
+
   if (order.discount && order.discount > 0) {
     rows.push(rightAlign('Discount: -' + formatCurrency(order.discount), width));
   }
@@ -487,7 +491,7 @@ export function formatReceipt(order: FoodOrder): string {
  * Print order using ESC/POS format directly to a thermal printer.
  * Requires a connected USB or network thermal printer.
  */
-export async function printOrderEscpos(order: FoodOrder, printerName:string): Promise<void> {
+export async function printOrderEscpos(order: FoodOrder, printerName:string, isDuplicate = false): Promise<void> {
  
   // Validate printer is configured
   if (!printerName || printerName.trim() === '') {
@@ -538,6 +542,16 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string): Pr
 
     printer.setTextSize(0, 0);
     solidLineThick(printer);
+
+     if (isDuplicate) {
+          printer.alignCenter();
+          printer.bold(true);
+          printer.invert(true);
+          printer.println(' DUPLICATE BILL ');
+          printer.invert(false);
+          printer.bold(false);
+          solidLineThick(printer);
+        }
 
     printer.alignLeft();
     printer.println(`Name: ${order.customerName}`);

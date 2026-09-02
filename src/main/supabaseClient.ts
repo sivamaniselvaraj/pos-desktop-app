@@ -82,9 +82,11 @@ function mapRow(row: Record<string, unknown>): FoodOrder {
     tax: Number(row.tax_amount ?? 0),
     total: Number(row.total_amount ?? 0),
     discount: row.discount_amount ? Number(row.discount_amount) : undefined,
+    containerCharge: row.container_charge_amount != null ? Number(row.container_charge_amount) : undefined,
     orderType: (row.order_type as OrderType) ?? 'pickup',
     specialNotes: row.special_notes ? String(row.special_notes) : undefined,
     createdAt: String(row.created_at ?? new Date().toISOString()),
+    status: row.status != null ? String(row.status) : undefined,
     headerConfig: headerConfigRaw ? mapHeaderConfig(headerConfigRaw) : undefined,
   };
 }

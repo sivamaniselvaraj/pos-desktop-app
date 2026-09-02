@@ -11,6 +11,7 @@ import { useStatus } from './hooks/useStatus';
 import { useAuth } from './context/AuthContext';
 import styles from './styles/App.module.css';
 import { UserManagement } from './pages/UserManagement';
+import { OrdersList } from './pages/OrdersList';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -41,6 +42,7 @@ export default function App() {
           {page === 'settings' && <Settings />}
           {page === 'history' && <History />}
           {page === 'sales-report' && <SalesReport />}
+          {page === 'orders-list' && <OrdersList />}
           {page === 'users' && <UserManagement />}
           {page === 'about' && <About />}
         </div>

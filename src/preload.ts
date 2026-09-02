@@ -11,6 +11,9 @@ import type {
   TopItemRow,
   ManagedUser,
   OutletOption,
+  OrderListPage,
+  OrderDetailItem,
+  OrderActivityLogEntry,
   ServerStatus,
   ExportResult,
 } from './shared/types';
@@ -45,6 +48,24 @@ const api: ElectronApi = {
   updateUser: (payload) => ipcRenderer.invoke(IpcChannels.UPDATE_USER, payload) as Promise<void>,
   setUserActive: (userId, isActive) =>
     ipcRenderer.invoke(IpcChannels.SET_USER_ACTIVE, userId, isActive) as Promise<void>,
+  listOrders: (filter) =>
+      ipcRenderer.invoke(IpcChannels.LIST_ORDERS, filter) as Promise<OrderListPage>,
+    getOrderDetail: (orderId) =>
+      ipcRenderer.invoke(IpcChannels.GET_ORDER_DETAIL, orderId) as Promise<OrderDetailItem[]>,
+    editOrderItem: (payload) =>
+      ipcRenderer.invoke(IpcChannels.EDIT_ORDER_ITEM, payload) as Promise<void>,
+    deleteOrderItem: (orderItemId, reason) =>
+      ipcRenderer.invoke(IpcChannels.DELETE_ORDER_ITEM, orderItemId, reason) as Promise<void>,
+    cancelOrderWithReason: (orderId, reason) =>
+      ipcRenderer.invoke(IpcChannels.CANCEL_ORDER_WITH_REASON, orderId, reason) as Promise<void>,
+    completeOrder: (orderId) =>
+      ipcRenderer.invoke(IpcChannels.COMPLETE_ORDER, orderId) as Promise<void>,
+    reprintOrder: (orderId) =>
+      ipcRenderer.invoke(IpcChannels.REPRINT_ORDER, orderId) as Promise<void>,
+    getOrderActivityLog: (orderId) =>
+      ipcRenderer.invoke(IpcChannels.GET_ORDER_ACTIVITY_LOG, orderId) as Promise<
+        OrderActivityLogEntry[]
+      >,
   getSettings: () =>
     ipcRenderer.invoke(IpcChannels.GET_SETTINGS) as Promise<Record<string, string>>,
   updateSettings: (printerType, deviceName) =>
