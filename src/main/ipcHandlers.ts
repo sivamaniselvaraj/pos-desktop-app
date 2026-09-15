@@ -1,6 +1,6 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { orderManager } from './orderManager';
-import { getPrinters } from './printerManager';
+import { getPrinters, testPrint } from './printerManager';
 import { isServerRunning } from './httpServer';
 import { isDatabaseReachable, fetchSalesReport, fetchTopItems } from './supabaseClient';
 import { signIn, signOut, getCurrentUser } from './authManager';
@@ -51,6 +51,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.CANCEL_ORDER, (_e, orderId: string) => orderManager.cancel(orderId));
   ipcMain.handle(IpcChannels.CLEAR_PRINTED, () => orderManager.clearPrinted());
   ipcMain.handle(IpcChannels.GET_PRINTERS, () => getPrinters());
+  ipcMain.handle(IpcChannels.TEST_PRINT, (_e, target?: string) => testPrint(target));
 
   // Printers & Settings (multi-printer support)
   ipcMain.handle(IpcChannels.GET_SETTINGS, () => getAllPrinters());

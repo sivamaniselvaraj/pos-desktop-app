@@ -58,6 +58,20 @@
   border-radius: 4px;
   font-size: 13px;
 }
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.searchInput {
+  width: 280px;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 13px;
+}
 
 .clearDatesBtn {
   padding: 6px 10px;

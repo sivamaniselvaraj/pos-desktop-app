@@ -36,6 +36,7 @@ export function displayPrinterType(name: string): string {
 export async function loadSettings(): Promise<PrinterConfig> {
   // Start with environment/local config
   cachedSettings = {
+    printer_cashier: config.cashierPrinter,
     printer_kitchen: config.kitchenPrinter,
     printer_waiter: config.waiterPrinter,
   };
@@ -106,7 +107,7 @@ export async function updatePrinter(
 
   // Save to local config (only kitchen printer in env)
   if (normalized === 'printer_kitchen') {
-    config.kitchenPrinter = deviceName;
+    //config.kitchenPrinter = deviceName;
     saveConfig();
   }
 

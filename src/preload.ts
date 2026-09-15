@@ -66,6 +66,7 @@ const api: ElectronApi = {
       ipcRenderer.invoke(IpcChannels.GET_ORDER_ACTIVITY_LOG, orderId) as Promise<
         OrderActivityLogEntry[]
       >,
+  testPrint: (target) => ipcRenderer.invoke(IpcChannels.TEST_PRINT, target) as Promise<string>,
   getSettings: () =>
     ipcRenderer.invoke(IpcChannels.GET_SETTINGS) as Promise<Record<string, string>>,
   updateSettings: (printerType, deviceName) =>

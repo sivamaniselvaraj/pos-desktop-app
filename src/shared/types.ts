@@ -163,6 +163,7 @@ export interface OrderListPage {
 
 export interface OrderListFilter {
   status: OrderListStatus | null;
+  search?: string;
   from?: string;
   to?: string;
   page: number;
@@ -275,6 +276,7 @@ export const IpcChannels = {
   COMPLETE_ORDER: 'complete-order',
   REPRINT_ORDER: 'reprint-order',
   GET_ORDER_ACTIVITY_LOG: 'get-order-activity-log',
+  TEST_PRINT: 'test-print',
   // settings (renderer -> main, invoke)
   GET_SETTINGS: 'get-settings',
   UPDATE_SETTINGS: 'update-settings',
@@ -315,6 +317,7 @@ export interface ElectronApi {
   completeOrder(orderId: string): Promise<void>;
   reprintOrder(orderId: string): Promise<void>;
   getOrderActivityLog(orderId: string): Promise<OrderActivityLogEntry[]>;
+  testPrint(target?: string): Promise<string>;
   getSettings(): Promise<Record<string, string>>;
   updateSettings(printerType: string, deviceName: string): Promise<void>;
   removePrinter(printerType: string): Promise<void>;

@@ -72,9 +72,12 @@ class OrderManager extends EventEmitter {
    * print failure keeps the delta for a retry. No unprinted items => no-op.
    */
   private async handleKot(orderId: string, order: FoodOrder): Promise<PrintOrderResponse> {
-    const waiterPrinter = 'RP3160 GOLD(U) 1'; // getPrinterFor('waiter');
-    if (!waiterPrinter) {
-      const msg = 'No waiter printer configured. Add a "Waiter" printer in Settings to print KOTs.';
+    let printerName = config.kitchenPrinter;
+    if(order.orderType === 'dine-in'){
+    printerName = config.waiterPrinter;;
+    }
+    if (!printerName) {
+      const msg = 'No printer configured. Add a "Waiter/Kitchen" printer in Settings to print KOTs.';
       this.cacheForDisplay({ ...order, printStatus: 'failed', errorMessage: msg, retryCount: 0 });
       return { success: false, orderId, message: msg, printStatus: 'failed', error: 'NO_PRINTER' };
     }
@@ -100,7 +103,7 @@ class OrderManager extends EventEmitter {
     };
 
     try {
-      await printKot(kotOrder, waiterPrinter);
+      await printKot(kotOrder, printerName);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown print error';
       this.cacheForDisplay({ ...kotOrder, printStatus: 'failed', errorMessage: message });

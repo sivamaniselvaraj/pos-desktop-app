@@ -47,6 +47,7 @@ export async function listOrders(filter: OrderListFilter): Promise<OrderListPage
   const supabase = getAuthedClient();
   const { data, error } = await supabase.rpc('list_orders', {
     p_status: filter.status,
+    p_search: filter.search?.trim() || null,
     p_from: filter.from ?? null,
     p_to: filter.to ?? null,
     p_page: filter.page,

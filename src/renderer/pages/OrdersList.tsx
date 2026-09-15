@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../components/Icon';
 import type {
   OrderListRow,
@@ -33,6 +33,8 @@ function statusClass(status: string): string {
 
 export function OrdersList() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
+  const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [page, setPage] = useState(1);
@@ -61,12 +63,35 @@ export function OrdersList() {
 
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
 
+  // Tracks the previously-applied search term so the status auto-switch
+  // below only fires on a genuine transition (search starting or clearing),
+  // never on initial mount — a plain useEffect on [searchInput] would
+  // otherwise also fire once on mount with an empty value and incorrectly
+  // stomp on whatever status tab the page opened with.
+  const prevSearchRef = useRef('');
+
+  function applySearch(trimmed: string) {
+    const wasSearching = prevSearchRef.current !== '';
+    const isSearching = trimmed !== '';
+
+    setDebouncedSearch(trimmed);
+    if (isSearching && !wasSearching) {
+      setStatusFilter('all'); // searching should look across every status, not just Active
+    } else if (!isSearching && wasSearching) {
+      setStatusFilter('active'); // back to the default view once search is cleared
+    }
+
+    prevSearchRef.current = trimmed;
+    setPage(1);
+  }
+
   async function load() {
     try {
       setLoading(true);
       setError(null);
       const result = await window.api.listOrders({
         status: statusFilter === 'all' ? null : statusFilter,
+        search: debouncedSearch || undefined,
         from: fromDate || undefined,
         to: toDate || undefined,
         page,
@@ -80,11 +105,18 @@ export function OrdersList() {
       setLoading(false);
     }
   }
+    // Debounce free-typed search input before it triggers a fetch — avoids
+  // firing a request on every keystroke. Resets to page 1 once the debounced
+  // value actually changes.
+  useEffect(() => {
+    const timer = setTimeout(() => applySearch(searchInput.trim()), 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, fromDate, toDate, page]);
+  }, [statusFilter, debouncedSearch, fromDate, toDate, page]);
 
   function selectStatus(s: StatusFilter) {
     setStatusFilter(s);
@@ -231,6 +263,26 @@ export function OrdersList() {
   return (
     <div className={pageStyles.page}>
       <h2>Orders</h2>
+            <div className={styles.searchRow}>
+        <input
+          type="text"
+          className={styles.searchInput}
+          placeholder="Search by Order ID..."
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+        />
+        {searchInput && (
+          <button
+            className={styles.clearDatesBtn}
+            onClick={() => {
+              setSearchInput('');
+              applySearch(''); // instant, no reason to wait for the debounce timer
+            }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
 
       <div className={styles.filters}>
         <div className={styles.statusTabs}>
@@ -325,7 +377,7 @@ export function OrdersList() {
                     <td>
                       <div className={styles.orderIdCell}>
                       <button className={styles.linkBtn} onClick={() => openDetail(r.orderId, r.orderNumber)}>
-                        {r.orderNumber.slice(0, 8)}
+                        {r.orderNumber}
                       </button>
                       {r.hasEdits && (
                         <span className={styles.editedBadge} title="This order has edited or removed items">

@@ -35,6 +35,7 @@
 
 create or replace function list_orders(
   p_status text default null, -- 'active' | 'completed' | 'cancelled' | null (all)
+  p_search text default null, -- substring match against the order id (case-insensitive)
   p_from date default null,
   p_to date default null,
   p_page integer default 1,
@@ -42,7 +43,7 @@ create or replace function list_orders(
 )
 returns table (
   order_id uuid,
-  order_number numeric,
+  order_number text,
   order_type text,
   created_at timestamptz,
   item_count bigint,
@@ -73,15 +74,17 @@ as $$
     where o.outlet_id = c.outlet_id
       and (
         p_status is null
-        or (p_status = 'active' and o.status = 'open')
+        or (p_status = 'active' and o.status = 'preparing')
         or (p_status = 'completed' and o.status = 'completed')
         or (p_status = 'cancelled' and o.status = 'cancelled')
       )
+      and (p_search is null or p_search = '' or o.order_number::text ilike '%' || p_search || '%')
       and (p_from is null or o.created_at::date >= p_from)
       and (p_to is null or o.created_at::date <= p_to)
   )
   select
     b.order_id,
+    b.order_number,
     b.order_type,
     b.created_at,
     coalesce(
@@ -106,8 +109,7 @@ as $$
   offset greatest(p_page - 1, 0) * greatest(p_page_size, 1);
 $$;
 
-grant execute on function list_orders(text, date, date, integer, integer) to authenticated;
-
+grant execute on function list_orders(text, text, date, date, integer, integer) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- get_order_detail(): all items for one order, including soft-deleted ones
