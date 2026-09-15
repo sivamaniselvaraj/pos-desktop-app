@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'fs';
 import { startHttpServer, stopHttpServer } from './httpServer';
 import { registerIpcHandlers } from './ipcHandlers';
 import { startKotReconciliation, stopKotReconciliation } from './kotReconciliation';
+import { startMenuCache } from './menuCache';
 
 // Minimal .env.local loader (avoids an extra dependency).
 function loadEnv(): void {
@@ -74,6 +75,9 @@ app.whenReady().then(async () => {
   // it to the printer because the app was down when it should have fired.
   // See kotReconciliation.ts for the full design and its constraints.
   startKotReconciliation();
+    // Populates the in-memory menu cache now, then refreshes every 5 minutes.
+    // See menuCache.ts.
+    startMenuCache();
   createWindow();
 
   app.on('activate', () => {

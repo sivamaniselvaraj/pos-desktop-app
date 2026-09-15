@@ -201,6 +201,21 @@ export interface OrderActivityLogEntry {
   reason?: string;
 }
 
+/**
+ * A menu item's shape is deliberately NOT fixed here — menu_items' real
+ * columns beyond id/name have never been confirmed anywhere in this project
+ * (see get_menu_items_for_outlet's comment in db/functions.sql). Each item
+ * is whatever JSON object the database actually returns; the Menu page
+ * renders whichever keys are present rather than assuming specific fields.
+ */
+export type MenuItemRecord = Record<string, unknown>;
+
+export interface MenuCacheSnapshot {
+  items: MenuItemRecord[];
+  lastRefreshedAt: string | null;
+  lastError: string | null;
+}
+
 export interface CreateUserPayload {
   email: string;
   password: string;
@@ -276,6 +291,8 @@ export const IpcChannels = {
   COMPLETE_ORDER: 'complete-order',
   REPRINT_ORDER: 'reprint-order',
   GET_ORDER_ACTIVITY_LOG: 'get-order-activity-log',
+  GET_MENU_ITEMS: 'get-menu-items',
+  REFRESH_MENU_CACHE: 'refresh-menu-cache',
   TEST_PRINT: 'test-print',
   // settings (renderer -> main, invoke)
   GET_SETTINGS: 'get-settings',
@@ -317,6 +334,8 @@ export interface ElectronApi {
   completeOrder(orderId: string): Promise<void>;
   reprintOrder(orderId: string): Promise<void>;
   getOrderActivityLog(orderId: string): Promise<OrderActivityLogEntry[]>;
+  getMenuItems(): Promise<MenuCacheSnapshot>;
+  refreshMenuCache(): Promise<MenuCacheSnapshot>;
   testPrint(target?: string): Promise<string>;
   getSettings(): Promise<Record<string, string>>;
   updateSettings(printerType: string, deviceName: string): Promise<void>;

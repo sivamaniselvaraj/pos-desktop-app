@@ -7,6 +7,7 @@ import { signIn, signOut, getCurrentUser } from './authManager';
 import { listUsers, listOutlets, createUser, updateUser, setUserActive } from './userAdmin';
 import { getAllPrinters, updatePrinter, removePrinter, getMaxPrinters } from './settingsManager';
 import { exportSalesReport } from './reportExport';
+import { getCachedMenuItems, refreshMenuCache } from './menuCache';
 import { config } from './config';
 import { IpcChannels } from '../shared/types';
 import type {
@@ -102,6 +103,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.GET_ORDER_ACTIVITY_LOG, (_e, orderId: string) =>
     getOrderActivityLog(orderId),
   );
+  // Menu cache: getCachedMenuItems() is synchronous (no DB call) — wrapped
+    // in Promise.resolve() only so it matches the async invoke() contract.
+    ipcMain.handle(IpcChannels.GET_MENU_ITEMS, () => Promise.resolve(getCachedMenuItems()));
+    ipcMain.handle(IpcChannels.REFRESH_MENU_CACHE, () => refreshMenuCache());
 
   // main -> renderer (forward manager events to the active window)
   const send = (channel: string, payload: unknown) => {

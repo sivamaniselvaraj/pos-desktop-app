@@ -152,6 +152,22 @@ export async function fetchOutletById(outletId: string): Promise<OutletInfo | nu
   return mapOutlet(data as Record<string, unknown>);
 }
 
+export async function fetchMenuItemsForOutlet(outletId:string): Promise<Record<string, unknown>[]> {
+
+    const supabase = getClient();
+  if (!supabase)
+    throw new Error('Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.');
+
+    const { data, error } = await supabase.rpc('get_menu_items_for_outlet', {
+      p_outlet_id: outletId,
+    });
+    if (error) throw new Error(error.message);
+
+     if (!data) return [];
+    return (data ?? []) as Record<string, unknown>[];
+   
+}
+
 // ============================================================================
 // KOT / SETTLE data access
 // ============================================================================

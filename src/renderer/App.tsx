@@ -12,6 +12,7 @@ import { useAuth } from './context/AuthContext';
 import styles from './styles/App.module.css';
 import { UserManagement } from './pages/UserManagement';
 import { OrdersList } from './pages/OrdersList';
+import { MenuItemsPage } from './pages/MenuItems';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -44,6 +45,7 @@ export default function App() {
           {page === 'sales-report' && <SalesReport />}
           {page === 'orders-list' && <OrdersList />}
           {page === 'users' && <UserManagement />}
+          {page === 'menu-items' && <MenuItemsPage />}
           {page === 'about' && <About />}
         </div>
       </main>

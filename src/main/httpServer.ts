@@ -7,6 +7,7 @@ import { orderManager } from './orderManager';
 import { printQueue } from './printQueue';
 import { isDatabaseReachable } from './supabaseClient';
 import { fetchOrderById } from './supabaseClient';
+import { getCachedMenuItems } from './menuCache';
 import type { PrintOrderRequest } from '../shared/types';
 
 let server: Server | null = null;
@@ -108,6 +109,16 @@ const machineLimiter = rateLimit({
       res.status(500).json({ error: message });
     }
   });
+    // Menu, served from the in-memory cache (menuCache.ts) — no Supabase call
+    // happens on this request path. Android calls this instead of querying
+    // Supabase directly. items may be stale (if the last background refresh
+    // failed) rather than empty — see menuCache.ts's comment on why that's the
+    // preferred failure mode. lastRefreshedAt/lastError let Android surface a
+    // "menu may be outdated" indicator if it wants to.
+    app.get('/api/menu-items', (_req, res) => {
+      const { items, lastRefreshedAt, lastError } = getCachedMenuItems();
+      res.json({ items, lastRefreshedAt, lastError });
+    });
 
   return new Promise((resolve, reject) => {
     server = app

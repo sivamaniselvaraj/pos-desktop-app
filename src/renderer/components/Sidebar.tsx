@@ -63,6 +63,7 @@ export function Sidebar({ active, onNavigate, printers }: SidebarProps) {
     ...(canViewOrdersList
       ? [{ id: 'orders-list', label: 'Orders', icon: 'print' as IconName }]
       : []),
+       { id: 'menu-items', label: 'Menu Items', icon: 'menu' as IconName },
     ...(canViewReports
       ? [{ id: 'sales-report', label: 'Sales Report', icon: 'reports' as IconName }]
       : []),

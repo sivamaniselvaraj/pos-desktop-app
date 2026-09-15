@@ -86,6 +86,25 @@ export const config = {
       serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? '',
     };
   },
+  // Which outlet THIS machine serves. Deliberately never read from
+  // embeddedConfig — unlike SUPABASE_URL/ANON_KEY (the same value for every
+  // install of this app), this is different per physical machine, so
+  // baking one into a shared installer would silently misconfigure every
+  // install except whichever machine's value happened to get baked in.
+  // Set only via a machine-local .env.local. (scripts/embed-config.js
+  // already warns and ignores unrecognized .env.build keys, which covers
+  // OUTLET_ID automatically since it's intentionally not in that script's
+  // safe-keys list.)
+  //
+  // Exists specifically so outlet-scoped background work (menu caching,
+  // KOT reconciliation) can resolve an outlet WITHOUT requiring anyone to
+  // be logged into the desktop UI at that moment — unlike the admin pages
+  // (Sales Report, Orders List, User Management), which all resolve outlet
+  // via the signed-in user's profile and can tolerate pausing while logged
+  // out, a menu endpoint Android depends on all day cannot.
+  get outletId(): string {
+    return process.env.OUTLET_ID ?? '';
+  },
   // Each of these reads the ENV fallback fresh on every access (never
   // cached) and only falls back to it when settings.json has no value yet.
   get cashierPrinter(): string {

@@ -9,13 +9,14 @@ import type {
   PrintOrderResponse,
   SalesReportRow,
   TopItemRow,
+  ExportResult,
   ManagedUser,
   OutletOption,
   OrderListPage,
   OrderDetailItem,
   OrderActivityLogEntry,
-  ServerStatus,
-  ExportResult,
+  MenuCacheSnapshot,
+  ServerStatus,  
 } from './shared/types';
 
 // Helper to subscribe to a main->renderer channel and return an unsubscribe fn.
@@ -66,6 +67,10 @@ const api: ElectronApi = {
       ipcRenderer.invoke(IpcChannels.GET_ORDER_ACTIVITY_LOG, orderId) as Promise<
         OrderActivityLogEntry[]
       >,
+      getMenuItems: () =>
+          ipcRenderer.invoke(IpcChannels.GET_MENU_ITEMS) as Promise<MenuCacheSnapshot>,
+        refreshMenuCache: () =>
+          ipcRenderer.invoke(IpcChannels.REFRESH_MENU_CACHE) as Promise<MenuCacheSnapshot>,
   testPrint: (target) => ipcRenderer.invoke(IpcChannels.TEST_PRINT, target) as Promise<string>,
   getSettings: () =>
     ipcRenderer.invoke(IpcChannels.GET_SETTINGS) as Promise<Record<string, string>>,
