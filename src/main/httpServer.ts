@@ -4,6 +4,7 @@ import rateLimit from 'express-rate-limit';
 import type { Server } from 'http';
 import { config } from './config';
 import { orderManager } from './orderManager';
+import { printQueue } from './printQueue';
 import { isDatabaseReachable } from './supabaseClient';
 import { fetchOrderById } from './supabaseClient';
 import type { PrintOrderRequest } from '../shared/types';
@@ -77,7 +78,12 @@ const machineLimiter = rateLimit({
       });
     }
     try {
-      const result = await orderManager.handleIncoming(body.orderId, type);
+      //const result = await orderManager.handleIncoming(body.orderId, type);
+      // Every incoming print request is queued and processed strictly one
+      // at a time — see printQueue.ts. This request's HTTP response still
+      // waits for its own turn to run and complete; it just can't overlap
+      // with another request's printer I/O while it's in the queue.
+      const result = await printQueue.enqueue(() => orderManager.handleIncoming(body.orderId, type));
       res.status(result.success ? 200 : 502).json(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';

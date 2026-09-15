@@ -1,6 +1,7 @@
 import { getAuthedClient } from './supabaseAuthClient';
 import { fetchOrderById, fetchAggregatedItems } from './supabaseClient';
 import { printOrderEscpos } from './printerManager';
+import { printQueue } from './printQueue';
 import type {
   OrderListFilter,
   OrderListPage,
@@ -140,15 +141,17 @@ export async function completeOrder(orderId: string): Promise<void> {
  * prints normally — no state to track, no session counting.
  */
 export async function reprintOrder(orderId: string): Promise<void> {
-  const order = await fetchOrderById(orderId);
-  if (!order) throw new Error(`Order ${orderId} not found.`);
+  await printQueue.enqueue(async () => {
+    const order = await fetchOrderById(orderId);
+    if (!order) throw new Error(`Order ${orderId} not found.`);
 
-  // Same aggregation settle uses: non-deleted items only, merged by dish so
-  // an edited quantity or a deleted line reflects correctly on the reprint.
-  const items = await fetchAggregatedItems(orderId);
-  const billOrder = { ...order, items };
+    // Same aggregation settle uses: non-deleted items only, merged by dish so
+    // an edited quantity or a deleted line reflects correctly on the reprint.
+    const items = await fetchAggregatedItems(orderId);
+    const billOrder = { ...order, items };
 
-  const isDuplicate = order.status === 'completed';
+    const isDuplicate = order.status === 'completed';
 
-  await printOrderEscpos(billOrder, 'Cashier', isDuplicate);
+    await printOrderEscpos(billOrder, 'Cashier', isDuplicate);
+  });
 }

@@ -472,3 +472,47 @@ as $$
 $$;
 
 grant execute on function get_order_activity_log(uuid) to authenticated;
+
+-- ============================================================================
+-- find_orders_with_pending_kot(): discovery query for startup/interval
+-- reconciliation (see src/main/kotReconciliation.ts)
+-- ============================================================================
+-- Finds open orders in the caller's outlet that have at least one non-deleted
+-- item still unprinted to the kitchen (kot_printed = false) — i.e. orders
+-- whose KOT never made it to the printer, most likely because the app
+-- crashed or was offline when the confirm/KOT request should have fired.
+--
+-- Requires a signed-in session to resolve which outlet to scope to (same
+-- auth.uid() -> profiles.outlet_id pattern as every other admin RPC in this
+-- file) — there is currently no outlet binding independent of a logged-in
+-- user (this is the still-open "#4 seam" noted elsewhere: reconciliation
+-- can only run effectively while someone is logged in; if no session
+-- exists, this returns empty and the caller skips that cycle, trying again
+-- in 30s. Nothing is lost in the meantime — kot_printed stays false in the
+-- database exactly as it already would.
+--
+-- Deliberately does NOT print anything itself — this is discovery only. The
+-- actual printing reuses orderManager.handleIncoming(orderId, 'kot'), the
+-- exact same anon-client, no-login-required path Android's normal confirm
+-- request already uses, so a discovered order is processed identically to
+-- one that arrived normally.
+create or replace function find_orders_with_pending_kot()
+returns table (order_id uuid, order_type text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select distinct o.id as order_id, o.order_type
+  from orders o
+  join profiles p on p.user_id = auth.uid()
+  where p.role in ('manager', 'owner', 'admin')
+    and p.outlet_id = o.outlet_id
+    and o.status = 'open'
+    and exists (
+      select 1 from order_items oi
+      where oi.order_id = o.id and not oi.is_deleted and not oi.kot_printed
+    );
+$$;
+
+grant execute on function find_orders_with_pending_kot() to authenticated;
