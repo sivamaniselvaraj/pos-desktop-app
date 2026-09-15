@@ -140,3 +140,23 @@
   margin-bottom: 16px;
   font-size: 13px;
 }
+.chartTooltip {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 8px 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  font-size: 13px;
+}
+
+.chartTooltipLabel {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.chartTooltipOrders {
+  color: #888;
+  font-size: 12px;
+  margin-top: 2px;
+}

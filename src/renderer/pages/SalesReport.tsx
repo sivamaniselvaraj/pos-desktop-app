@@ -14,6 +14,38 @@ function formatCurrency(n: number): string {
   return `₹ ${n.toFixed(2)}`;
 }
 
+// Custom tooltip (not just Tooltip's `formatter` prop) because we need to
+// show orderCount alongside the amount — formatter only customizes the
+// value string for the plotted Bar series itself, it can't add an
+// unrelated extra line. chartData carries orderCount per point specifically
+// so it's available here even though only `amount` is actually plotted.
+interface ChartTooltipPayload {
+  date: string;
+  amount: number;
+  orderCount: number;
+}
+function ChartTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: ChartTooltipPayload }>;
+  label?: string;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const point = payload[0].payload;
+  return (
+    <div className={styles.chartTooltip}>
+      <div className={styles.chartTooltipLabel}>{label}</div>
+      <div>{formatCurrency(point.amount)}</div>
+      <div className={styles.chartTooltipOrders}>
+        {point.orderCount} order{point.orderCount === 1 ? '' : 's'}
+      </div>
+    </div>
+  );
+}
+
 function presetRange(mode: Mode): { from: string; to: string } {
   const today = new Date();
   if (mode === 'daily') {
@@ -122,7 +154,7 @@ export function SalesReport() {
   }, [rows]);
 
   const chartData = useMemo(
-    () => rows.map((r) => ({ date: r.date, amount: r.netTotal })),
+    () => rows.map((r) => ({ date: r.date, amount: r.netTotal, orderCount:r.orderCount })),
     [rows],
   );
 
@@ -224,7 +256,7 @@ export function SalesReport() {
                     label={{ value: 'Amount (₹)', angle: -90, position: 'insideLeft' }}
                     tickFormatter={(v: number) => v.toLocaleString('en-IN')}
                   />
-                  <Tooltip formatter={(v) => formatCurrency(typeof v === 'number' ? v : Number(v ?? 0))} />
+                  <Tooltip content={<ChartTooltip />} />
                   <Bar dataKey="amount" fill="#4CAF50" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
