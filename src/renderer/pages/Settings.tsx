@@ -79,6 +79,7 @@ export function Settings() {
 
   async function handleTestPrint(role: string) {
     const device = configs[roleKey(role)];
+    console.log("device", role, device)
     if (!device) {
       flash('error', `Select a printer for ${role} first`);
       return;

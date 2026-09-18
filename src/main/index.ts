@@ -77,7 +77,7 @@ app.whenReady().then(async () => {
   startKotReconciliation();
     // Populates the in-memory menu cache now, then refreshes every 5 minutes.
     // See menuCache.ts.
-    startMenuCache();
+  startMenuCache();
   createWindow();
 
   app.on('activate', () => {

@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import { config } from './config';
 import type { FoodOrder, HeaderConfig, PrinterInfo } from '../shared/types';
 import { CharacterSet, PrinterTypes, ThermalPrinter, printer } from 'node-thermal-printer';
+import { fetchOrderById } from './supabaseClient';
 
 const electron = typeof process !== 'undefined' && process.versions && !!process.versions.electron;
 
@@ -269,9 +270,16 @@ function line(printer: RawPrinter & { newLine(): void }, text: string): void {
  */
 export async function testPrint(target?: string): Promise<string> {
   const name = (target ?? config.cashierPrinter ?? '').trim();
+
   if (!name) {
     throw new Error('No printer selected. Choose a printer first.');
   }
+
+  console.log("testPrint ", name)
+  const orderId = '03c64641-6c67-4687-8372-264e108d9811';
+  const order = await fetchOrderById(orderId);
+  if (!order) throw new Error(`Order ${orderId} not found.`);
+  printOrder(order, name);
 
   try {
     const printer = loadPrinterDriver(name);
@@ -922,8 +930,8 @@ function padLeft(text: string, width: number): string {
 
 // ---- Printing ------------------------------------------------------------
 
-export async function printOrder(order: FoodOrder): Promise<void> {
-  const printerName = config.kitchenPrinter;
+export async function printOrder(order: FoodOrder, printerName: string): Promise<void> {
+  //const printerName = config.kitchenPrinter;
   const receipt = formatReceipt(order);
   const tmpFile = join(tmpdir(), `order-${order.orderId}-${randomUUID()}.txt`);
   await writeFile(tmpFile, receipt, 'utf8');

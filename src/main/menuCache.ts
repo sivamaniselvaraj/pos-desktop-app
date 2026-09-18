@@ -30,7 +30,7 @@ let items: Record<string, unknown>[] = [];
 let lastRefreshedAt: string | null = null;
 let lastError: string | null = null;
 
-const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes — menu changes are rare, unlike KOT tickets
+const REFRESH_INTERVAL_MS = 30 * 60 * 1000; // 5 minutes — menu changes are rare, unlike KOT tickets
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 
 /** Current cache contents — synchronous, no network/DB call. */
