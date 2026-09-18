@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { PrinterInfo, ServerStatus } from '@shared/types';
+import type { PrinterInfo } from '@shared/types';
 import { Icon } from '../components/Icon';
 import styles from '../styles/Settings.module.css';
 
@@ -7,11 +7,6 @@ interface PrinterConfigs {
   [key: string]: string; // e.g., { printer_kitchen: "USB001", printer_cashier: "COM1" }
 }
 
-interface PrinterEntry {
-  type: string; // Display name: "Kitchen Printer"
-  key: string; // Storage key: "printer_kitchen"
-  device: string; // Device: "USB001"
-}
 
 // Fixed printer roles — no add/remove; each always exists as a row, the
 // operator just assigns which installed printer it maps to.
@@ -26,8 +21,6 @@ function roleKey(role: string): string {
 
 
 export function Settings() {
-  const [printers, setPrinters] = useState<PrinterInfo[]>([]);
-  const [server, setServer] = useState<ServerStatus | null>(null);
 
   const [configs, setConfigs] = useState<PrinterConfigs>({});
     // Separate from `configs` (the SAVED mapping) — this is what the dropdowns
