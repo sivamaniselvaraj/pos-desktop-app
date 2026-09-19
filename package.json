@@ -83,11 +83,6 @@
           ]
         },
         "portable"
-      ],
-      "certificateFile": null,
-      "certificatePassword": null,
-      "signingHashAlgorithms": [
-        "sha256"
       ]
     },
     "nsis": {
