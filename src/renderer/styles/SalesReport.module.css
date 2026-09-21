@@ -160,3 +160,25 @@
   font-size: 12px;
   margin-top: 2px;
 }
+.shortcutsRow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.shortcutBtn {
+  padding: 6px 14px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 16px;
+  font-size: 12px;
+  color: #444;
+  cursor: pointer;
+}
+
+.shortcutBtn:hover {
+  background: #f0f8f0;
+  border-color: #4CAF50;
+  color: #2e7d32;
+}

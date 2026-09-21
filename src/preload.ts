@@ -9,6 +9,8 @@ import type {
   PrintOrderResponse,
   SalesReportRow,
   TopItemRow,
+  SalesByOrderTypeRow,
+  SalesByTypeBucketRow,
   ExportResult,
   ManagedUser,
   OutletOption,
@@ -16,6 +18,7 @@ import type {
   OrderDetailItem,
   OrderActivityLogEntry,
   MenuCacheSnapshot,
+  TableCard,
   ServerStatus,  
 } from './shared/types';
 
@@ -41,6 +44,14 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.GET_SALES_REPORT, from, to, bucket) as Promise<SalesReportRow[]>,
   getTopItems: (from, to) =>
     ipcRenderer.invoke(IpcChannels.GET_TOP_ITEMS, from, to) as Promise<TopItemRow[]>,
+  getSalesByOrderType: (from, to) =>
+    ipcRenderer.invoke(IpcChannels.GET_SALES_BY_ORDER_TYPE, from, to) as Promise<
+      SalesByOrderTypeRow[]
+    >,
+  getSalesByTypeBucketed: (from, to, bucket) =>
+    ipcRenderer.invoke(IpcChannels.GET_SALES_BY_TYPE_BUCKETED, from, to, bucket) as Promise<
+      SalesByTypeBucketRow[]
+    >,
   exportSalesReport: (payload) =>
     ipcRenderer.invoke(IpcChannels.EXPORT_SALES_REPORT, payload) as Promise<ExportResult>,
   listUsers: () => ipcRenderer.invoke(IpcChannels.LIST_USERS) as Promise<ManagedUser[]>,
@@ -71,6 +82,13 @@ const api: ElectronApi = {
           ipcRenderer.invoke(IpcChannels.GET_MENU_ITEMS) as Promise<MenuCacheSnapshot>,
         refreshMenuCache: () =>
           ipcRenderer.invoke(IpcChannels.REFRESH_MENU_CACHE) as Promise<MenuCacheSnapshot>,
+  setMenuItemActive: (menuItemId, isActive) =>
+    ipcRenderer.invoke(IpcChannels.SET_MENU_ITEM_ACTIVE, menuItemId, isActive) as Promise<
+      MenuCacheSnapshot
+    >,
+  listTables: () => ipcRenderer.invoke(IpcChannels.LIST_TABLES) as Promise<TableCard[]>,
+  createTable: (tableNumber) =>
+    ipcRenderer.invoke(IpcChannels.CREATE_TABLE, tableNumber) as Promise<void>,
   testPrint: (target) => ipcRenderer.invoke(IpcChannels.TEST_PRINT, target) as Promise<string>,
   getSettings: () =>
     ipcRenderer.invoke(IpcChannels.GET_SETTINGS) as Promise<Record<string, string>>,

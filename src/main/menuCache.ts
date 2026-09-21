@@ -1,4 +1,5 @@
 import { config } from './config';
+import { getAuthedClient } from './supabaseAuthClient';
 import { fetchMenuItemsForOutlet } from './supabaseClient';
 
 /**
@@ -70,6 +71,28 @@ try {
   }
   
   return getCachedMenuItems();
+}
+
+/**
+ * Toggle a menu item on/off — the "item ran out" use case. Admin-gated
+ * write, so this uses the SESSION client (getAuthedClient), unlike
+ * refreshMenuCache's anon-client read above. Immediately re-refreshes the
+ * cache on success so Android sees the change right away rather than
+ * waiting up to 5 minutes for the next scheduled refresh — that delay would
+ * defeat the entire point of an "it just ran out, take it off now" toggle.
+ */
+export async function setMenuItemActive(
+  menuItemId: string,
+  isActive: boolean,
+): Promise<MenuCacheState> {
+  const supabase = getAuthedClient();
+  const { error } = await supabase.rpc('set_menu_item_active', {
+    p_menu_item_id: menuItemId,
+    p_is_active: isActive,
+  });
+  if (error) throw new Error(error.message);
+
+  return refreshMenuCache();
 }
 
 /** Call once during app startup. Refreshes immediately, then every 5 minutes. */

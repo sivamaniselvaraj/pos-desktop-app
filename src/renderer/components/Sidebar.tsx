@@ -59,16 +59,16 @@ export function Sidebar({ active, onNavigate, printers }: SidebarProps) {
   // conditional items are inserted between History and Settings in that order.
   const canViewOrdersList = !!role && ORDERS_LIST_ROLES.includes(role);
   const navItems: NavItem[] = [
-    ...NAV.slice(0, 2),
+    ...NAV.slice(0, 1),
     ...(canViewOrdersList
       ? [{ id: 'orders-list', label: 'Orders', icon: 'print' as IconName }]
       : []),
+      ...(canManageUsers ? [{ id: 'users', label: 'Users', icon: 'users' as IconName }] : []),
        { id: 'menu-items', label: 'Menu Items', icon: 'menu' as IconName },
     ...(canViewReports
       ? [{ id: 'sales-report', label: 'Sales Report', icon: 'reports' as IconName }]
       : []),
-    ...(canManageUsers ? [{ id: 'users', label: 'Users', icon: 'users' as IconName }] : []),
-    ...NAV.slice(2),
+    ...NAV.slice(1),
   ];
 
   return (

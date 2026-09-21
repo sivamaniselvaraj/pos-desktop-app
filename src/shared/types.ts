@@ -40,7 +40,6 @@ export interface FoodOrder {
   orderId: string;
   orderNumber: number;
   tokenNumber: number;
-  tableNumber: number;
   outlet?: OutletInfo;
   customerName: string;
   customerPhone?: string;
@@ -55,6 +54,7 @@ export interface FoodOrder {
   orderType: OrderType;
   specialNotes?: string;
   createdAt: string;
+  tableNumber: number;
   /** 'open' | 'completed' | 'cancelled' — used e.g. to decide the DUPLICATE BILL banner on reprint. */
   status?: string;
   /** Raw header/footer config (JSON string or object) for the receipt. */
@@ -103,6 +103,18 @@ export interface TopItemRow {
   name: string;
   quantitySold: number;
   revenue: number;
+}
+
+export interface SalesByOrderTypeRow {
+  orderType: string;
+  orderCount: number;
+}
+
+export interface SalesByTypeBucketRow {
+  date: string;
+  dineInCount: number;
+  pickupCount: number;
+  deliveryCount: number;
 }
 
 export type ReportExportFormat = 'csv' | 'xlsx';
@@ -210,6 +222,20 @@ export interface OrderActivityLogEntry {
  */
 export type MenuItemRecord = Record<string, unknown>;
 
+export type TableCardStatus = 'active' | 'settled' | 'available';
+
+export interface TableCard {
+  tableId: string;
+  tableNumber: string;
+  tableState: string;
+  orderId?: string;
+  orderStatus?: string;
+  orderCreatedAt?: string;
+  orderTotalAmount?: number;
+  /** Derived client-side from orderStatus — 'available' when there's no recent order at all. */
+  cardStatus: TableCardStatus;
+}
+
 export interface MenuCacheSnapshot {
   items: MenuItemRecord[];
   lastRefreshedAt: string | null;
@@ -277,6 +303,8 @@ export const IpcChannels = {
   //report (renderer -> main, invoke)
   GET_SALES_REPORT: 'get-sales-report',
   GET_TOP_ITEMS: 'get-top-items',
+  GET_SALES_BY_ORDER_TYPE: 'get-sales-by-order-type',
+  GET_SALES_BY_TYPE_BUCKETED: 'get-sales-by-type-bucketed',
   EXPORT_SALES_REPORT: 'export-sales-report',
   LIST_USERS: 'list-users',
   LIST_OUTLETS: 'list-outlets',
@@ -293,6 +321,9 @@ export const IpcChannels = {
   GET_ORDER_ACTIVITY_LOG: 'get-order-activity-log',
   GET_MENU_ITEMS: 'get-menu-items',
   REFRESH_MENU_CACHE: 'refresh-menu-cache',
+  SET_MENU_ITEM_ACTIVE: 'set-menu-item-active',
+  LIST_TABLES: 'list-tables',
+  CREATE_TABLE: 'create-table',
   TEST_PRINT: 'test-print',
   // settings (renderer -> main, invoke)
   GET_SETTINGS: 'get-settings',
@@ -320,6 +351,12 @@ export interface ElectronApi {
   getPrinters(): Promise<PrinterInfo[]>;
   getSalesReport(from: string, to: string, bucket: ReportBucket): Promise<SalesReportRow[]>;
   getTopItems(from: string, to: string): Promise<TopItemRow[]>;
+  getSalesByOrderType(from: string, to: string): Promise<SalesByOrderTypeRow[]>;
+  getSalesByTypeBucketed(
+    from: string,
+    to: string,
+    bucket: ReportBucket,
+  ): Promise<SalesByTypeBucketRow[]>;
   exportSalesReport(payload: SalesReportExportPayload): Promise<ExportResult>;
   listUsers(): Promise<ManagedUser[]>;
   listOutlets(): Promise<OutletOption[]>;
@@ -336,6 +373,9 @@ export interface ElectronApi {
   getOrderActivityLog(orderId: string): Promise<OrderActivityLogEntry[]>;
   getMenuItems(): Promise<MenuCacheSnapshot>;
   refreshMenuCache(): Promise<MenuCacheSnapshot>;
+  setMenuItemActive(menuItemId: string, isActive: boolean): Promise<MenuCacheSnapshot>;
+  listTables(): Promise<TableCard[]>;
+  createTable(tableNumber: string): Promise<void>;
   testPrint(target?: string): Promise<string>;
   getSettings(): Promise<Record<string, string>>;
   updateSettings(printerType: string, deviceName: string): Promise<void>;

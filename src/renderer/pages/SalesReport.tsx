@@ -1,6 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import type { ReportBucket, ReportExportFormat, SalesReportRow, TopItemRow } from '@shared/types';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
+import type {
+  ReportBucket,
+  ReportExportFormat,
+  SalesReportRow,
+  TopItemRow,
+  SalesByOrderTypeRow,
+  SalesByTypeBucketRow,
+} from '@shared/types';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/SalesReport.module.css';
 
@@ -12,6 +28,15 @@ function toIsoDate(d: Date): string {
 
 function formatCurrency(n: number): string {
   return `₹ ${n.toFixed(2)}`;
+}
+
+// 'pickup' displays as "Takeaway" to match how the business refers to it,
+// even though the stored order_type value is 'pickup'.
+function orderTypeLabel(orderType: string): string {
+  if (orderType === 'dine_in') return 'Dine-in';
+  if (orderType === 'takeway') return 'Takeaway';
+  if (orderType === 'delivery') return 'Delivery';
+  return orderType;
 }
 
 // Custom tooltip (not just Tooltip's `formatter` prop) because we need to
@@ -62,6 +87,55 @@ function presetRange(mode: Mode): { from: string; to: string } {
   return { from: toIsoDate(from), to: toIsoDate(today) };
 }
 
+type Shortcut = 'today' | 'yesterday' | 'thisWeek' | 'lastWeek' | 'thisMonth';
+
+const SHORTCUTS: { key: Shortcut; label: string }[] = [
+  { key: 'today', label: 'Today' },
+  { key: 'yesterday', label: 'Yesterday' },
+  { key: 'thisWeek', label: 'This Week' },
+  { key: 'lastWeek', label: 'Last Week' },
+  { key: 'thisMonth', label: 'This Month' },
+];
+
+// Week starts Monday (ISO 8601) — not explicitly confirmed with the user,
+// stated here so it's easy to flip to Sunday-start if that's actually wanted.
+function startOfWeek(d: Date): Date {
+  const day = d.getDay(); // 0=Sun..6=Sat
+  const diffToMonday = (day === 0 ? -6 : 1) - day;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diffToMonday);
+  return monday;
+}
+
+function shortcutRange(shortcut: Shortcut): { from: string; to: string } {
+  const today = new Date();
+
+  if (shortcut === 'today') {
+    return { from: toIsoDate(today), to: toIsoDate(today) };
+  }
+  if (shortcut === 'yesterday') {
+    const y = new Date(today);
+    y.setDate(y.getDate() - 1);
+    return { from: toIsoDate(y), to: toIsoDate(y) };
+  }
+  if (shortcut === 'thisWeek') {
+    // Monday of this week through today — not the full week, since the rest
+    // of it hasn't happened yet.
+    return { from: toIsoDate(startOfWeek(today)), to: toIsoDate(today) };
+  }
+  if (shortcut === 'lastWeek') {
+    const thisMonday = startOfWeek(today);
+    const lastMonday = new Date(thisMonday);
+    lastMonday.setDate(lastMonday.getDate() - 7);
+    const lastSunday = new Date(thisMonday);
+    lastSunday.setDate(lastSunday.getDate() - 1);
+    return { from: toIsoDate(lastMonday), to: toIsoDate(lastSunday) };
+  }
+  // thisMonth
+  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  return { from: toIsoDate(firstOfMonth), to: toIsoDate(today) };
+}
+
 // Which bucket to request from the RPC for the active mode/range. Daily and
 // Monthly modes map directly; Custom auto-picks day vs month based on span so
 // a long custom range stays readable.
@@ -77,6 +151,8 @@ export function SalesReport() {
   const [range, setRange] = useState(() => presetRange('daily'));
   const [rows, setRows] = useState<SalesReportRow[]>([]);
   const [topItems, setTopItems] = useState<TopItemRow[]>([]);
+  const [typeStats, setTypeStats] = useState<SalesByOrderTypeRow[]>([]);
+  const [typeChartData, setTypeChartData] = useState<SalesByTypeBucketRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<ReportExportFormat | null>(null);
@@ -112,6 +188,11 @@ export function SalesReport() {
     setRange(presetRange(next));
   }
 
+  function selectShortcut(s: Shortcut) {
+    setMode('custom');
+    setRange(shortcutRange(s));
+  }
+
   const bucket = bucketFor(mode, range.from, range.to);
 
   useEffect(() => {
@@ -122,17 +203,23 @@ export function SalesReport() {
     Promise.all([
       window.api.getSalesReport(range.from, range.to, bucket),
       window.api.getTopItems(range.from, range.to),
+      window.api.getSalesByOrderType(range.from, range.to),
+      window.api.getSalesByTypeBucketed(range.from, range.to, bucket),
     ])
-      .then(([reportRows, items]) => {
+      .then(([reportRows, items, byType, byTypeBucketed]) => {
         if (cancelled) return;
         setRows(reportRows);
         setTopItems(items);
+        setTypeStats(byType);
+        setTypeChartData(byTypeBucketed);
       })
       .catch((err) => {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : 'Failed to load sales report');
         setRows([]);
         setTopItems([]);
+        setTypeStats([]);
+        setTypeChartData([]);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -154,13 +241,25 @@ export function SalesReport() {
   }, [rows]);
 
   const chartData = useMemo(
-    () => rows.map((r) => ({ date: r.date, amount: r.netTotal, orderCount:r.orderCount })),
+    () => rows.map((r) => ({ date: r.date, amount: r.netTotal, orderCount: r.orderCount })),
     [rows],
   );
 
   return (
     <div className={pageStyles.page}>
       <h2>Sales Report</h2>
+
+      <div className={styles.shortcutsRow}>
+        {SHORTCUTS.map((s) => (
+          <button
+            key={s.key}
+            className={styles.shortcutBtn}
+            onClick={() => selectShortcut(s.key)}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
 
       <div className={styles.filters}>
         <div className={styles.modeToggle}>
@@ -242,6 +341,12 @@ export function SalesReport() {
               <div className={styles.summaryLabel}>Avg Order Value</div>
               <div className={styles.summaryValue}>{formatCurrency(summary.avgOrderValue)}</div>
             </div>
+            {typeStats.map((t) => (
+              <div className={styles.summaryCard} key={t.orderType}>
+                <div className={styles.summaryLabel}>{orderTypeLabel(t.orderType)}</div>
+                <div className={styles.summaryValue}>{t.orderCount}</div>
+              </div>
+            ))}
           </div>
 
           <div className={styles.chartCard}>
@@ -258,6 +363,26 @@ export function SalesReport() {
                   />
                   <Tooltip content={<ChartTooltip />} />
                   <Bar dataKey="amount" fill="#4CAF50" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          <h3 className={styles.subheading}>Orders by Type</h3>
+          <div className={styles.chartCard}>
+            {typeChartData.length === 0 ? (
+              <p className={pageStyles.muted}>No completed orders in this range.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={typeChartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis allowDecimals={false} label={{ value: 'Orders', angle: -90, position: 'insideLeft' }} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="dineInCount" name="Dine-in" fill="#4CAF50" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="pickupCount" name="Takeaway" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="deliveryCount" name="Delivery" fill="#f59e0b" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}

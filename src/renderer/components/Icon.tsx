@@ -24,7 +24,8 @@ type IconName =
   | 'logout'
   | 'user'
   | 'users'
-  | 'edit';
+  | 'edit'
+  | 'view';
 
 interface IconProps {
   name: IconName;
@@ -280,6 +281,19 @@ const paths: Record<IconName, ReactElement> = {
       strokeLinejoin="round"
       d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
     />
+  ),
+  view: (
+    <>
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
+      />
+      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="2" />
+    </>
   ),
 };
 

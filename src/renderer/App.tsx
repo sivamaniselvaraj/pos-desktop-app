@@ -43,8 +43,8 @@ export default function App() {
           {page === 'settings' && <Settings />}
           {page === 'history' && <History />}
           {page === 'sales-report' && <SalesReport />}
-          {page === 'orders-list' && <OrdersList />}
           {page === 'users' && <UserManagement />}
+          {page === 'orders-list' && <OrdersList />}
           {page === 'menu-items' && <MenuItemsPage />}
           {page === 'about' && <About />}
         </div>

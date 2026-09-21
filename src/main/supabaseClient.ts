@@ -10,6 +10,8 @@ import type {
   ReportBucket,
   SalesReportRow,
   TopItemRow,
+  SalesByOrderTypeRow,
+  SalesByTypeBucketRow,
 } from '../shared/types';
 
 let client: SupabaseClient | null = null;
@@ -355,5 +357,49 @@ export async function fetchTopItems(from: string, to: string, limit = 10): Promi
     name: String(row.name ?? 'Item'),
     quantitySold: Number(row.quantity_sold ?? 0),
     revenue: Number(row.revenue ?? 0),
+  }));
+}
+
+/** Range totals per order type ('dine-in' | 'pickup' | 'delivery') — the summary stat cards. */
+export async function fetchSalesByOrderType(
+  from: string,
+  to: string,
+): Promise<SalesByOrderTypeRow[]> {
+  if (!isConfigured()) throw new Error('Supabase is not configured.');
+  const supabase = getAuthedClient();
+
+  const { data, error } = await supabase.rpc('get_sales_by_order_type', {
+    p_from: from,
+    p_to: to,
+  });
+  if (error) throw new Error(error.message);
+
+  return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+    orderType: String(row.order_type ?? ''),
+    orderCount: Number(row.order_count ?? 0),
+  }));
+}
+
+/** Per-bucket order-type counts, pre-pivoted server-side — the grouped bar chart. */
+export async function fetchSalesByTypeBucketed(
+  from: string,
+  to: string,
+  bucket: ReportBucket = 'day',
+): Promise<SalesByTypeBucketRow[]> {
+  if (!isConfigured()) throw new Error('Supabase is not configured.');
+  const supabase = getAuthedClient();
+
+  const { data, error } = await supabase.rpc('get_sales_by_type_bucketed', {
+    p_from: from,
+    p_to: to,
+    p_bucket: bucket,
+  });
+  if (error) throw new Error(error.message);
+
+  return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+    date: String(row.bucket_date ?? ''),
+    dineInCount: Number(row.dine_in_count ?? 0),
+    pickupCount: Number(row.pickup_count ?? 0),
+    deliveryCount: Number(row.delivery_count ?? 0),
   }));
 }

@@ -2,13 +2,15 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { orderManager } from './orderManager';
 import { getPrinters, testPrint } from './printerManager';
 import { isServerRunning } from './httpServer';
-import { isDatabaseReachable, fetchSalesReport, fetchTopItems } from './supabaseClient';
+import { isDatabaseReachable, fetchSalesReport, fetchTopItems, fetchSalesByOrderType, fetchSalesByTypeBucketed } from './supabaseClient';
 import { signIn, signOut, getCurrentUser } from './authManager';
 import { listUsers, listOutlets, createUser, updateUser, setUserActive } from './userAdmin';
 import { getAllPrinters, updatePrinter, removePrinter, getMaxPrinters } from './settingsManager';
 import { exportSalesReport } from './reportExport';
-import { getCachedMenuItems, refreshMenuCache } from './menuCache';
+import { getCachedMenuItems, refreshMenuCache, setMenuItemActive } from './menuCache';
+import { listTables, createTable } from './tablesManager';
 import { config } from './config';
+
 import { IpcChannels } from '../shared/types';
 import type {
   ServerStatus,
@@ -17,6 +19,7 @@ import type {
   UpdateUserPayload,
   OrderListFilter,
   EditOrderItemPayload,
+  ReportBucket,
 } from '../shared/types';
 import {
   cancelOrderWithReason,
@@ -74,6 +77,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.GET_TOP_ITEMS, (_e, from: string, to: string) =>
     fetchTopItems(from, to),
   );
+    ipcMain.handle(IpcChannels.GET_SALES_BY_ORDER_TYPE, (_e, from: string, to: string) =>
+      fetchSalesByOrderType(from, to),
+    );
+    ipcMain.handle(
+      IpcChannels.GET_SALES_BY_TYPE_BUCKETED,
+      (_e, from: string, to: string, bucket: ReportBucket) =>
+        fetchSalesByTypeBucketed(from, to, bucket),
+    );
   ipcMain.handle(IpcChannels.EXPORT_SALES_REPORT, (_e, payload: SalesReportExportPayload) =>
     exportSalesReport(getWindow(), payload),
   );
@@ -107,6 +118,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     // in Promise.resolve() only so it matches the async invoke() contract.
     ipcMain.handle(IpcChannels.GET_MENU_ITEMS, () => Promise.resolve(getCachedMenuItems()));
     ipcMain.handle(IpcChannels.REFRESH_MENU_CACHE, () => refreshMenuCache());
+  ipcMain.handle(
+    IpcChannels.SET_MENU_ITEM_ACTIVE,
+    (_e, menuItemId: string, isActive: boolean) => setMenuItemActive(menuItemId, isActive),
+  );
+
+  // Dashboard table cards
+  ipcMain.handle(IpcChannels.LIST_TABLES, () => listTables());
+  ipcMain.handle(IpcChannels.CREATE_TABLE, (_e, tableNumber: string) => createTable(tableNumber));
 
   // main -> renderer (forward manager events to the active window)
   const send = (channel: string, payload: unknown) => {
