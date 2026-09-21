@@ -210,7 +210,7 @@ export function Dashboard() {
           const mins = elapsedMinutes(table.orderCreatedAt, now);
           const busy = busyTableId === table.tableId;
           return (
-            <div key={table.tableId} className={`${styles.card} ${styles[table.cardStatus]}`}>
+            <div key={table.tableId} className={`${styles.card} ${styles[table.cardStatus]} ${styles[table.tableState]}`}>
               {table.tableState === 'available' ? (
                 <div className={styles.availableBody}>
                   <div className={styles.tableNumber}>{table.tableNumber}</div>
