@@ -74,8 +74,9 @@ class OrderManager extends EventEmitter {
   private async handleKot(orderId: string, order: FoodOrder): Promise<PrintOrderResponse> {
     let printerName = config.kitchenPrinter;
     if(order.orderType === 'dine-in'){
-    printerName = config.waiterPrinter;;
+      printerName = config.waiterPrinter;;
     }
+    console.log("printerName ", printerName)
     if (!printerName) {
       const msg = 'No printer configured. Add a "Waiter/Kitchen" printer in Settings to print KOTs.';
       this.cacheForDisplay({ ...order, printStatus: 'failed', errorMessage: msg, retryCount: 0 });
