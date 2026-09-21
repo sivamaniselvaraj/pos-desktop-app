@@ -5,6 +5,7 @@ type IconName =
   | 'dashboard'
   | 'history'
   | 'reports'
+  | 'orders'
   | 'settings'
   | 'info'
   | 'menu'
@@ -63,6 +64,13 @@ const paths: Record<IconName, ReactElement> = {
       <rect x="6" y="12" width="3" height="7" fill="currentColor" />
       <rect x="11" y="8" width="3" height="11" fill="currentColor" />
       <rect x="16" y="4" width="3" height="15" fill="currentColor" />
+    </>
+  ),
+  orders: (
+    <>
+    <path fill="none"
+        stroke="currentColor"
+        strokeWidth="2" d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z M3.27 6.96L12 12.01l8.73-5.05 M12 22.08V12" />
     </>
   ),
   settings: (

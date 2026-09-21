@@ -61,7 +61,7 @@ export function Sidebar({ active, onNavigate, printers }: SidebarProps) {
   const navItems: NavItem[] = [
     ...NAV.slice(0, 1),
     ...(canViewOrdersList
-      ? [{ id: 'orders-list', label: 'Orders', icon: 'print' as IconName }]
+      ? [{ id: 'orders-list', label: 'Orders', icon: 'orders' as IconName }]
       : []),
       ...(canManageUsers ? [{ id: 'users', label: 'Users', icon: 'users' as IconName }] : []),
        { id: 'menu-items', label: 'Menu Items', icon: 'menu' as IconName },
