@@ -78,12 +78,8 @@ export function Sidebar({ active, onNavigate, printers }: SidebarProps) {
       </button>
 
       <div className={styles.logo}>
-        <span className={styles.logoIcon}>
-          <Icon name="printer" size={18} />
-        </span>
-        {!collapsed && <span className={styles.logoText}>PrintPro</span>}
+        
       </div>
-
       <nav>
         {navItems.map((item) => (
           <button

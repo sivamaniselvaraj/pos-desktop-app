@@ -15,7 +15,7 @@ export function Header({ server, onRefresh }: HeaderProps) {
 
   return (
     <header className={styles.header}>
-      <h1 className={styles.title}>Food Order Printer</h1>
+      <h1 className={styles.title}>VIRUNTHAGAM</h1>
       <div className={styles.actions}>
         <div className={`${styles.status} ${online ? styles.statusOnline : styles.statusOffline}`}>
           <span className={styles.statusDot} />
