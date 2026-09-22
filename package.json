@@ -1,5 +1,5 @@
 {
-  "name": "food-order-printer",
+  "name": "virunthagam",
   "version": "1.0.0",
   "description": "Desktop app that receives food order IDs over HTTP, fetches details from Supabase, and prints to thermal printers.",
   "author": "",
@@ -58,8 +58,8 @@
     "wait-on": "^9.0.10"
   },
   "build": {
-    "appId": "com.foodorderprinter.app",
-    "productName": "Virunthagam",
+    "appId": "com.octanovus.app",
+    "productName": "virunthagam",
     "artifactName": "${productName}-${version}.${ext}",
     "files": [
       "dist/**/*",
@@ -90,7 +90,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Virunthagam",
+      "shortcutName": "virunthagam",
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico",
       "installerHeaderIcon": "assets/icon.ico"
