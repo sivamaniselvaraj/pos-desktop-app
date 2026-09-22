@@ -245,7 +245,7 @@ export function Settings() {
 
               <div className={styles.aboutContent}>
                 <p>
-                  <strong>Food Order Printer v1.0</strong>
+                  <strong>Virunthagam v1.0</strong>
                 </p>
               </div>
             </div>

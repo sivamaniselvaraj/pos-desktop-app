@@ -1,15 +1,44 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Menu } from 'electron';
 import path, { join } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { startHttpServer, stopHttpServer } from './httpServer';
 import { registerIpcHandlers } from './ipcHandlers';
 import { startKotReconciliation, stopKotReconciliation } from './kotReconciliation';
-import { startMenuCache } from './menuCache';
+import { startMenuCache, stopMenuCache } from './menuCache';
+/**
+ * Where .env.local lives depends on dev vs packaged:
+ *  - Dev: app.getAppPath() resolves to the project root (next to
+ *    package.json) — correct, that's where a developer's .env.local sits.
+ *  - Packaged: app.getAppPath() resolves INSIDE the read-only app.asar
+ *    archive, which never contains .env.local (a secrets file that must
+ *    never be bundled into the distributed app). Using that path silently
+ *    finds nothing. Use the per-OS user data directory instead — the same
+ *    writable, non-privileged location already used for the encrypted auth
+ *    session and local printer settings.
+ *
+ *    Windows: %APPDATA%\Food Order Printer\.env.local
+ *    macOS:   ~/Library/Application Support/Food Order Printer/.env.local
+ *    Linux:   ~/.config/Food Order Printer/.env.local
+ */
+function resolveEnvPath(): string {
+  const dir = app.isPackaged ? app.getPath('userData') : app.getAppPath();
+  return join(dir, '.env.local');
+}
 
 // Minimal .env.local loader (avoids an extra dependency).
 function loadEnv(): void {
-  const envPath = join(app.getAppPath(), '.env.local');
-  if (!existsSync(envPath)) return;
+  const envPath = resolveEnvPath();
+  console.log(`Loading config from: ${envPath}`);
+
+  if (!existsSync(envPath)) {
+    console.warn(
+      `.env.local not found at ${envPath} — using defaults/environment variables only. ` +
+        (app.isPackaged
+          ? 'For a packaged/installed build, place .env.local in the app data folder shown above.'
+          : ''),
+    );
+    return;
+  }
 
   let content: string;
   try {
@@ -21,6 +50,7 @@ function loadEnv(): void {
     console.error(`Found ${envPath} but could not read it:`, err);
     return;
   }
+
   for (const line of content.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
@@ -28,7 +58,14 @@ function loadEnv(): void {
     if (idx === -1) continue;
     const key = trimmed.slice(0, idx).trim();
     const value = trimmed.slice(idx + 1).trim();
-    if (!(key in process.env)) process.env[key] = value;
+    // `key in process.env` checks KEY PRESENCE, not whether it holds a real
+    // value — if some other source (OS/shell, a launcher script, an empty
+    // exported placeholder) already put an EMPTY string there, `in` is still
+    // true and this would silently refuse to fill it from .env.local,
+    // leaving config.ts's getters reading '' forever regardless of what
+    // .env.local actually says. Check truthiness instead: an OS env var only
+    // wins if it actually has a value; empty/missing both defer to the file.
+    if (!process.env[key]) process.env[key] = value;
   }
 }
 
@@ -41,7 +78,15 @@ function createWindow(): void {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'Food Order Printer',
+    title: 'Virunthagam',
+        // No File/Edit/View/Window/Help menu bar — Menu.setApplicationMenu(null)
+    // below removes it entirely, this is a Windows/Linux-only backstop in
+    // case something ever re-adds a default menu (falls back to "hidden
+    // until Alt is pressed" rather than always-visible, which is still far
+    // closer to "no menu" than the default). The native title bar itself
+    // (minimize/maximize/close) is untouched — this only affects the menu
+    // bar underneath it, not the window frame.
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload.js'),
       contextIsolation: true,
@@ -64,6 +109,7 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   loadEnv();
+  Menu.setApplicationMenu(null);
   registerIpcHandlers(() => mainWindow);
 
   try {
@@ -88,5 +134,6 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   stopHttpServer();
   stopKotReconciliation();
+  stopMenuCache();
   if (process.platform !== 'darwin') app.quit();
 });

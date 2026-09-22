@@ -59,7 +59,7 @@
   },
   "build": {
     "appId": "com.foodorderprinter.app",
-    "productName": "Food Order Printer",
+    "productName": "Virunthagam",
     "artifactName": "${productName}-${version}.${ext}",
     "files": [
       "dist/**/*",
@@ -90,7 +90,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Food Order Printer",
+      "shortcutName": "Virunthagam",
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico",
       "installerHeaderIcon": "assets/icon.ico"

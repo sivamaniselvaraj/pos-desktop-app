@@ -436,7 +436,7 @@ export function formatReceipt(order: FoodOrder): string {
   const rows: string[] = [];
 
   // Header — use actual outlet info or fallback
-  const outletName = order.outlet?.name ?? 'FOOD ORDER PRINTER';
+  const outletName = order.outlet?.name ?? 'Virunthagam';
   const outletAddress = order.outlet?.address ?? 'Address not available';
   const outletPhone = order.outlet?.phone ?? '';
   const outletCity = order.outlet?.city ?? '';
@@ -581,7 +581,7 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string, isD
     printer.alignCenter();
     printer.setTextSize(1, 1);
     printer.bold(true);
-    printer.println(header?.restaurantName?.trim() || order.outlet?.name || 'FOOD ORDER PRINTER');
+    printer.println(header?.restaurantName?.trim() || order.outlet?.name || 'Virunthagam');
     printer.bold(false);
     printer.setTextSize(0, 0);
  
