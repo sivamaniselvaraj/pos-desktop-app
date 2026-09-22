@@ -12,12 +12,16 @@ interface PrinterConfig {
   [key: string]: string; // e.g., kitchen_printer: "USB001"
 }
 
-let cachedSettings: PrinterConfig = {};
-const MAX_PRINTERS = 5;
+const FIXED_ROLES = ['cashier', 'waiter', 'kitchen'] as const;
+type PrinterRole = (typeof FIXED_ROLES)[number];
 
-/**
- * Normalize printer type name (spaces -> underscores, lowercase)
- */
+const ROLE_TO_CONFIG_KEY: Record<PrinterRole, 'cashierPrinter' | 'waiterPrinter' | 'kitchenPrinter'> = {
+  cashier: 'cashierPrinter',
+  waiter: 'waiterPrinter',
+  kitchen: 'kitchenPrinter',
+};
+
+/** Normalize a printer role name (spaces -> underscores, lowercase, `printer_` prefix). */
 export function normalizePrinterType(name: string): string {
   return `printer_${name.toLowerCase().trim().replace(/\s+/g, '_')}`;
 }
@@ -30,48 +34,28 @@ export function displayPrinterType(name: string): string {
   return cleaned.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/**
- * Load settings from database or local storage
- */
-export async function loadSettings(): Promise<PrinterConfig> {
-  // Start with environment/local config
-  cachedSettings = {
-    printer_cashier: config.cashierPrinter,
-    printer_kitchen: config.kitchenPrinter,
-    printer_waiter: config.waiterPrinter,
-  };
-
-  // Try to fetch from Supabase if configured
-  try {
-    
-    const supabase = null;
-     if (supabase) {
-    //   const { data, error } = await supabase.from('settings').select('key, value');
-    //   if (!error && data) {
-    //     const dbSettings = data.reduce(
-    //       (acc: PrinterConfig, row: { key: string; value: string }) => {
-    //         if (row.key.startsWith('printer_')) {
-    //           acc[row.key] = row.value;
-    //         }
-    //         return acc;
-    //       },
-    //       {},
-    //     );
-    //     cachedSettings = { ...cachedSettings, ...dbSettings };
-    //   }
-    }
-  } catch (_err) {
-    console.log('Settings: Supabase not available, using local config');
-  }
-
-  return cachedSettings;
+function roleFromKey(key: string): PrinterRole | undefined {
+  const normalized = key.startsWith('printer_') ? key : normalizePrinterType(key);
+  const bare = normalized.replace(/^printer_/, '');
+  return (FIXED_ROLES as readonly string[]).includes(bare) ? (bare as PrinterRole) : undefined;
 }
 
 /**
- * Get all printer configurations
+ * Kept as an async function returning the current mapping so index.ts's
+ * existing `await loadSettings()` call site didn't need to change. There's
+ * nothing to actually preload anymore — config.ts's getters read the file
+ * fresh on every access, so there's no cache to warm at startup.
  */
+export async function loadSettings(): Promise<PrinterConfig> {
+  return getAllPrinters();
+}
+
 export function getAllPrinters(): PrinterConfig {
-  return { ...cachedSettings };
+  return {
+    printer_cashier: config.cashierPrinter,
+    printer_waiter: config.waiterPrinter,
+    printer_kitchen: config.kitchenPrinter,
+  };
 }
 
 /**
@@ -81,82 +65,31 @@ export function getAllPrinters(): PrinterConfig {
  * Returns undefined if that role has no printer configured.
  */
 export function getPrinterFor(role: string): string | undefined {
-  const key = role.startsWith('printer_') ? role : normalizePrinterType(role);
-  const value = cachedSettings[key];
-  console.log(role , "printer--- key ", key, "value ", value)
+  const printerRole = roleFromKey(role);
+  if (!printerRole) return undefined;
+  const value = config[ROLE_TO_CONFIG_KEY[printerRole]];
   return value && value.trim() ? value.trim() : undefined;
 }
 
-/**
- * Add or update a printer configuration
- */
-export async function updatePrinter(
-  printerType: string,
-  deviceName: string,
-): Promise<void> {
-  const normalized = normalizePrinterType(printerType);
-
-  // Validate max printers
-  const existing = Object.keys(cachedSettings).filter((k) => k.startsWith('printer_'))
-    .length;
-  if (!cachedSettings[normalized] && existing >= MAX_PRINTERS) {
-    throw new Error(`Cannot add more than ${MAX_PRINTERS} printers`);
+/** Save a printer's device name for one of the three fixed roles (Cashier/Waiter/Kitchen). */
+export async function updatePrinter(printerType: string, deviceName: string): Promise<void> {
+  const printerRole = roleFromKey(printerType);
+  if (!printerRole) {
+    throw new Error(
+      `Unknown printer role "${printerType}" — expected Cashier, Waiter, or Kitchen.`,
+    );
+  }
+  config[ROLE_TO_CONFIG_KEY[printerRole]] = deviceName;
   }
 
-  cachedSettings[normalized] = deviceName;
-
-  // Save to local config (only kitchen printer in env)
-  if (normalized === 'printer_kitchen') {
-    //config.kitchenPrinter = deviceName;
-    saveConfig();
-  }
-
-  // Try to save to Supabase
-  try {
-    const supabase = null;
-    if (supabase) {
-      // const { error } = await supabase.from('settings').upsert(
-      //   {
-      //     key: normalized,
-      //     value: deviceName,
-      //     updated_at: new Date().toISOString(),
-      //   },
-      //   { onConflict: 'key' },
-      // );
-      // if (error) {
-      //   console.error(`Failed to save printer ${normalized}:`, error.message);
-      // }
-    }
-  } catch (_err) {
-    console.log('Settings: Could not save to Supabase');
-  }
-}
-
-/**
- * Remove a printer configuration
- */
+/** Clears a role's printer mapping. Kept for backward compatibility with the existing IPC channel. */
 export async function removePrinter(printerType: string): Promise<void> {
-  const normalized = normalizePrinterType(printerType);
-
-  delete cachedSettings[normalized];
-
-  // Try to remove from Supabase
-  try {
-    const supabase = null;
-    if (supabase) {
-      //const { error } = await supabase.from('settings').delete().eq('key', normalized);
-      // if (error) {
-      //   console.error(`Failed to remove printer ${normalized}:`, error.message);
-      // }
-    }
-  } catch (_err) {
-    console.log('Settings: Could not remove from Supabase');
-  }
+  const printerRole = roleFromKey(printerType);
+  if (!printerRole) return;
+  config[ROLE_TO_CONFIG_KEY[printerRole]] = '';
 }
 
-/**
- * Get max printers allowed
- */
+/** Three fixed roles now, not an arbitrary add-more-printers limit. */
 export function getMaxPrinters(): number {
-  return MAX_PRINTERS;
+  return FIXED_ROLES.length;
 }

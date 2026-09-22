@@ -9,8 +9,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 
 interface PersistedSettings {
   cashierPrinter?: string;
-  kitchenPrinter?: string;
   waiterPrinter?: string;
+  kitchenPrinter?: string;
   autoRetry?: boolean;
   retryCount?: number;
 }
@@ -113,19 +113,17 @@ export const config = {
   set cashierPrinter(value: string) {
     persist({ cashierPrinter: value });
   },
-  get kitchenPrinter(): string {
-    return loadFile().kitchenPrinter?? process.env.KITCHEN_PRINTER ?? '';
-  },
-  set kitchenPrinter(value: string) {
-    //load().kitchenPrinter = 'HP_Smart_Tank_580_590_series__8E5406_';
-    persist({ kitchenPrinter: value });
-  },
   get waiterPrinter(): string {
-    return loadFile().kitchenPrinter?? process.env.WAITER_PRINTER ?? '';
+    return loadFile().waiterPrinter ?? process.env.WAITER_PRINTER ?? '';
   },
   set waiterPrinter(value: string) {
-    //load().waiterPrinter = 'RP3160 GOLD(U) 1';
     persist({ waiterPrinter: value });
+  },
+  get kitchenPrinter(): string {
+    return loadFile().kitchenPrinter ?? process.env.KITCHEN_PRINTER ?? '';
+  },
+  set kitchenPrinter(value: string) {
+    persist({ kitchenPrinter: value });
   },
   get autoRetry(): boolean {
     return loadFile().autoRetry ?? true;

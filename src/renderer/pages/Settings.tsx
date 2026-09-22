@@ -34,8 +34,9 @@ export function Settings() {
   const [loading, setLoading] = useState(true);
   const [savingRole, setSavingRole] = useState<string | null>(null);
   const [testingRole, setTestingRole] = useState<string | null>(null);
-
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(
+    null,
+  );
 
   useEffect(() => {
     loadData();
@@ -184,7 +185,7 @@ export function Settings() {
               const dirty = device !== savedDevice;
               const busy = savingRole === role || testingRole === role;
               return (
-                <div key={role} className={styles.printerCard}>
+                <div key={role} className={styles.printerCardWrap}>
                   <div className={styles.printerCard}>
                   <div className={styles.printerInfo}>
                     <div className={styles.printerName}>{role}</div>

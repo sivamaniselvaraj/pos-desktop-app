@@ -110,6 +110,9 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   loadEnv();
   Menu.setApplicationMenu(null);
+    // Load settings from local config
+  const { loadSettings } = await import('./settingsManager.js');
+  await loadSettings();
   registerIpcHandlers(() => mainWindow);
 
   try {

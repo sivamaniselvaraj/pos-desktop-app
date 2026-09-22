@@ -13,7 +13,7 @@ export interface OrderItem {
   kotPrintedAt?: string;
 }
 
-export type OrderType = 'delivery' | 'pickup' | 'dine-in' | 'takeaway';
+export type OrderType = 'delivery' | 'pickup' | 'dine-in' | 'takeaway' | 'dine_in';
 
 export interface OutletInfo {
   id: string;

@@ -8,6 +8,7 @@ import {
   closeOrderAndFreeTable,
 } from './supabaseClient';
 import { printOrderEscpos, printKot } from './printerManager';
+import { getPrinterFor } from './settingsManager';
 import { config } from './config';
 import type {
   FoodOrder,
@@ -72,16 +73,14 @@ class OrderManager extends EventEmitter {
    * print failure keeps the delta for a retry. No unprinted items => no-op.
    */
   private async handleKot(orderId: string, order: FoodOrder): Promise<PrintOrderResponse> {
-    let printerName = config.kitchenPrinter;
-    if(order.orderType === 'dine-in'){
-      printerName = config.waiterPrinter;
-    }
-    console.log("printerName ", printerName)
-    if (!printerName) {
-      const msg = 'No printer configured. Add a "Waiter/Kitchen" printer in Settings to print KOTs.';
-      this.cacheForDisplay({ ...order, printStatus: 'failed', errorMessage: msg, retryCount: 0 });
-      return { success: false, orderId, message: msg, printStatus: 'failed', error: 'NO_PRINTER' };
-    }
+    const targetRole = order.orderType === 'dine_in' ? 'waiter' : 'kitchen';
+    const targetPrinter = getPrinterFor(targetRole);
+        if (!targetPrinter) {
+          const roleLabel = targetRole === 'waiter' ? 'Waiter' : 'Kitchen';
+          const msg = `No ${roleLabel.toLowerCase()} printer configured. Add a "${roleLabel}" printer in Settings to print KOTs.`;
+          this.cacheForDisplay({ ...order, printStatus: 'failed', errorMessage: msg, retryCount: 0 });
+          return { success: false, orderId, message: msg, printStatus: 'failed', error: 'NO_PRINTER' };
+        }
 
     const deltaItems = await fetchUnprintedItems(orderId);
     if (deltaItems.length === 0) {
@@ -104,7 +103,7 @@ class OrderManager extends EventEmitter {
     };
 
     try {
-      await printKot(kotOrder, printerName);
+      await printKot(kotOrder, targetPrinter);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown print error';
       this.cacheForDisplay({ ...kotOrder, printStatus: 'failed', errorMessage: message });
@@ -202,7 +201,8 @@ class OrderManager extends EventEmitter {
       order.printStatus = 'printing';
       try {
         // await printOrder(order); // Plain-text fallback
-        await printOrderEscpos(order, 'RP3160 GOLD(U) 1'); //ng thermal printer
+        const printerName = config.cashierPrinter;
+        await printOrderEscpos(order, printerName); //ng thermal printer
         order.printStatus = 'printed';
         order.printedAt = new Date().toISOString();
         return true;
