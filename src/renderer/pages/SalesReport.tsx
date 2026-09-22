@@ -7,6 +7,7 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
+  LabelList,
   ResponsiveContainer,
 } from 'recharts';
 import type {
@@ -144,6 +145,32 @@ function bucketFor(mode: Mode, from: string, to: string): ReportBucket {
   if (mode === 'daily') return 'day';
   const spanDays = (new Date(to).getTime() - new Date(from).getTime()) / 86_400_000;
   return spanDays > 62 ? 'month' : 'day';
+}
+
+// Custom bar shape: guarantees a small minimum visible height for any
+// non-zero value, so a bar isn't lost entirely when a dominant series (e.g.
+// 182 orders one day vs 2 the next) makes it render at ~1% height on the
+// shared axis. A TRUE zero stays exactly zero height — never given a fake
+// sliver, since that would misrepresent the data. The label on top always
+// shows the real number regardless, so nothing about the underlying value
+// is hidden or distorted — only the bar's on-screen visibility is adjusted.
+const MIN_BAR_HEIGHT = 3;
+function MinHeightBar(props: {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  fill?: string;
+  value?: number | [number, number];
+}) {
+  const { x = 0, y = 0, width = 0, height = 0, fill, value } = props;
+  const numericValue = Array.isArray(value) ? value[1] : (value ?? 0);
+  const baseline = y + height;
+  const finalHeight = numericValue > 0 && height < MIN_BAR_HEIGHT ? MIN_BAR_HEIGHT : height;
+  const finalY = baseline - finalHeight;
+  return (
+    <rect x={x} y={finalY} width={width} height={Math.max(finalHeight, 0)} fill={fill} rx={2} ry={2} />
+  );
 }
 
 export function SalesReport() {
@@ -380,9 +407,15 @@ export function SalesReport() {
                   <YAxis allowDecimals={false} label={{ value: 'Orders', angle: -90, position: 'insideLeft' }} />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="dineInCount" name="Dine-in" fill="#4CAF50" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="pickupCount" name="Takeaway" fill="#2563eb" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="deliveryCount" name="Delivery" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="dineInCount" name="Dine-in" fill="#4CAF50" shape={MinHeightBar}>
+                    <LabelList dataKey="dineInCount" position="top" fontSize={11} fill="#4CAF50" />
+                  </Bar>
+                  <Bar dataKey="pickupCount" name="Takeaway" fill="#2563eb" shape={MinHeightBar}>
+                    <LabelList dataKey="pickupCount" position="top" fontSize={11} fill="#2563eb" />
+                  </Bar>
+                  <Bar dataKey="deliveryCount" name="Delivery" fill="#f59e0b" shape={MinHeightBar}>
+                    <LabelList dataKey="deliveryCount" position="top" fontSize={11} fill="#f59e0b" />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}
