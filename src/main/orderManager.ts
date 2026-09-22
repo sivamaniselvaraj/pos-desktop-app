@@ -74,7 +74,7 @@ class OrderManager extends EventEmitter {
   private async handleKot(orderId: string, order: FoodOrder): Promise<PrintOrderResponse> {
     let printerName = config.kitchenPrinter;
     if(order.orderType === 'dine-in'){
-      printerName = config.waiterPrinter;;
+      printerName = config.waiterPrinter;
     }
     console.log("printerName ", printerName)
     if (!printerName) {
@@ -136,7 +136,7 @@ class OrderManager extends EventEmitter {
    * order and free the table.
    */
   private async handleSettle(orderId: string, order: FoodOrder): Promise<PrintOrderResponse> {
-    const cashierPrinter = 'RP3160 GOLD(U) 1'; // getPrinterFor('waiter');
+    const cashierPrinter = config.cashierPrinter; //'RP3160 GOLD(U) 1'; // getPrinterFor('waiter');
     if (!cashierPrinter) {
       const msg =
         'No cashier printer configured. Add a "Cashier" printer in Settings to print Bill.';
