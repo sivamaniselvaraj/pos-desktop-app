@@ -430,7 +430,7 @@ grant execute on function complete_order(uuid) to authenticated;
 -- {item_name}", not as a quantity change.
 create or replace function get_order_activity_log(p_order_id uuid)
 returns table (
-  audit_id uuid,
+  audit_id integer,
   order_item_id uuid,
   item_name text,
   action text,
@@ -438,8 +438,6 @@ returns table (
   changed_by_name text,
   old_quantity integer,
   new_quantity integer,
-  old_unit_price numeric,
-  new_unit_price numeric,
   reason text
 )
 language sql
@@ -447,7 +445,6 @@ stable
 security definer
 set search_path = public
 as $$
-  
   select
     a.id as audit_id,
     a.order_item_id,
@@ -455,20 +452,20 @@ as $$
     a.activity,
     a.changed_at,
     coalesce(cb.first_name, cb.email, 'Unknown') as changed_by_name,
-    a.old_quantity as old_quantity,
-    a.new_quantity as new_quantity,
-    a.reason as reason
+    old_quantity,
+    new_quantity,
+    reason
   from app_activity_log a
   join orders o on o.id = a.order_id
   join profiles p on p.user_id = auth.uid()
+  left join profiles cb on cb.user_id = a.changed_by
   left join order_items oi on oi.id = a.order_item_id
   left join menu_items mi on mi.id = oi.menu_item_id
-  left join profiles cb on cb.user_id = a.changed_by
+  
   where a.order_id = p_order_id
     and p.role in ('manager', 'owner', 'admin')
-    and p.outlet_id = o.outlet_id
+    and cb.outlet_id = o.outlet_id
   order by a.changed_at desc;
-
 $$;
 
 grant execute on function get_order_activity_log(uuid) to authenticated;
