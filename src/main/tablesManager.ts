@@ -1,6 +1,6 @@
 import { getAuthedClient } from './supabaseAuthClient';
 import { config } from './config';
-import type { TableCard, TableCardStatus } from '../shared/types';
+import type { TableCard, TableCardStatus, SavePaymentPayload } from '../shared/types';
 
 
 const TABLES_NAME = 'tables';
@@ -29,16 +29,23 @@ export async function listTables(): Promise<TableCard[]> {
   //const { data, error } = await supabase.from(TABLES_NAME).select('*').eq('outlet_id', config.outletId);
   if (error) throw new Error(error.message);
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+  return ((data ?? []) as Record<string, unknown>[]).map((row) => {
+    const orderIds = (row.order_ids as string[] | null)?.map((id) => String(id)) ?? undefined;
+    const orderNumbers = (row.order_numbers as number[] | null)?.map((n) => Number(n)) ?? undefined;
+    return {
     tableId: String(row.table_id ?? ''),
     tableNumber: String(row.table_number ?? ''),
     tableState: String(row.table_state ?? ''),
-    orderId: row.order_id ? String(row.order_id) : undefined,
+    orderIds,
+    orderNumbers,
+    orderId: orderIds && orderIds.length > 0 ? orderIds[0] : undefined,
     orderStatus: row.order_status ? String(row.order_status) : undefined,
     orderCreatedAt: row.order_created_at ? String(row.order_created_at) : undefined,
     orderTotalAmount: row.order_total_amount != null ? Number(row.order_total_amount) : undefined,
     cardStatus: deriveCardStatus(row.order_status ? String(row.order_status) : undefined),
-  }));
+    paymentRecorded: row.payment_recorded === true,
+  };
+});
 }
 
 export async function createTable(tableNumber: string): Promise<void> {

@@ -5,7 +5,7 @@ import type { Server } from 'http';
 import { config } from './config';
 import { orderManager } from './orderManager';
 import { printQueue } from './printQueue';
-import { isDatabaseReachable } from './supabaseClient';
+import { fetchTableOrderNumbers, isDatabaseReachable } from './supabaseClient';
 import { fetchOrderById } from './supabaseClient';
 import { getCachedMenuItems } from './menuCache';
 import type { PrintOrderRequest } from '../shared/types';
@@ -13,51 +13,59 @@ import type { PrintOrderRequest } from '../shared/types';
 let server: Server | null = null;
 
 export function startHttpServer(): Promise<void> {
-
   const app = express();
   // CORS: deny cross-origin BROWSER access by default; only origins listed in
-    // ALLOWED_ORIGINS are permitted. Requests with no Origin header (Android's
-    // HTTP client, curl, Postman) are never subject to CORS at all — this only
-    // gates a web page's fetch()/XHR, so it's safe to leave restrictive without
-    // affecting the Android integration this server exists for.
-    app.use(
-      cors({
-        origin(origin, callback) {
-          if (!origin) return callback(null, true); // non-browser client — not a CORS request
-          if (config.http.allowedOrigins.includes(origin)) return callback(null, true);
-          callback(new Error(`Origin not allowed by CORS: ${origin}`));
-        },
-      }),
-    );
+  // ALLOWED_ORIGINS are permitted. Requests with no Origin header (Android's
+  // HTTP client, curl, Postman) are never subject to CORS at all — this only
+  // gates a web page's fetch()/XHR, so it's safe to leave restrictive without
+  // affecting the Android integration this server exists for.
+  app.use(
+    cors({
+      origin(origin, callback) {
+        if (!origin) return callback(null, true); // non-browser client — not a CORS request
+        if (config.http.allowedOrigins.includes(origin)) return callback(null, true);
+        callback(new Error(`Origin not allowed by CORS: ${origin}`));
+      },
+    }),
+  );
   app.use(express.json());
 
   // Define the rate limit configuration
-const machineLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes window
-  max: 100, // Limit each IP to 100 requests per window
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  message: { error: 'Too many requests, please try again later.' }
-});
-
+  const machineLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes window
+    max: 100, // Limit each IP to 100 requests per window
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+    message: { error: 'Too many requests, please try again later.' },
+  });
 
   // Health check
   app.get('/api/health', async (_req, res) => {
-   const database = (await isDatabaseReachable()) ? 'connected' : 'disconnected';
-   console.log("health check")
+    const database = (await isDatabaseReachable()) ? 'connected' : 'disconnected';
+    console.log('health check');
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
       version: '1.0.0',
-      database
+      database,
     });
   });
-
 
   // Main endpoint: Android posts { orderId }, we fetch + print.
   app.post('/api/print-order', machineLimiter, async (req, res) => {
     const body = req.body as PrintOrderRequest;
-    if (!body?.orderId) {
+    const type = body?.type ?? 'bill';
+
+    if (type !== 'bill' && type !== 'kot' && type !== 'settle') {
+      return res.status(400).json({
+        success: false,
+        orderNumber: body?.orderNumber ?? '',
+        message: `Invalid type "${type}". Expected "bill", "kot", or "settle".`,
+        printStatus: 'failed',
+        error: 'BAD_REQUEST',
+      });
+    }
+    if (!body?.orderNumber) {
       return res.status(400).json({
         success: false,
         orderId: '',
@@ -66,37 +74,117 @@ const machineLimiter = rateLimit({
         error: 'BAD_REQUEST',
       });
     }
-    const type = body.type ?? 'bill';
+    const outletId = config.outletId;
+    if (!outletId) {
+      return res.status(500).json({
+        success: false,
+        orderId: '',
+        message: 'OUTLET_ID is not configured on this machine.',
+        printStatus: 'failed',
+        error: 'SERVER_ERROR',
+      });
+    }
 
-     console.log("printing for the order " , body.orderId, "TYPE - ", type);
+    console.log('printing for the order ', body.orderNumber, 'TYPE - ', type);
     if (type !== 'bill' && type !== 'kot' && type !== 'settle') {
       return res.status(400).json({
         success: false,
-        orderId: body.orderId,
+        orderNumber: body.orderNumber,
         message: `Invalid type "${type}". Expected "bill", "kot", or "settle".`,
         printStatus: 'failed',
         error: 'BAD_REQUEST',
       });
     }
-    try {
-      //const result = await orderManager.handleIncoming(body.orderId, type);
-      // Every incoming print request is queued and processed strictly one
-      // at a time — see printQueue.ts. This request's HTTP response still
-      // waits for its own turn to run and complete; it just can't overlap
-      // with another request's printer I/O while it's in the queue.
-      const result = await printQueue.enqueue(() => orderManager.handleIncoming(body.orderId, type));
-      res.status(result.success ? 200 : 502).json(result);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      res.status(500).json({
-        success: false,
-        orderId: body.orderId,
-        message,
-        printStatus: 'failed',
-        error: 'SERVER_ERROR',
-      });
-    }
+
+      if (body.orderType === 'dine-in') {
+        //dine-in
+        if (body.tableNumber == null || body.tableNumber === '') {
+          return res.status(400).json({
+            success: false,
+            orderId: '',
+            message: 'tableNumber is required when orderType is "dine-in".',
+            printStatus: 'failed',
+            error: 'BAD_REQUEST',
+          });
+        }
+        let orderNumbers: number[] | null;
+        try {
+          orderNumbers = await fetchTableOrderNumbers(body.tableNumber, outletId);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          return res
+            .status(500)
+            .json({
+              success: false,
+              orderId: '',
+              message,
+              printStatus: 'failed',
+              error: 'SERVER_ERROR',
+            });
+        }
+        if (orderNumbers === null) {
+          return res.status(404).json({
+            success: false,
+            orderId: '',
+            message: `Table ${body.tableNumber} not found`,
+            printStatus: 'failed',
+            error: 'NOT_FOUND',
+          });
+        }
+        if (orderNumbers.length === 0) {
+          return res.status(404).json({
+            success: false,
+            orderId: '',
+            message: `Nothing outstanding to settle for table ${body.tableNumber}`,
+            printStatus: 'failed',
+            error: 'NOT_FOUND',
+          });
+        }
+        return runQueued(
+          () => orderManager.handleSettleByNumbers(orderNumbers as number[], outletId),
+          res,
+        );
+      } //end of dine-in
+      else {
+        // takeaway
+        if (body.orderNumber == null) {
+          return res.status(400).json({
+            success: false,
+            orderId: '',
+            message: 'orderNumber is required when orderType is "takeaway".',
+            printStatus: 'failed',
+            error: 'BAD_REQUEST',
+          });
+        }
+        return runQueued(
+          () => orderManager.handleSettleByNumbers([body.orderNumber as number], outletId),
+          res,
+        );
+      }
+      // end of takeaway
   });
+  async function runQueued(
+      task: () => Promise<import('../shared/types').PrintOrderResponse>,
+      res: import('express').Response,
+    ): Promise<void> {
+      try {
+        // Every incoming print request is queued and processed strictly one
+        // at a time — see printQueue.ts. This request's HTTP response still
+        // waits for its own turn to run and complete; it just can't overlap
+        // with another request's printer I/O while it's in the queue.
+        const result = await printQueue.enqueue(task);
+        res.status(result.success ? 200 : 502).json(result);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        res.status(500).json({
+          success: false,
+          orderId: '',
+          message,
+          printStatus: 'failed',
+          error: 'SERVER_ERROR',
+        });
+      }
+    }
 
   // Debug: fetch an order without printing.
   app.get('/api/order/:orderId', async (req, res) => {
@@ -109,16 +197,17 @@ const machineLimiter = rateLimit({
       res.status(500).json({ error: message });
     }
   });
-    // Menu, served from the in-memory cache (menuCache.ts) — no Supabase call
-    // happens on this request path. Android calls this instead of querying
-    // Supabase directly. items may be stale (if the last background refresh
-    // failed) rather than empty — see menuCache.ts's comment on why that's the
-    // preferred failure mode. lastRefreshedAt/lastError let Android surface a
-    // "menu may be outdated" indicator if it wants to.
-    app.get('/api/menu-items', (_req, res) => {
-      const { items, lastRefreshedAt, lastError } = getCachedMenuItems();
-      res.json({ items, lastRefreshedAt, lastError });
-    });
+
+  // Menu, served from the in-memory cache (menuCache.ts) — no Supabase call
+  // happens on this request path. Android calls this instead of querying
+  // Supabase directly. items may be stale (if the last background refresh
+  // failed) rather than empty — see menuCache.ts's comment on why that's the
+  // preferred failure mode. lastRefreshedAt/lastError let Android surface a
+  // "menu may be outdated" indicator if it wants to.
+  app.get('/api/menu-items', (_req, res) => {
+    const { items, lastRefreshedAt, lastError } = getCachedMenuItems();
+    res.json({ items, lastRefreshedAt, lastError });
+  });
 
   return new Promise((resolve, reject) => {
     server = app

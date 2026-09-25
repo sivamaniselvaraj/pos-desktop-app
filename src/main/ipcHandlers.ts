@@ -1,4 +1,5 @@
 import { ipcMain, BrowserWindow } from 'electron';
+import { networkInterfaces } from 'os';
 import { orderManager } from './orderManager';
 import { getPrinters, testPrint } from './printerManager';
 import { isServerRunning } from './httpServer';
@@ -20,6 +21,7 @@ import type {
   OrderListFilter,
   EditOrderItemPayload,
   ReportBucket,
+  SavePaymentPayload
 } from '../shared/types';
 import {
   cancelOrderWithReason,
@@ -28,9 +30,32 @@ import {
   editOrderItem,
   getOrderActivityLog,
   getOrderDetail,
+  getTableActivityLog,
+  getTableOrderDetail,
   listOrders,
   reprintOrder,
 } from './ordersListManager';
+
+/**
+ * This machine's LAN IPv4 address — what Android should actually point the
+ * printer at, as opposed to config.http.host (the bind address, typically
+ * 0.0.0.0 or localhost and not reachable from another device). Picks the
+ * first non-internal IPv4 interface; on a machine with several active
+ * network adapters (e.g. Wi-Fi + Ethernet both up) this is a best guess, not
+ * a guarantee of the "right" one — Settings can surface all of them if that
+ * turns out to matter in practice.
+ */
+function getLocalIpAddress(): string | null {
+  const interfaces = networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name] ?? []) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return null;
+}
 
 async function buildServerStatus(): Promise<ServerStatus> {
   return {
@@ -38,6 +63,7 @@ async function buildServerStatus(): Promise<ServerStatus> {
     port: config.http.port,
     host: config.http.host,
     database: (await isDatabaseReachable()) ? 'connected' : 'disconnected',
+    ipAddress: getLocalIpAddress(),
   };
 }
 
@@ -100,6 +126,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   // Orders List (manager/owner/admin — enforced server-side by the RPCs)
   ipcMain.handle(IpcChannels.LIST_ORDERS, (_e, filter: OrderListFilter) => listOrders(filter));
   ipcMain.handle(IpcChannels.GET_ORDER_DETAIL, (_e, orderId: string) => getOrderDetail(orderId));
+    ipcMain.handle(IpcChannels.GET_TABLE_ORDER_DETAIL, (_e, orderId: string) =>
+      getTableOrderDetail(orderId),
+    );
+    ipcMain.handle(IpcChannels.GET_TABLE_ACTIVITY_LOG, (_e, orderId: string) =>
+      getTableActivityLog(orderId),
+    );
   ipcMain.handle(IpcChannels.EDIT_ORDER_ITEM, (_e, payload: EditOrderItemPayload) =>
     editOrderItem(payload),
   );

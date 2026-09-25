@@ -6,6 +6,9 @@ import {
   fetchAggregatedItems,
   getOrderStatus,
   closeOrderAndFreeTable,
+  markOrdersCompleted,
+  fetchOrdersByNumbers,
+  fetchAggregatedItemsForOrders,
 } from './supabaseClient';
 import { printOrderEscpos, printKot } from './printerManager';
 import { getPrinterFor } from './settingsManager';
@@ -130,6 +133,127 @@ class OrderManager extends EventEmitter {
   }
 
   /**
+     * Settle, unified: handles BOTH dine-in (grouped) and takeaway (standalone)
+     * from one method, keyed on order NUMBERS rather than a single orderId —
+     * this is the simplification discussed with the user: knowing up front
+     * (via the request's orderType, resolved in httpServer.ts) whether this is
+     * a table's full batch of order numbers or one takeaway order's number
+     * means this method needs exactly ONE query to fetch everything it needs
+     * (fetchOrdersByNumbers), instead of first resolving a single "anchor"
+     * order id and then re-discovering the same batch a second time.
+     *
+     * - Dine-in: httpServer passes every order number in the table's current
+     *   batch (fetchTableOrderNumbers) — `orderNumbers.length > 1` whenever
+     *   there's more than one still-open round, and items/totals get merged
+     *   into one printed bill exactly as before.
+     * - Takeaway: httpServer passes a single-element array — no table_id
+     *   involved, so this naturally settles standalone.
+     *
+     * Idempotent: if every matched order is already 'completed', nothing
+     * prints and nothing is re-cached (second tap on an already-settled
+     * table/order is a no-op). Only after a successful print are the orders
+     * marked completed (markOrdersCompleted) — the table itself is NOT freed
+     * here; that only happens once payment is recorded via the Table
+     * Dashboard's Save button (save_order_payment RPC).
+     */
+    async handleSettleByNumbers(orderNumbers: number[], outletId: string): Promise<PrintOrderResponse> {
+      if (orderNumbers.length === 0) {
+        return {
+          success: false,
+          orderId: '',
+          message: 'No orders to settle',
+          printStatus: 'failed',
+          error: 'NOT_FOUND',
+        };
+      }
+  
+      const orders = await fetchOrdersByNumbers(orderNumbers, outletId);
+      if (orders.length === 0) {
+        return {
+          success: false,
+          orderId: '',
+          message: `No matching order(s) found for #${orderNumbers.join(', ')}`,
+          printStatus: 'failed',
+          error: 'NOT_FOUND',
+        };
+      }
+  
+      const anchor = orders[0];
+  
+      // Idempotency guard: second settle on an already-completed batch prints
+      // nothing. ('completed' is the real closed-order status — see
+      // get_sales_report_uid in db/functions.sql for why 'settled' was wrong.)
+      if (orders.every((o) => o.status === 'completed')) {
+        const existing = this.orders.get(anchor.id);
+        return {
+          success: true,
+          orderId: anchor.id,
+          message: 'Order already settled',
+          printStatus: existing?.printStatus ?? 'printed',
+        };
+      }
+  
+      const isGrouped = orders.length > 1;
+      const orderIds = orders.map((o) => o.id);
+      const items = isGrouped
+        ? await fetchAggregatedItemsForOrders(orderIds)
+        : await fetchAggregatedItems(anchor.id);
+  
+      // For a grouped table bill, sum every order's totals rather than using
+      // just the anchor's own subtotal/tax/total.
+      const summed = orders.reduce(
+        (acc, o) => ({
+          subtotal: acc.subtotal + o.subtotal,
+          tax: acc.tax + o.tax,
+          total: acc.total + o.total,
+          discount: acc.discount + (o.discount ?? 0),
+          containerCharge: acc.containerCharge + (o.containerCharge ?? 0),
+        }),
+        { subtotal: 0, tax: 0, total: 0, discount: 0, containerCharge: 0 },
+      );
+  
+      const billOrder: OrderWithStatus = {
+        ...anchor,
+        items,
+        subtotal: summed.subtotal,
+        tax: summed.tax,
+        total: summed.total,
+        discount: summed.discount || undefined,
+        containerCharge: summed.containerCharge || undefined,
+        orderNumbers: isGrouped
+          ? orders.map((o) => o.orderNumber).sort((a, b) => a - b)
+          : undefined,
+        printStatus: 'printing',
+        retryCount: 0,
+      };
+  
+      try {
+        await printOrderEscpos(billOrder, config.cashierPrinter);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown print error';
+        this.cacheForDisplay({ ...billOrder, printStatus: 'failed', errorMessage: message });
+        return { success: false, orderId: anchor.id, message, printStatus: 'failed', error: 'PRINT_FAILED' };
+      }
+  
+      // Mark every order in the batch completed only after the bill prints.
+      // The table is freed later, once payment is recorded (save_order_payment RPC).
+      await markOrdersCompleted(orderIds);
+  
+      // Cache every settled order for display directly from what was already
+      // fetched — no extra round trip needed, we already know the resulting
+      // state (status flips to 'completed', print just succeeded).
+      const printedAt = new Date().toISOString();
+      for (const o of orders) {
+        this.cacheForDisplay({ ...o, status: 'completed', printStatus: 'printed', printedAt, retryCount: 0 });
+      }
+  
+      const message = isGrouped
+        ? `Bill printed and ${orders.length} orders settled for the table`
+        : 'Bill printed and order settled';
+      return { success: true, orderId: anchor.id, message, printStatus: 'printed' };
+    }
+
+  /**
    * Settle: idempotent. If already settled => no-op (second tap prints
    * nothing). Otherwise print the full bill aggregated by dish, then close the
    * order and free the table.
@@ -228,6 +352,7 @@ class OrderManager extends EventEmitter {
     }
     const ok = await this.attemptPrint(order);
     const current = this.orders.get(orderId)!;
+    this.cacheForDisplay(order);
     return {
       success: ok,
       orderId,

@@ -1,11 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Icon } from '../components/Icon';
 import type {
   TableCard,
   OrderDetailItem,
   OrderActivityLogEntry,
+  PaymentMethod,
 } from '@shared/types';
 import styles from '../styles/TableDashboard.module.css';
+
+const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
+  { value: 'card', label: 'Card' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'upi', label: 'UPI' },
+  { value: 'part-payment', label: 'Part Payment' },
+];
 
 function formatCurrency(n: number): string {
   return `₹ ${n.toFixed(2)}`;
@@ -34,10 +42,18 @@ export function Dashboard() {
   const [adding, setAdding] = useState(false);
 
   const [viewOrderId, setViewOrderId] = useState<string | null>(null);
+  const [viewOrders, setViewOrders] = useState<{ id: string; orderNumber: number }[]>([]);
   const [viewItems, setViewItems] = useState<OrderDetailItem[]>([]);
   const [viewLog, setViewLog] = useState<OrderActivityLogEntry[]>([]);
   const [viewLoading, setViewLoading] = useState(false);
   const [editing, setEditing] = useState<{ id: string; quantity: string } | null>(null);
+
+  const [payingTable, setPayingTable] = useState<TableCard | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const [cashAmount, setCashAmount] = useState('');
+  const [cardAmount, setCardAmount] = useState('');
+  const [upiAmount, setUpiAmount] = useState('');
+  const [savingPayment, setSavingPayment] = useState(false);
 
   useEffect(() => {
     load();
@@ -67,12 +83,65 @@ export function Dashboard() {
     if (!table.orderId) return;
     try {
       setBusyTableId(table.tableId);
-      await window.api.reprintOrder(table.orderId);
+      // Grouped reprint: pulls in every order still in this table's batch
+      // (all rounds settled together) so a reprint after grouping still
+      // shows the full merged bill, not just one order.
+      await window.api.reprintTableBill(table.orderId);
       flash('success', `Printed for Table ${table.tableNumber}`);
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Print failed');
     } finally {
       setBusyTableId(null);
+    }
+  }
+
+  function openPaymentDialog(table: TableCard) {
+    setPayingTable(table);
+    setPaymentMethod('cash');
+    setCashAmount('');
+    setCardAmount('');
+    setUpiAmount('');
+  }
+
+  function closePaymentDialog() {
+    setPayingTable(null);
+  }
+
+  const partPaymentSum =
+    (Number(cashAmount) || 0) + (Number(cardAmount) || 0) + (Number(upiAmount) || 0);
+  const partPaymentMatches =
+    payingTable != null &&
+    Math.round(partPaymentSum * 100) === Math.round((payingTable.orderTotalAmount ?? 0) * 100);
+
+  async function handleSavePayment() {
+    if (!payingTable?.orderId) return;
+
+    if (paymentMethod === 'part-payment' && !partPaymentMatches) {
+      flash(
+        'error',
+        `Cash + Card + UPI (${formatCurrency(partPaymentSum)}) must equal the order total (${formatCurrency(
+          payingTable.orderTotalAmount ?? 0,
+        )})`,
+      );
+      return;
+    }
+
+    try {
+      setSavingPayment(true);
+      await window.api.savePayment({
+        orderId: payingTable.orderId,
+        method: paymentMethod,
+        cashAmount: paymentMethod === 'part-payment' ? Number(cashAmount) || 0 : undefined,
+        cardAmount: paymentMethod === 'part-payment' ? Number(cardAmount) || 0 : undefined,
+        upiAmount: paymentMethod === 'part-payment' ? Number(upiAmount) || 0 : undefined,
+      });
+      flash('success', `Payment recorded for Table ${payingTable.tableNumber} — table released`);
+      closePaymentDialog();
+      await load();
+    } catch (err) {
+      flash('error', err instanceof Error ? err.message : 'Failed to save payment');
+    } finally {
+      setSavingPayment(false);
     }
   }
 
@@ -114,11 +183,14 @@ export function Dashboard() {
     setEditing(null);
     try {
       setViewLoading(true);
-      const [items, log] = await Promise.all([
-        window.api.getOrderDetail(table.orderId),
-        window.api.getOrderActivityLog(table.orderId),
+      // Grouped: pulls in every order still open on this table, not just the
+      // one the card happened to carry.
+      const [detail, log] = await Promise.all([
+        window.api.getTableOrderDetail(table.orderId),
+        window.api.getTableActivityLog(table.orderId),
       ]);
-      setViewItems(items);
+      setViewOrders(detail.orders);
+      setViewItems(detail.items);
       setViewLog(log);
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Failed to load order');
@@ -130,6 +202,7 @@ export function Dashboard() {
 
   function closeView() {
     setViewOrderId(null);
+    setViewOrders([]);
     setViewItems([]);
     setViewLog([]);
     setEditing(null);
@@ -137,11 +210,12 @@ export function Dashboard() {
 
   async function refreshView() {
     if (!viewOrderId) return;
-    const [items, log] = await Promise.all([
-      window.api.getOrderDetail(viewOrderId),
-      window.api.getOrderActivityLog(viewOrderId),
+    const [detail, log] = await Promise.all([
+      window.api.getTableOrderDetail(viewOrderId),
+      window.api.getTableActivityLog(viewOrderId),
     ]);
-    setViewItems(items);
+    setViewOrders(detail.orders);
+    setViewItems(detail.items);
     setViewLog(log);
     await load();
   }
@@ -225,6 +299,12 @@ export function Dashboard() {
                     <div className={styles.amount}>{formatCurrency(table.orderTotalAmount ?? 0)}</div>
                   </div>
 
+                  {table.orderNumbers && table.orderNumbers.length > 1 && (
+                    <div className={styles.orderNumbers}>
+                      Orders: {table.orderNumbers.join(', ')}
+                    </div>
+                  )}
+
                   <div className={styles.cardActions}>
                     <button
                       className={styles.iconBtn}
@@ -242,6 +322,16 @@ export function Dashboard() {
                         disabled={busy}
                       >
                         <Icon name="view" size={18} />
+                      </button>
+                    )}
+                    {table.cardStatus === 'settled' && !table.paymentRecorded && (
+                      <button
+                        className={styles.iconBtn}
+                        title="Record Payment (required to release this table)"
+                        onClick={() => openPaymentDialog(table)}
+                        disabled={busy}
+                      >
+                        <Icon name="save" size={18} />
                       </button>
                     )}
                   </div>
@@ -278,6 +368,84 @@ export function Dashboard() {
             </div>
           )}
 
+      {payingTable && (
+        <div className={styles.modalOverlay} onClick={closePaymentDialog}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h3>
+              Table {payingTable.tableNumber} · {formatCurrency(payingTable.orderTotalAmount ?? 0)}
+            </h3>
+            {payingTable.orderNumbers && payingTable.orderNumbers.length > 1 && (
+              <p className={styles.muted}>Orders: {payingTable.orderNumbers.join(', ')}</p>
+            )}
+
+            <div className={styles.paymentOptions}>
+              {PAYMENT_METHODS.map((m) => (
+                <label key={m.value} className={styles.radioLabel}>
+                  <input
+                    type="radio"
+                    name="paymentMethod"
+                    value={m.value}
+                    checked={paymentMethod === m.value}
+                    onChange={() => setPaymentMethod(m.value)}
+                  />
+                  {m.label}
+                </label>
+              ))}
+            </div>
+
+            {paymentMethod === 'part-payment' && (
+              <div className={styles.partPaymentFields}>
+                <label className={styles.formLabel}>
+                  Cash
+                  <input
+                    type="number"
+                    value={cashAmount}
+                    onChange={(e) => setCashAmount(e.target.value)}
+                    placeholder="0.00"
+                  />
+                </label>
+                <label className={styles.formLabel}>
+                  Card
+                  <input
+                    type="number"
+                    value={cardAmount}
+                    onChange={(e) => setCardAmount(e.target.value)}
+                    placeholder="0.00"
+                  />
+                </label>
+                <label className={styles.formLabel}>
+                  UPI
+                  <input
+                    type="number"
+                    value={upiAmount}
+                    onChange={(e) => setUpiAmount(e.target.value)}
+                    placeholder="0.00"
+                  />
+                </label>
+                <p className={partPaymentMatches ? styles.sumOk : styles.sumMismatch}>
+                  Total entered: {formatCurrency(partPaymentSum)} / {formatCurrency(
+                    payingTable.orderTotalAmount ?? 0,
+                  )}
+                </p>
+              </div>
+            )}
+
+            <div className={styles.modalActions}>
+              <button className={styles.cancelBtn} onClick={closePaymentDialog}>
+                Cancel
+              </button>
+              <button
+                className={styles.saveBtn}
+                onClick={handleSavePayment}
+                disabled={savingPayment || (paymentMethod === 'part-payment' && !partPaymentMatches)}
+              >
+                {savingPayment ? 'Saving…' : 'Save Payment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {viewOrderId && (
         <div className={styles.modalOverlay} onClick={closeView}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
@@ -285,6 +453,11 @@ export function Dashboard() {
               Table {viewingTable?.tableNumber ?? ''}
               {viewingTable && ` · ${formatCurrency(viewingTable.orderTotalAmount ?? 0)}`}
             </h3>
+            {viewOrders.length > 1 && (
+              <p className={styles.muted}>
+                Orders: {viewOrders.map((o) => o.orderNumber).join(', ')}
+              </p>
+            )}
 
             {viewLoading ? (
               <p className={styles.muted}>Loading…</p>
@@ -300,8 +473,19 @@ export function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {viewItems.map((item) => (
-                    <tr key={item.orderItemId} className={item.isDeleted ? styles.deletedRow : undefined}>
+                  {viewItems.map((item, idx) => {
+                    const showOrderHeader =
+                      viewOrders.length > 1 &&
+                      item.orderNumber !== undefined &&
+                      viewItems[idx - 1]?.orderNumber !== item.orderNumber;
+                    return (
+                      <Fragment key={item.orderItemId}>
+                        {showOrderHeader && (
+                          <tr className={styles.groupHeaderRow}>
+                            <td colSpan={5}>Order #{item.orderNumber}</td>
+                          </tr>
+                        )}
+                        <tr className={item.isDeleted ? styles.deletedRow : undefined}>
                       {editing?.id === item.orderItemId ? (
                         <>
                           <td>{item.name}</td>
@@ -354,7 +538,9 @@ export function Dashboard() {
                         </>
                       )}
                     </tr>
-                  ))}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             )}

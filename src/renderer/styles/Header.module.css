@@ -8,9 +8,21 @@
   flex-shrink: 0;
 }
 
+.titleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .title {
   font-size: 22px;
   font-weight: 600;
+}
+
+.outletName {
+  font-size: 13px;
+  color: var(--text-muted, #666);
+  font-weight: 500;
 }
 
 .actions {

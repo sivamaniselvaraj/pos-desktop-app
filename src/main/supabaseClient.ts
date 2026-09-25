@@ -5,8 +5,8 @@ import type {
   FoodOrder,
   HeaderConfig,
   OrderItem,
-  OrderType,
   OutletInfo,
+  OrderType,
   ReportBucket,
   SalesReportRow,
   TopItemRow,
@@ -67,6 +67,7 @@ function mapHeaderConfig(row: Record<string, unknown>): HeaderConfig {
 // Maps a raw DB row (snake_case) into our camelCase FoodOrder.
 function mapRow(row: Record<string, unknown>): FoodOrder {
   const items = (row.items as OrderItem[]) ?? [];
+  //const rawItems = Array.isArray(row.items) ? (row.items as Record<string, unknown>[]) : [];
   const outletRaw = row.outlet ? (row.outlet as Record<string, unknown>) : null;
   const headerConfigRaw = row.headerConfig ? (row.headerConfig as Record<string, unknown>) : null;
   return {
@@ -89,6 +90,7 @@ function mapRow(row: Record<string, unknown>): FoodOrder {
     specialNotes: row.special_notes ? String(row.special_notes) : undefined,
     createdAt: String(row.created_at ?? new Date().toISOString()),
     status: row.status != null ? String(row.status) : undefined,
+    placedBy: row.placed_by_name ? String(row.placed_by_name) : undefined,
     headerConfig: headerConfigRaw ? mapHeaderConfig(headerConfigRaw) : undefined,
   };
 }
@@ -106,17 +108,6 @@ export async function fetchOrderById(orderId: string): Promise<FoodOrder | null>
   }
   return data ? mapRow(data as Record<string, unknown>) : null;
 }
-
-export async function updatePrinterSettings(outletId: string): Promise<FoodOrder | null> {
-  return null;
-}
-
-export async function removePrinterSettings(
-  outletId: string,
-  key: string,
-): Promise<FoodOrder | null> {
-  return null;
-}
 export async function loadSettings(outletId: string): Promise<FoodOrder | null> {
   return null;
 }
@@ -124,7 +115,7 @@ export async function loadSettings(outletId: string): Promise<FoodOrder | null> 
 export async function isDatabaseReachable(): Promise<boolean> {
   const supabase = getClient();
   if (!supabase) return false;
-  const { error } = await supabase.from(config.supabase.table).select('id').limit(1);
+  const { error } = await supabase.from(config.supabase.orderTable).select('id').limit(1);
   return !error;
 }
 
@@ -205,7 +196,7 @@ export async function getOrderStatus(orderId: string): Promise<OrderStatus | nul
   if (!id) return null;
 
   const { data, error } = await supabase
-    .from(config.supabase.table)
+    .from(config.supabase.orderTable)
     .select('status')
     .eq('id', id)
     .single();
@@ -254,7 +245,11 @@ export async function fetchAggregatedItems(orderId: string): Promise<OrderItem[]
   const id = await resolveOrderId(orderId);
   if (!id) return [];
 
-  const { data, error } = await supabase.from(ITEMS_TABLE_NAME).select('*').eq('order_id', id);
+  const { data, error } = await supabase
+  .from(ITEMS_TABLE_NAME)
+  .select('*')
+  .eq('order_id', id)
+  .eq('is_deleted', false);
   if (error) throw new Error(error.message);
 
   const rows = (data as Record<string, unknown>[] | null)?.map(mapItem) ?? [];
@@ -273,9 +268,130 @@ export async function fetchAggregatedItems(orderId: string): Promise<OrderItem[]
 }
 
 /**
- * Settle close: mark the order settled and free the table. Best-effort table
- * reset — table linkage may not exist yet (see #4); safe to no-op if absent.
+ * #4 SEAM resolved: settle/reprint now key on the ORDER's TABLE, not just the
+ * order itself. A table can carry several separate dine-in orders at once
+ * (rounds ordered before anyone settled), so this gathers every order
+ * sharing that table_id that's still part of the "current batch" — mirrors
+ * list_tables_for_outlet()'s batch definition (db/functions.sql): not
+ * cancelled, and not already completed-AND-paid. That covers both cases
+ * this is called from: pre-settle (orders still open) and post-settle
+ * reprint (orders completed, payment not yet recorded). Non-dine-in orders
+ * (table_id null) have nothing to group with — this just returns the order
+ * itself.
  */
+export interface TableBatch {
+  tableId: string | null;
+  orderIds: string[];
+  orderNumbers: number[];
+  /** orderIds and orderNumbers zipped together, sorted by orderNumber — the pairing the caller usually actually wants. */
+  orders: { id: string; orderNumber: number }[];
+}
+
+export async function fetchTableBatchOrders(orderId: string): Promise<TableBatch> {
+  const supabase = getAuthedClient();
+  if (!supabase) throw new Error('Supabase is not configured.');
+
+  const id = await resolveOrderId(orderId);
+  if (!id) return { tableId: null, orderIds: [], orderNumbers: [], orders: [] };
+
+  const { data: current, error: curErr } = await supabase
+    .from(config.supabase.orderTable)
+    .select('table_id, order_number')
+    .eq('id', id)
+    .single();
+
+  if (curErr) throw new Error(curErr.message);
+  const currentRow = current as Record<string, unknown> | null;
+  const tableId = currentRow?.table_id != null ? String(currentRow.table_id) : null;
+
+  if (!tableId) {
+    // Pickup/delivery, or a dine-in order somehow missing its table link —
+    // nothing to group with, just this one order.
+    const orderNumber = currentRow?.order_number != null ? Number(currentRow.order_number) : null;
+    return {
+      tableId: null,
+      orderIds: [id],
+      orderNumbers: orderNumber != null ? [orderNumber] : [],
+      orders: orderNumber != null ? [{ id, orderNumber }] : [{ id, orderNumber: 0 }],
+    };
+  }
+
+  const { data: rows, error } = await supabase
+    .from(config.supabase.orderTable)
+    .select('id, order_number, status, payment_details')
+    .eq('table_id', tableId)
+    .neq('status', 'cancelled');
+  if (error) throw new Error(error.message);
+
+  const list = ((rows as Record<string, unknown>[] | null) ?? []).filter((r) => {
+    // Exclude only orders that are BOTH completed AND already paid — those
+    // are done and out of the batch. Everything else (still open, or
+    // completed-but-unpaid awaiting the Save button) stays in.
+    const isPaidAndDone = r.status === 'completed' && r.payment_details != null;
+    return !isPaidAndDone;
+  });
+
+  let pairs = list.map((r) => ({ id: String(r.id), orderNumber: Number(r.order_number) }));
+  // Defensive: the triggering order should always satisfy the filter above,
+  // but include it explicitly in case of a race with a concurrent edit.
+  if (!pairs.some((p) => p.id === id)) {
+    const orderNumber = currentRow?.order_number != null ? Number(currentRow.order_number) : 0;
+    pairs.push({ id, orderNumber });
+  }
+  pairs = pairs.sort((a, b) => a.orderNumber - b.orderNumber);
+
+  return {
+    tableId,
+    orderIds: pairs.map((p) => p.id),
+    orderNumbers: pairs.map((p) => p.orderNumber),
+    orders: pairs,
+  };
+}
+
+/**
+ * Resolves a DINE-IN table number to the list of order NUMBERS currently in
+ * that table's settle batch — same "not cancelled, not completed-and-paid"
+ * condition fetchTableBatchOrders uses, just returning order_number instead
+ * of order id/uuid. This is the httpServer-side half of the settle
+ * simplification: knowing up front this is a dine-in table (via the
+ * request's orderType) means going straight to the table's full order list
+ * in ONE query, rather than first resolving one "anchor" order id and then
+ * having handleSettle re-discover the same batch a second time.
+ *
+ * Scoped to outletId since table_number is only unique WITHIN an outlet.
+ * Returns null if the table itself doesn't exist for this outlet (distinct
+ * from an empty array, which means the table exists but has nothing
+ * outstanding to settle).
+ */
+export async function fetchTableOrderNumbers(
+  tableNumber: string,
+  outletId: string,
+): Promise<number[] | null> {
+  const supabase = getClient();
+  if (!supabase) throw new Error('Supabase is not configured.');
+
+  const { data: tableRow, error: tableErr } = await supabase
+    .from('tables')
+    .select('id')
+    .eq('table_number', tableNumber)
+    .eq('outlet_id', outletId)
+    .maybeSingle();
+  if (tableErr) throw new Error(tableErr.message);
+  const tableId = (tableRow as Record<string, unknown> | null)?.id;
+  if (!tableId) return null;
+
+  const { data: rows, error } = await supabase
+    .from(config.supabase.orderTable)
+    .select('order_number, status, payment_details')
+    .eq('table_id', tableId)
+    .neq('status', 'cancelled');
+  if (error) throw new Error(error.message);
+
+  return ((rows as Record<string, unknown>[] | null) ?? [])
+    .filter((r) => !(r.status === 'completed' && r.payment_details != null))
+    .map((r) => Number(r.order_number));
+}
+
 export async function closeOrderAndFreeTable(orderId: string): Promise<void> {
   const supabase = getClient();
   if (!supabase) throw new Error('Supabase is not configured.');
@@ -283,14 +399,14 @@ export async function closeOrderAndFreeTable(orderId: string): Promise<void> {
   if (!id) return;
 
   const { error } = await supabase
-    .from(config.supabase.table)
+    .from(config.supabase.orderTable)
     .update({ status: 'settled', settled_at: new Date().toISOString() })
     .eq('id', id);
   if (error) throw new Error(error.message);
 
   // Free the table if the order carries a table_id. Non-fatal on failure.
   const { data: ord } = await supabase
-    .from(config.supabase.table)
+    .from(config.supabase.orderTable)
     .select('table_id')
     .eq('id', id)
     .single();
@@ -298,6 +414,86 @@ export async function closeOrderAndFreeTable(orderId: string): Promise<void> {
   if (tableId != null) {
     await supabase.from('tables').update({ state: 'open' }).eq('id', tableId);
   }
+}
+
+/**
+ * Fetches full order rows for a set of order NUMBERS in one query — the
+ * other half of the settle simplification: orderManager.handleSettleByNumbers
+ * calls this ONCE and gets everything it needs (id, totals, status, etc. for
+ * every order in the batch) instead of a separate per-order fetchOrderById
+ * loop. Scoped to outletId since order_number is only unique WITHIN an
+ * outlet. Cancelled orders are excluded; a takeaway settle passes a
+ * single-element array and gets back that one order (or none, if it's been
+ * cancelled or doesn't exist for this outlet).
+ */
+export async function fetchOrdersByNumbers(
+  orderNumbers: number[],
+  outletId: string,
+): Promise<FoodOrder[]> {
+  if (orderNumbers.length === 0) return [];
+  const supabase = getClient();
+  if (!supabase) throw new Error('Supabase is not configured.');
+
+  const { data, error } = await supabase
+    .from(config.supabase.orderTable)
+    .select('*')
+    .in('order_number', orderNumbers)
+    .eq('outlet_id', outletId)
+    .neq('status', 'cancelled');
+  if (error) throw new Error(error.message);
+
+  return ((data as Record<string, unknown>[] | null) ?? []).map(mapRow);
+}
+
+/**
+ * Aggregated items across MULTIPLE orders (a whole table's open rounds,
+ * merged into one bill) — same merge-by-menuItemId logic as
+ * fetchAggregatedItems above, just spanning several order_ids instead of one.
+ */
+export async function fetchAggregatedItemsForOrders(orderIds: string[]): Promise<OrderItem[]> {
+  if (orderIds.length === 0) return [];
+  const supabase = getClient();
+  if (!supabase) throw new Error('Supabase is not configured.');
+
+  const { data, error } = await supabase
+    .from(ITEMS_TABLE_NAME)
+    .select('*')
+    .in('order_id', orderIds)
+    .eq('is_deleted', false);
+  if (error) throw new Error(error.message);
+
+  const rows = (data as Record<string, unknown>[] | null)?.map(mapItem) ?? [];
+  const merged = new Map<string, OrderItem>();
+  for (const item of rows) {
+    const key = item.menuItemId ?? `name:${item.name}`;
+    const existing = merged.get(key);
+    if (existing) {
+      existing.quantity += item.quantity;
+    } else {
+      merged.set(key, { ...item });
+    }
+  }
+  return Array.from(merged.values());
+}
+
+/**
+ * Marks every order in `orderIds` completed (settled_at stamped). Deliberately
+ * does NOT free the table — that only happens once payment is recorded for
+ * the whole batch via save_order_payment() (db/functions.sql), triggered
+ * from the Table Dashboard's Save button. This mirrors complete_order()'s
+ * table-batch model but runs over the anon key (no user session) since this
+ * is the Android settle-print path.
+ */
+export async function markOrdersCompleted(orderIds: string[]): Promise<void> {
+  if (orderIds.length === 0) return;
+  const supabase = getClient();
+  if (!supabase) throw new Error('Supabase is not configured.');
+
+  const { error } = await supabase
+    .from(config.supabase.orderTable)
+    .update({ status: 'completed', settled_at: new Date().toISOString() })
+    .in('id', orderIds);
+  if (error) throw new Error(error.message);
 }
 
 // ---------------------------------------------------------------------------

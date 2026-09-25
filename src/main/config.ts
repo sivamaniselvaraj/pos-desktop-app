@@ -72,7 +72,7 @@ export const config = {
     return {
       url: process.env.SUPABASE_URL || '',
       anonKey: process.env.SUPABASE_ANON_KEY || '',
-      table: process.env.SUPABASE_TABLE || 'orders',
+      orderTable: process.env.SUPABASE_TABLE || 'orders',
       // DANGER: bypasses Row Level Security entirely. Used ONLY by
       // userAdmin.ts's createUser() (creating a login requires Supabase's Auth
       // Admin API, which requires this key — no way around it). Every call

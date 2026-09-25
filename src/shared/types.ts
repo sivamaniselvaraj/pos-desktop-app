@@ -39,7 +39,7 @@ export interface FoodOrder {
   id: string;
   orderId: string;
   orderNumber: number;
-  tokenNumber: number;
+  tokenNumber?: number;
   outlet?: OutletInfo;
   customerName: string;
   customerPhone?: string;
@@ -54,11 +54,19 @@ export interface FoodOrder {
   orderType: OrderType;
   specialNotes?: string;
   createdAt: string;
-  tableNumber: number;
+  tableNumber?: number;
   /** 'open' | 'completed' | 'cancelled' — used e.g. to decide the DUPLICATE BILL banner on reprint. */
   status?: string;
   /** Raw header/footer config (JSON string or object) for the receipt. */
   headerConfig?: string | HeaderConfig;
+  /**
+   * Set only on a grouped table bill (settle flow merging every open order
+   * on a dine-in table into one printout). When present, printerManager
+   * prints this list on the "Bill No." line instead of the single
+   * orderNumber. Undefined/absent for a normal single-order print.
+   */
+  orderNumbers?: number[];
+  placedBy?: string;
 }
 
 export type PrintStatus = 'pending' | 'printing' | 'printed' | 'failed';
@@ -73,9 +81,24 @@ export interface OrderWithStatus extends FoodOrder {
 // ---- HTTP contract (Android app -> local server) ----
 export type PrintType = 'bill' | 'kot' | 'settle';
 
+export type SettleOrderType = 'dine-in' | 'takeaway';
+
 // ---- HTTP contract (Android app -> local server) ----
 export interface PrintOrderRequest {
-  orderId: string;
+  /** KOT/plain-bill prints still key on this (Android already has it at order-creation time). Also still accepted for a legacy 'settle' request with no orderType. */
+  orderId?: string;
+  /**
+   * Required (with tableNumber or orderNumber) for a 'settle' request.
+   * Tells the server up front which resolution path to take — 'dine-in'
+   * fetches every order number in the named table's current batch in one
+   * query; 'takeaway' settles orderNumber standalone. Omitting it falls
+   * back to the legacy orderId-only settle path.
+   */
+  orderType?: SettleOrderType;
+  /** 'settle' reference for a DINE-IN table (with orderType: 'dine-in') — the table number, not a UUID. */
+  tableNumber?: string;
+  /** 'settle' reference for a TAKEAWAY order (with orderType: 'takeaway') — the order number, not a UUID. Settles standalone, no grouping. */
+  orderNumber?: number;
   type?: PrintType;
 }
 
@@ -191,12 +214,22 @@ export interface OrderDetailItem {
   totalPrice: number;
   isDeleted: boolean;
   editedAt?: string;
+    /** Set only when fetched via getTableOrderDetail — which order (round) this item belongs to, for grouping in a multi-order table view. Absent for a single-order fetch. */
+  orderId?: string;
+  orderNumber?: number;
 }
 
 export interface EditOrderItemPayload {
   orderItemId: string;
   quantity: number;
   reason?: string;
+}
+
+export interface TableOrderDetail {
+  /** Every order (round) currently grouped for this table, in order# order. */
+  orders: { id: string; orderNumber: number }[];
+  /** All orders' items, each tagged with orderId/orderNumber (see OrderDetailItem). */
+  items: OrderDetailItem[];
 }
 
 export interface OrderActivityLogEntry {
@@ -211,6 +244,8 @@ export interface OrderActivityLogEntry {
   oldUnitPrice?: number;
   newUnitPrice?: number;
   reason?: string;
+    /** Set only when fetched via getTableActivityLog — which order (round) this entry belongs to. Absent for a single-order fetch. */
+  orderNumber?: number;
 }
 
 /**
@@ -228,12 +263,35 @@ export interface TableCard {
   tableId: string;
   tableNumber: string;
   tableState: string;
+    /**
+   * Every order in the table's current batch — every dine-in round that
+   * isn't cancelled and isn't both completed AND paid yet (see
+   * list_tables_for_outlet() in db/functions.sql). Empty/undefined when the
+   * table has nothing outstanding (cardStatus 'available'). A table can have
+   * more than one entry here: separate rounds ordered before the table was
+   * settled all bill and pay together.
+   */
+  orderIds?: string[];
+  /** Order numbers for orderIds, in the same grouping — shown on cards/dialogs instead of a single order#. */
+  orderNumbers?: number[];
   orderId?: string;
   orderStatus?: string;
   orderCreatedAt?: string;
   orderTotalAmount?: number;
   /** Derived client-side from orderStatus — 'available' when there's no recent order at all. */
   cardStatus: TableCardStatus;
+    /** True once every order in the batch has payment_details set (transient — a fully-paid batch drops out of the next list). */
+  paymentRecorded?: boolean;
+}
+export type PaymentMethod = 'card' | 'cash' | 'upi' | 'part-payment';
+
+export interface SavePaymentPayload {
+  /** Any one order id from the table's batch — the RPC resolves the rest via its table_id. */
+  orderId: string;
+  method: PaymentMethod;
+  cashAmount?: number;
+  cardAmount?: number;
+  upiAmount?: number;
 }
 
 export interface MenuCacheSnapshot {
@@ -270,6 +328,8 @@ export interface ServerStatus {
   port: number;
   host: string;
   database: 'connected' | 'disconnected';
+   /** This machine's LAN IPv4 address (first non-internal interface) — what Android should actually point at, as opposed to `host` (the bind address, often 0.0.0.0). Null if none could be found (no active network interface). */
+  ipAddress: string | null;
 }
 
 // ---- Authentication / authorization ----
@@ -279,6 +339,9 @@ export interface AuthUser {
   fullName: string;
   role: string;
   isActive: boolean;
+  outletId?: string;
+  /** Displayed below the header title (see Header.tsx). Undefined if the profile has no outlet_id, or that outlet couldn't be resolved. */
+  outletName?: string;
 }
 
 export interface AuthResult {
@@ -313,6 +376,8 @@ export const IpcChannels = {
   SET_USER_ACTIVE: 'set-user-active',
   LIST_ORDERS: 'list-orders',
   GET_ORDER_DETAIL: 'get-order-detail',
+  GET_TABLE_ORDER_DETAIL: 'get-table-order-detail',
+  GET_TABLE_ACTIVITY_LOG: 'get-table-activity-log',
   EDIT_ORDER_ITEM: 'edit-order-item',
   DELETE_ORDER_ITEM: 'delete-order-item',
   CANCEL_ORDER_WITH_REASON: 'cancel-order-with-reason',
@@ -324,6 +389,8 @@ export const IpcChannels = {
   SET_MENU_ITEM_ACTIVE: 'set-menu-item-active',
   LIST_TABLES: 'list-tables',
   CREATE_TABLE: 'create-table',
+  SAVE_ORDER_PAYMENT: 'save-order-payment',
+  REPRINT_TABLE_BILL: 'reprint-table-bill',
   TEST_PRINT: 'test-print',
   // settings (renderer -> main, invoke)
   GET_SETTINGS: 'get-settings',
@@ -365,6 +432,8 @@ export interface ElectronApi {
   setUserActive(userId: string, isActive: boolean): Promise<void>;
   listOrders(filter: OrderListFilter): Promise<OrderListPage>;
   getOrderDetail(orderId: string): Promise<OrderDetailItem[]>;
+  getTableOrderDetail(orderId: string): Promise<TableOrderDetail>;
+  getTableActivityLog(orderId: string): Promise<OrderActivityLogEntry[]>;
   editOrderItem(payload: EditOrderItemPayload): Promise<void>;
   deleteOrderItem(orderItemId: string, reason?: string): Promise<void>;
   cancelOrderWithReason(orderId: string, reason: string): Promise<void>;
@@ -376,6 +445,8 @@ export interface ElectronApi {
   setMenuItemActive(menuItemId: string, isActive: boolean): Promise<MenuCacheSnapshot>;
   listTables(): Promise<TableCard[]>;
   createTable(tableNumber: string): Promise<void>;
+  savePayment(payload: SavePaymentPayload): Promise<void>;
+  reprintTableBill(orderId: string): Promise<void>;
   testPrint(target?: string): Promise<string>;
   getSettings(): Promise<Record<string, string>>;
   updateSettings(printerType: string, deviceName: string): Promise<void>;

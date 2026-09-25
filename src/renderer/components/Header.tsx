@@ -15,8 +15,17 @@ export function Header({ server, onRefresh }: HeaderProps) {
 
   return (
     <header className={styles.header}>
-      <h1 className={styles.title}>VIRUNTHAGAM</h1>
+      <div className={styles.titleBlock}>
+      <h1 className={styles.title}>VIRUNTHAGAM v1.0</h1>
+      {user?.outletName && <div className={styles.outletName}>{user.outletName}</div>}
+      </div>
       <div className={styles.actions}>
+        {server?.ipAddress && (
+          <div className={styles.status}>
+            <Icon name="info" size={14} />
+            IP: {server.ipAddress}
+          </div>
+        )}
         <div className={`${styles.status} ${online ? styles.statusOnline : styles.statusOffline}`}>
           <span className={styles.statusDot} />
           Server: {online ? `Online :${server?.port}` : 'Offline'}

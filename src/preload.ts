@@ -20,7 +20,9 @@ import type {
   MenuCacheSnapshot,
   TableCard,
   ServerStatus,  
-} from './shared/types';
+  SavePaymentPayload,
+  TableOrderDetail,
+} from './shared/types.js';
 
 // Helper to subscribe to a main->renderer channel and return an unsubscribe fn.
 function on<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -64,6 +66,12 @@ const api: ElectronApi = {
       ipcRenderer.invoke(IpcChannels.LIST_ORDERS, filter) as Promise<OrderListPage>,
     getOrderDetail: (orderId) =>
       ipcRenderer.invoke(IpcChannels.GET_ORDER_DETAIL, orderId) as Promise<OrderDetailItem[]>,
+  getTableOrderDetail: (orderId) =>
+    ipcRenderer.invoke(IpcChannels.GET_TABLE_ORDER_DETAIL, orderId) as Promise<TableOrderDetail>,
+  getTableActivityLog: (orderId) =>
+    ipcRenderer.invoke(IpcChannels.GET_TABLE_ACTIVITY_LOG, orderId) as Promise<
+      OrderActivityLogEntry[]
+    >,
     editOrderItem: (payload) =>
       ipcRenderer.invoke(IpcChannels.EDIT_ORDER_ITEM, payload) as Promise<void>,
     deleteOrderItem: (orderItemId, reason) =>
@@ -89,6 +97,10 @@ const api: ElectronApi = {
   listTables: () => ipcRenderer.invoke(IpcChannels.LIST_TABLES) as Promise<TableCard[]>,
   createTable: (tableNumber) =>
     ipcRenderer.invoke(IpcChannels.CREATE_TABLE, tableNumber) as Promise<void>,
+  savePayment: (payload: SavePaymentPayload) =>
+    ipcRenderer.invoke(IpcChannels.SAVE_ORDER_PAYMENT, payload) as Promise<void>,
+  reprintTableBill: (orderId) =>
+    ipcRenderer.invoke(IpcChannels.REPRINT_TABLE_BILL, orderId) as Promise<void>,
   testPrint: (target) => ipcRenderer.invoke(IpcChannels.TEST_PRINT, target) as Promise<string>,
   getSettings: () =>
     ipcRenderer.invoke(IpcChannels.GET_SETTINGS) as Promise<Record<string, string>>,
@@ -97,7 +109,8 @@ const api: ElectronApi = {
   removePrinter: (printerType) =>
     ipcRenderer.invoke(IpcChannels.REMOVE_PRINTER, printerType) as Promise<void>,
   getMaxPrinters: () => ipcRenderer.invoke(IpcChannels.GET_MAX_PRINTERS) as Promise<number>,
-  getServerStatus: () => ipcRenderer.invoke(IpcChannels.GET_SERVER_STATUS) as Promise<ServerStatus>,
+  getServerStatus: () => 
+    ipcRenderer.invoke(IpcChannels.GET_SERVER_STATUS) as Promise<ServerStatus>,
   onOrderReceived: (cb) => on<OrderWithStatus>(IpcChannels.ORDER_RECEIVED, cb),
   onOrderStatusChanged: (cb) => on<OrderWithStatus>(IpcChannels.ORDER_STATUS_CHANGED, cb),
   onPrinterStatus: (cb) => on<PrinterInfo[]>(IpcChannels.PRINTER_STATUS, cb),
