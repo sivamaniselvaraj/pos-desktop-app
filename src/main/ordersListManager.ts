@@ -63,9 +63,9 @@ export async function listOrders(filter: OrderListFilter): Promise<OrderListPage
   return { rows, totalRows: Number(totalRows ?? 0) };
 }
 
-export async function getOrderDetail(tableNumber: string): Promise<OrderDetailItem[]> {
+export async function getOrderDetail(orderId: string): Promise<OrderDetailItem[]> {
   const supabase = getAuthedClient();
-  const { data, error } = await supabase.rpc('get_order_detail', { p_tableNumber: tableNumber });
+  const { data, error } = await supabase.rpc('get_order_detail', { p_order_id: orderId });
   if (error) throw new Error(error.message);
 
   return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
