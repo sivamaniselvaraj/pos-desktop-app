@@ -464,7 +464,7 @@ as $$
   
   where a.order_id = p_order_id
     and p.role in ('manager', 'owner', 'admin')
-    and cb.outlet_id = o.outlet_id
+    --and cb.outlet_id = o.outlet_id
   order by a.changed_at desc;
 $$;
 
