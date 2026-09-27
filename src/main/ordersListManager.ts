@@ -11,6 +11,7 @@ import type {
   EditOrderItemPayload,
   FoodOrder,
 } from '../shared/types';
+import { config } from './config';
 
 /**
  * ordersListManager.ts
@@ -88,11 +89,11 @@ export async function getOrderDetail(tableNumber: string): Promise<OrderDetailIt
  * edit/delete actions still target the right orderItemId either way.
  */
 export async function getTableOrderDetail(
-  orderId: string,
+  tableId: string,
 ): Promise<{ orders: { id: string; orderNumber: number }[]; items: OrderDetailItem[] }> {
   const supabase = getAuthedClient();
-  const batch = await fetchTableBatchOrders(orderId);
-  const orders = batch.orders.length > 0 ? batch.orders : [{ id: orderId, orderNumber: 0 }];
+  const batch = await fetchTableBatchOrders(tableId);
+  const orders = batch.orders.length > 0 ? batch.orders : [{ id: tableId, orderNumber: 0 }];
 
   const perOrder = await Promise.all(
     orders.map(async (o) => {
@@ -112,8 +113,6 @@ export async function getTableOrderDetail(
       }));
     }),
   );
-
-  
 
   return { orders, items: perOrder.flat() };
 }
@@ -226,7 +225,7 @@ export async function reprintOrder(orderId: string): Promise<void> {
 
     const isDuplicate = order.status === 'completed';
 
-    await printOrderEscpos(billOrder, 'Cashier', isDuplicate);
+    await printOrderEscpos(billOrder, config.cashierPrinter, isDuplicate);
   });
 }
   /**
@@ -237,21 +236,16 @@ export async function reprintOrder(orderId: string): Promise<void> {
    * were settled together still shows every order# and every item, not just
    * whichever single order id the card happened to carry.
    */
-  export async function reprintTableBill(orderId: string): Promise<void> {
+  export async function reprintTableBill(tableId: string): Promise<void> {
     await printQueue.enqueue(async () => {
-      const order = await fetchOrderById(orderId);
-      if (!order) throw new Error(`Order ${orderId} not found.`);
-  
-      const group = await fetchTableBatchOrders(orderId);
-      const groupIds = group.orderIds.length > 0 ? group.orderIds : [orderId];
-      const isGrouped = groupIds.length > 1;
-  
-      if (!isGrouped) {
-        const items = await fetchAggregatedItems(orderId);
-        const isDuplicate = order.status === 'completed';
-        await printOrderEscpos({ ...order, items }, 'Cashier', isDuplicate);
-        return;
-      }
+       
+      const group = await fetchTableBatchOrders(tableId);
+       if (!group) throw new Error(`Orders found for table ${tableId}`);
+
+      const groupIds = group.orderIds.length > 0 ? group.orderIds : [];
+
+      const order = await fetchOrderById(groupIds[0]);
+      if (!order) throw new Error(`Orders found for table ${tableId}`);
   
       const items = await fetchAggregatedItemsForOrders(groupIds);
       const groupOrders = (await Promise.all(groupIds.map((id) => fetchOrderById(id)))).filter(
@@ -275,9 +269,9 @@ export async function reprintOrder(orderId: string): Promise<void> {
         total: summed.total,
         discount: summed.discount || undefined,
         containerCharge: summed.containerCharge || undefined,
-        orderNumbers: group.orderNumbers.length > 0 ? group.orderNumbers : [order.orderNumber],
+        orderNumbers: group.orderNumbers,
       };
-      await printOrderEscpos(billOrder, 'cashier', true);
+      await printOrderEscpos(billOrder, config.cashierPrinter, true);
     });
 }
 

@@ -470,8 +470,8 @@ export function formatReceipt(order: FoodOrder): string {
 
   // Item table header
   
-    rows.push(
-    padRight('Item', ITEM_COL) +
+  rows.push(
+      padRight('Item', ITEM_COL) +
       rightAlign('Qty', QTY_COL) +
       rightAlign('Price', PRICE_COL) +
       rightAlign('Amount', AMT_COL),
@@ -631,7 +631,7 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string, isD
     ]);
     printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
       { text:"", align:"LEFT"},
-      { text:formatKeyValue('Bill No.', String(order.orderNumber)), align:"LEFT", bold:true},
+      { text:formatKeyValue('Bill No.', String(order.orderNumbers)), align:"LEFT", bold:true},
     ]);
     if(orderType === "Pick Up"){
       printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
@@ -753,6 +753,15 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string, isD
 export async function printKot(order: FoodOrder, printerName: string): Promise<void> {
   const name = (printerName ?? '').trim();
   console.log("printerName ", printerName)
+  let isPickup = order.orderType === "pickup" || order.orderType === 'takeaway';
+  let kotType = isPickup  ? 'TAKEAWAY' : 'WAITER KOT';
+  let orderType = isPickup ? "Pick Up" : "Dine In";
+
+    const tableLabel =
+      order.tableNumber != null && String(order.tableNumber).trim() !== ''
+        ? String(order.tableNumber)
+        : '-';
+
   if (!name) {
     throw new Error(
       'No waiter printer configured. Add a "Waiter" printer in Settings to print KOTs.',
@@ -770,46 +779,45 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
 
     // Title
     printer.alignCenter();
-    printer.bold(true);
-    printer.setTextSize(1, 1);
-    printer.println('KOT');
-    printer.setTextSize(0, 0);
-    printer.bold(false);
-    solidLine(printer);
-
-    // Order meta: table number (prominent), order number, time, type
-    printer.alignLeft();
-    printer.bold(true);
-    printer.setTextSize(1, 1);
-    const tableLabel =
-      order.tableNumber != null && String(order.tableNumber).trim() !== ''
-        ? String(order.tableNumber)
-        : '-';
-    printer.println(`Table: ${tableLabel}`);
-    printer.setTextSize(0, 0);
-    printer.bold(false);
-
-   // printer.println(`Order #: ${order.orderNumber}`);
-   // printer.println(`Type   : ${order.orderType.toUpperCase()}`);
+    if(order.orderNumbers && order.orderNumbers?.length > 0){
+      printer.println('Running Table');
+    }
     printer.println(`Time   : ${new Date(order.createdAt).toLocaleString('en-IN')}`);
-    solidLine(printer);
-
-    // Column header: Qty | Item
     printer.bold(true);
-    printer.println(padRight('Qty', 5) + 'Item');
+    printer.setTextSize(1, 1);
+    printer.println(kotType);
+    printer.setTextSize(0, 0);
+    printer.println(`Time   : ${new Date(order.createdAt).toLocaleString('en-IN')}`);
+    if(order.tokenNumber){
+      printer.println("KOT - " + order.tokenNumber);
+    }
+
+    printer.bold(true);
+    printer.println(orderType);
+    if(!isPickup){ 
+      printer.println(`Table No: ${tableLabel}`);
+    }
     printer.bold(false);
+    solidLine(printer);
+    printer.println(order.placedBy? order.placedBy : 'Biller');
     solidLine(printer);
 
     // Items — quantity emphasised, no prices on a KOT.
     let totalQty = 0;
+    const ITEM_COL =  RECEIPT_WIDTH -  QTY_COL
+    printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
+      { text:"Item", align:"LEFT", cols:ITEM_COL, bold:true },
+      { text:"Qty", align:"CENTER", cols:QTY_COL, bold:true }
+    ]);
+
     for (const item of order.items) {
       totalQty += item.quantity;
-      const qtyStr = padRight(String(item.quantity), 5);
+      const qtyStr = String(item.quantity);;
       const nameLines = wrapText(item.name, RECEIPT_WIDTH - 5);
-      printer.println(qtyStr + nameLines[0]);
-      for (const cont of nameLines.slice(1)) {
-        printer.println(' '.repeat(5) + cont);
-      }
+      printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
+      { text:nameLines[0], align:"LEFT", cols:ITEM_COL, bold:false },
+      { text:qtyStr, align:"CENTER", cols:QTY_COL, bold:false },
+    ]);
       if (item.specialInstructions) {
         printer.println('     * ' + item.specialInstructions);
       }
@@ -817,12 +825,10 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
 
     solidLine(printer);
 
-    // Total quantity
-    printer.bold(true);
-    printer.setTextSize(1, 1);
-    printer.println(`Total Qty: ${totalQty}`);
-    printer.setTextSize(0, 0);
-    printer.bold(false);
+    printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
+      { text:"", align:"LEFT", cols:ITEM_COL, bold:true },
+      { text:String(totalQty), align:"CENTER", cols:QTY_COL, bold:true }
+    ]);
 
     if (order.specialNotes) {
       solidLine(printer);
@@ -833,8 +839,6 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
     }
 
     solidLine(printer);
-    printer.println('');
-    printer.println('');
     printer.cut();
 
     await printer.execute();

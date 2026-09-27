@@ -46,6 +46,7 @@ class OrderManager extends EventEmitter {
 
   // Called by the HTTP server when Android posts an order ID.
   async handleIncoming(orderId: string, type: PrintType = 'bill'): Promise<PrintOrderResponse> {
+    
     let order = await fetchOrderById(orderId);
 
     if (!order) {
@@ -59,7 +60,7 @@ class OrderManager extends EventEmitter {
     }
 
     if (type === 'kot') return this.handleKot(orderId, order);
-    if (type === 'settle') return this.handleSettle(orderId, order);
+    //if (type === 'settle') return this.handleSettle(orderId, order);
 
     return {
       success: false,

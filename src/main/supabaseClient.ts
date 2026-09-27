@@ -287,57 +287,21 @@ export interface TableBatch {
   orders: { id: string; orderNumber: number }[];
 }
 
-export async function fetchTableBatchOrders(orderId: string): Promise<TableBatch> {
+export async function fetchTableBatchOrders(tableId: string): Promise<TableBatch> {
   const supabase = getAuthedClient();
   if (!supabase) throw new Error('Supabase is not configured.');
-
-  const id = await resolveOrderId(orderId);
+  const id = await resolveOrderId(tableId);
   if (!id) return { tableId: null, orderIds: [], orderNumbers: [], orders: [] };
-
-  const { data: current, error: curErr } = await supabase
-    .from(config.supabase.orderTable)
-    .select('table_id, order_number')
-    .eq('id', id)
-    .single();
-
-  if (curErr) throw new Error(curErr.message);
-  const currentRow = current as Record<string, unknown> | null;
-  const tableId = currentRow?.table_id != null ? String(currentRow.table_id) : null;
-
-  if (!tableId) {
-    // Pickup/delivery, or a dine-in order somehow missing its table link —
-    // nothing to group with, just this one order.
-    const orderNumber = currentRow?.order_number != null ? Number(currentRow.order_number) : null;
-    return {
-      tableId: null,
-      orderIds: [id],
-      orderNumbers: orderNumber != null ? [orderNumber] : [],
-      orders: orderNumber != null ? [{ id, orderNumber }] : [{ id, orderNumber: 0 }],
-    };
-  }
 
   const { data: rows, error } = await supabase
     .from(config.supabase.orderTable)
     .select('id, order_number, status, payment_details')
-    .eq('table_id', tableId)
-    .neq('status', 'cancelled');
+    .eq('table_id', id)
+    .neq('status', 'cancelled')
+    .is('payment_details', null);
   if (error) throw new Error(error.message);
 
-  const list = ((rows as Record<string, unknown>[] | null) ?? []).filter((r) => {
-    // Exclude only orders that are BOTH completed AND already paid — those
-    // are done and out of the batch. Everything else (still open, or
-    // completed-but-unpaid awaiting the Save button) stays in.
-    const isPaidAndDone = r.status === 'completed' && r.payment_details != null;
-    return !isPaidAndDone;
-  });
-
-  let pairs = list.map((r) => ({ id: String(r.id), orderNumber: Number(r.order_number) }));
-  // Defensive: the triggering order should always satisfy the filter above,
-  // but include it explicitly in case of a race with a concurrent edit.
-  if (!pairs.some((p) => p.id === id)) {
-    const orderNumber = currentRow?.order_number != null ? Number(currentRow.order_number) : 0;
-    pairs.push({ id, orderNumber });
-  }
+  let pairs = rows.map((r) => ({ id: String(r.id), orderNumber: Number(r.order_number) }));
   pairs = pairs.sort((a, b) => a.orderNumber - b.orderNumber);
 
   return {

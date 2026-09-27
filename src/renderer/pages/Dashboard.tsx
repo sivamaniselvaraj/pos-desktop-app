@@ -41,7 +41,7 @@ export function Dashboard() {
   const [newTableNumber, setNewTableNumber] = useState('');
   const [adding, setAdding] = useState(false);
 
-  const [viewOrderId, setViewOrderId] = useState<string | null>(null);
+  const [viewTableId, setViewTableId] = useState<string | null>(null);
   const [viewOrders, setViewOrders] = useState<{ id: string; orderNumber: number }[]>([]);
   const [viewItems, setViewItems] = useState<OrderDetailItem[]>([]);
   const [viewLog, setViewLog] = useState<OrderActivityLogEntry[]>([]);
@@ -80,13 +80,13 @@ export function Dashboard() {
   }
 
   async function handlePrint(table: TableCard) {
-    if (!table.orderId) return;
+    if (!table.tableId) return;
     try {
       setBusyTableId(table.tableId);
       // Grouped reprint: pulls in every order still in this table's batch
       // (all rounds settled together) so a reprint after grouping still
       // shows the full merged bill, not just one order.
-      await window.api.reprintTableBill(table.orderId);
+      await window.api.reprintTableBill(table.tableId);
       flash('success', `Printed for Table ${table.tableNumber}`);
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Print failed');
@@ -178,30 +178,30 @@ export function Dashboard() {
   }
 
   async function openView(table: TableCard) {
-    if (!table.orderId) return;
-    setViewOrderId(table.orderId);
+    if (!table.tableId) return;
+    setViewTableId(table.tableId);
     setEditing(null);
     try {
       setViewLoading(true);
       // Grouped: pulls in every order still open on this table, not just the
       // one the card happened to carry.
       const [detail, log] = await Promise.all([
-        window.api.getTableOrderDetail(table.orderId),
-        window.api.getTableActivityLog(table.orderId),
+        window.api.getTableOrderDetail(table.tableId),
+        window.api.getTableActivityLog(table.tableId),
       ]);
       setViewOrders(detail.orders);
       setViewItems(detail.items);
       setViewLog(log);
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Failed to load order');
-      setViewOrderId(null);
+      setViewTableId(null);
     } finally {
       setViewLoading(false);
     }
   }
 
   function closeView() {
-    setViewOrderId(null);
+    setViewTableId(null);
     setViewOrders([]);
     setViewItems([]);
     setViewLog([]);
@@ -209,10 +209,10 @@ export function Dashboard() {
   }
 
   async function refreshView() {
-    if (!viewOrderId) return;
+    if (!viewTableId) return;
     const [detail, log] = await Promise.all([
-      window.api.getTableOrderDetail(viewOrderId),
-      window.api.getTableActivityLog(viewOrderId),
+      window.api.getTableOrderDetail(viewTableId),
+      window.api.getTableActivityLog(viewTableId),
     ]);
     setViewOrders(detail.orders);
     setViewItems(detail.items);
@@ -249,8 +249,8 @@ export function Dashboard() {
   }
 
   const viewingTable = useMemo(
-    () => tables.find((t) => t.orderId === viewOrderId),
-    [tables, viewOrderId],
+    () => tables.find((t) => t.tableId === viewTableId),
+    [tables, viewTableId],
   );
 
   return (
@@ -446,7 +446,7 @@ export function Dashboard() {
         </div>
       )}
 
-      {viewOrderId && (
+      {viewTableId && (
         <div className={styles.modalOverlay} onClick={closeView}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <h3>

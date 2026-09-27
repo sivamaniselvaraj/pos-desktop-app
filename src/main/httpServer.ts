@@ -84,19 +84,26 @@ export function startHttpServer(): Promise<void> {
         error: 'SERVER_ERROR',
       });
     }
+     if (body.orderType === 'dine-in' && body.type === 'kot') {
+      let orderId = '';
+      if (body.orderId == null || body.orderId === '') {
+          return res.status(400).json({
+            success: false,
+            orderId: '',
+            message: 'order id is required when orderType is "dine-in" and typr is "KOT".',
+            printStatus: 'failed',
+            error: 'BAD_REQUEST',
+          });
+        }
+        orderId = body.orderId?.toString();
+      return runQueued(
+          () => orderManager.handleIncoming(orderId, 'kot'),
+          res,
+        );
+      
+     }
 
-    console.log('printing for the order ', body.orderNumber, 'TYPE - ', type);
-    if (type !== 'bill' && type !== 'kot' && type !== 'settle') {
-      return res.status(400).json({
-        success: false,
-        orderNumber: body.orderNumber,
-        message: `Invalid type "${type}". Expected "bill", "kot", or "settle".`,
-        printStatus: 'failed',
-        error: 'BAD_REQUEST',
-      });
-    }
-
-      if (body.orderType === 'dine-in') {
+      else if (body.orderType === 'dine-in') {
         //dine-in
         if (body.tableNumber == null || body.tableNumber === '') {
           return res.status(400).json({

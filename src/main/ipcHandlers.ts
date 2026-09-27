@@ -34,6 +34,7 @@ import {
   getTableOrderDetail,
   listOrders,
   reprintOrder,
+  reprintTableBill,
 } from './ordersListManager';
 
 /**
@@ -98,7 +99,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   // Sales report (manager/owner/admin — enforced server-side by the RPC)
   ipcMain.handle(
     IpcChannels.GET_SALES_REPORT,
-    (_e, from: string, to: string, bucket: 'day' | 'month') => fetchSalesReport(from, to, bucket),
+    (_e, from: string, to: string, bucket: 'day' | 'month') => 
+    fetchSalesReport(from, to, bucket),
   );
   ipcMain.handle(IpcChannels.GET_TOP_ITEMS, (_e, from: string, to: string) =>
     fetchTopItems(from, to),
@@ -158,6 +160,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   // Dashboard table cards
   ipcMain.handle(IpcChannels.LIST_TABLES, () => listTables());
   ipcMain.handle(IpcChannels.CREATE_TABLE, (_e, tableNumber: string) => createTable(tableNumber));
+  // ipcMain.handle(IpcChannels.SAVE_ORDER_PAYMENT, (_e, payload: SavePaymentPayload) =>
+  //     //savePayment(payload),
+  //   );
+    ipcMain.handle(IpcChannels.REPRINT_TABLE_BILL, (_e, orderId: string) => reprintTableBill(orderId));
 
   // main -> renderer (forward manager events to the active window)
   const send = (channel: string, payload: unknown) => {
