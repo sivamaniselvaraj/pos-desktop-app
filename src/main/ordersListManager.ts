@@ -1,5 +1,10 @@
 import { getAuthedClient } from './supabaseAuthClient';
-import { fetchOrderById, fetchAggregatedItems, fetchAggregatedItemsForOrders, fetchTableBatchOrders } from './supabaseClient';
+import { 
+  fetchOrderById, 
+  fetchAggregatedItems, 
+  fetchTableBatchOrders,
+  fetchAggregatedItemsForOrders,
+} from './supabaseClient';
 import { printOrderEscpos } from './printerManager';
 import { printQueue } from './printQueue';
 import type {
@@ -46,6 +51,7 @@ function mapListRow(row: Record<string, unknown>): OrderListRow {
     tableId: row.table_id ? String(row.table_id) : undefined,
     tableNumber: row.table_number ? String(row.table_number) : undefined,
     invoiceNumber: row.invoice_number ? String(row.invoice_number) : undefined,
+    orderCount: Number(row.order_count ?? 1),
   };
 }
 
@@ -118,6 +124,94 @@ export async function getTableOrderDetail(
   );
 
   return { orders, items: perOrder.flat() };
+}
+
+/**
+ * Fetches the order id/number pairs for every order sharing one
+ * invoice_number, via get_orders_by_invoice() (db/functions.sql) — the RPC
+ * is outlet-scoped and re-checks the caller's role itself, so an
+ * unauthorized or cross-outlet invoice_number just comes back empty.
+ */
+async function fetchInvoiceOrders(
+  invoiceNumber: string,
+): Promise<{ id: string; orderNumber: number }[]> {
+  const supabase = getAuthedClient();
+  const { data, error } = await supabase.rpc('get_orders_by_invoice', {
+    p_invoice_number: invoiceNumber,
+  });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+    id: String(row.order_id ?? ''),
+    orderNumber: Number(row.order_number ?? 0),
+  }));
+}
+
+/**
+ * Orders List's invoice-grouped row detail — since list_orders() now returns
+ * one row per invoice_number rather than one row per order/round (see the
+ * "GROUPED BY INVOICE" comment on list_orders in db/functions.sql), opening
+ * a row needs every order sharing that invoice back, not just the table's
+ * current live batch (fetchTableBatchOrders/getTableOrderDetail below,
+ * which is keyed off table_id and excludes completed-and-paid orders). This
+ * mirrors getTableOrderDetail's shape/behavior but is keyed on
+ * invoice_number directly via get_orders_by_invoice(), so a completed or
+ * cancelled invoice still opens correctly from the grid.
+ */
+export async function getInvoiceOrderDetail(
+  invoiceNumber: string,
+): Promise<{ orders: { id: string; orderNumber: number }[]; items: OrderDetailItem[] }> {
+  const supabase = getAuthedClient();
+  const orders = await fetchInvoiceOrders(invoiceNumber);
+
+  const perOrder = await Promise.all(
+    orders.map(async (o) => {
+      const { data, error } = await supabase.rpc('get_order_detail', { p_order_id: o.id });
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+        orderItemId: String(row.order_item_id ?? ''),
+        menuItemId: String(row.menu_item_id ?? ''),
+        name: String(row.name ?? 'Item'),
+        quantity: Number(row.quantity ?? 0),
+        unitPrice: Number(row.unit_price ?? 0),
+        totalPrice: Number(row.total_price ?? 0),
+        isDeleted: row.is_deleted === true,
+        editedAt: row.edited_at ? String(row.edited_at) : undefined,
+        orderId: o.id,
+        orderNumber: o.orderNumber,
+      }));
+    }),
+  );
+
+  return { orders, items: perOrder.flat() };
+}
+
+/** Invoice-grouped counterpart to getTableActivityLog — see getInvoiceOrderDetail above. */
+export async function getInvoiceActivityLog(invoiceNumber: string): Promise<OrderActivityLogEntry[]> {
+  const supabase = getAuthedClient();
+  const orders = await fetchInvoiceOrders(invoiceNumber);
+
+  const perOrder = await Promise.all(
+    orders.map(async (o) => {
+      const { data, error } = await supabase.rpc('get_order_activity_log', { p_order_id: o.id });
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+        auditId: String(row.audit_id ?? ''),
+        orderItemId: String(row.order_item_id ?? ''),
+        itemName: String(row.item_name ?? 'Item'),
+        action: row.action === 'delete' ? 'delete' : ('edit' as 'edit' | 'delete'),
+        changedAt: String(row.changed_at ?? ''),
+        changedByName: String(row.changed_by_name ?? 'Unknown'),
+        oldQuantity: row.old_quantity != null ? Number(row.old_quantity) : undefined,
+        newQuantity: row.new_quantity != null ? Number(row.new_quantity) : undefined,
+        oldUnitPrice: row.old_unit_price != null ? Number(row.old_unit_price) : undefined,
+        newUnitPrice: row.new_unit_price != null ? Number(row.new_unit_price) : undefined,
+        reason: row.reason ? String(row.reason) : undefined,
+        orderNumber: o.orderNumber,
+      }));
+    }),
+  );
+
+  return perOrder.flat();
 }
 
 /**

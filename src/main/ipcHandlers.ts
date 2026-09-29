@@ -28,6 +28,8 @@ import {
   completeOrder,
   deleteOrderItem,
   editOrderItem,
+  getInvoiceActivityLog,
+  getInvoiceOrderDetail,
   getOrderActivityLog,
   getOrderDetail,
   getTableActivityLog,
@@ -94,6 +96,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   );
   ipcMain.handle(IpcChannels.GET_MAX_PRINTERS, () => getMaxPrinters());
 
+  // Invoicing (admin-only — enforced server-side by the RPCs)
+  //ipcMain.handle(IpcChannels.GET_INVOICE_SEQUENCE_STATUS, () => getInvoiceSequenceStatus());
+  //ipcMain.handle(IpcChannels.RESET_INVOICE_SEQUENCE, () => resetInvoiceSequence());
+
   ipcMain.handle(IpcChannels.GET_SERVER_STATUS, () => buildServerStatus());
 
   // Sales report (manager/owner/admin — enforced server-side by the RPC)
@@ -134,6 +140,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     ipcMain.handle(IpcChannels.GET_TABLE_ACTIVITY_LOG, (_e, orderId: string) =>
       getTableActivityLog(orderId),
     );
+  ipcMain.handle(IpcChannels.GET_INVOICE_ORDER_DETAIL, (_e, invoiceNumber: string) =>
+    getInvoiceOrderDetail(invoiceNumber),
+  );
+  ipcMain.handle(IpcChannels.GET_INVOICE_ACTIVITY_LOG, (_e, invoiceNumber: string) =>
+    getInvoiceActivityLog(invoiceNumber),
+  );
   ipcMain.handle(IpcChannels.EDIT_ORDER_ITEM, (_e, payload: EditOrderItemPayload) =>
     editOrderItem(payload),
   );

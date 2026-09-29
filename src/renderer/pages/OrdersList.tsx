@@ -52,7 +52,14 @@ export function OrdersList() {
   // Item view/edit modal — also carries the activity log, shown below the items table
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [detailIsDineIn, setDetailIsDineIn] = useState(false);
-
+  // Set only for a dine-in row whose invoice_number is known — the grid's
+  // rows are already grouped by invoice (see list_orders() in
+  // db/functions.sql), so opening one fetches the WHOLE invoice group via
+  // get_orders_by_invoice() rather than re-deriving the table's live batch
+  // from a single anchor order id. Falls back to the older table-batch fetch
+  // (getTableOrderDetail/getTableActivityLog) only for a legacy dine-in
+  // order that predates the invoice_number column.
+  const [detailInvoiceNumber, setDetailInvoiceNumber] = useState<string | null>(null);
   const [detailOrders, setDetailOrders] = useState<{ id: string; orderNumber: number }[]>([]);
   
   const [detailItems, setDetailItems] = useState<OrderDetailItem[]>([]);
@@ -130,10 +137,14 @@ export function OrdersList() {
     setTimeout(() => setMessage(null), 4000);
   }
 
-  async function handlePrint(orderId: string) {
+  async function handlePrint(row: OrderListRow) {
     try {
-      setBusyOrderId(orderId);
-      await window.api.reprintOrder(orderId);
+      setBusyOrderId(row.orderId);
+      if (row.orderType === 'dine_in') {
+        await window.api.reprintTableBill(row.orderId);
+      } else {
+        await window.api.reprintOrder(row.orderId);
+      }
       flash('success', 'Sent to printer');
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Print failed');
@@ -181,15 +192,25 @@ export function OrdersList() {
   }
 
   async function openDetail(row: OrderListRow) {
-    const isDineIn = row.orderType === 'dine_in';
+    const isDineIn = row.orderType === 'dine-in';
+    const invoiceNumber = isDineIn ? row.invoiceNumber ?? null : null;
     setDetailOrderId(row.orderId);
     setDetailIsDineIn(isDineIn);
+    setDetailInvoiceNumber(invoiceNumber);
     try {
       setDetailLoading(true);
-      if (isDineIn) {
-        // Dine-in: fetch the whole table's current batch (every order still
-        // open on that table), keyed off this order id — the table itself is
-        // resolved server-side from it, same as the Table Dashboard's grouping.
+      if (invoiceNumber) {
+        // Grouped dine-in row: fetch every order sharing this invoice_number.
+        const [detail, log] = await Promise.all([
+          window.api.getInvoiceOrderDetail(invoiceNumber),
+          window.api.getInvoiceActivityLog(invoiceNumber),
+        ]);
+        setDetailOrders(detail.orders);
+        setDetailItems(detail.items);
+        setDetailLog(log);
+      } else if (isDineIn) {
+        // Legacy dine-in order with no invoice_number yet — fall back to the
+        // table's live batch, resolved server-side from this order id.
         const [detail, log] = await Promise.all([
           window.api.getTableOrderDetail(row.orderId),
           window.api.getTableActivityLog(row.orderId),
@@ -208,6 +229,7 @@ export function OrdersList() {
       }
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Failed to load order details');
+      setDetailOrderId(null);
     } finally {
       setDetailLoading(false);
     }
@@ -215,7 +237,15 @@ export function OrdersList() {
 
   async function reloadDetail() {
     if (!detailOrderId) return;
-    if (detailIsDineIn) {
+    if (detailInvoiceNumber) {
+      const [detail, log] = await Promise.all([
+        window.api.getInvoiceOrderDetail(detailInvoiceNumber),
+        window.api.getInvoiceActivityLog(detailInvoiceNumber),
+      ]);
+      setDetailOrders(detail.orders);
+      setDetailItems(detail.items);
+      setDetailLog(log);
+    } else if (detailIsDineIn) {
       const [detail, log] = await Promise.all([
         window.api.getTableOrderDetail(detailOrderId),
         window.api.getTableActivityLog(detailOrderId),
@@ -236,6 +266,7 @@ export function OrdersList() {
   function closeDetail() {
     setDetailOrderId(null);
     setDetailIsDineIn(false);
+    setDetailInvoiceNumber(null);
     setDetailOrders([]);
     setDetailItems([]);
     setDetailLog([]);
@@ -381,25 +412,30 @@ export function OrdersList() {
                   </td>
                 </tr>
               ) : (
-                rows.map((r) => (
-                  <tr key={r.orderId}>
-                    <td>
-                      <div className={styles.orderIdCell}>
+                rows.map((r) => {
+                  const grouped = r.orderCount > 1;
+                  return (
+                    <tr key={r.invoiceNumber ?? r.orderId}>
+                      <td className={styles.orderIdCell}>
                       <button className={styles.linkBtn} onClick={() => openDetail(r)}>
                         {r.orderType === 'dine_in'
                           ? `Table ${r.tableNumber ?? '—'}`
                           : r.orderNumber}
                       </button>
+                        {grouped && (
+                          <span className={styles.editedBadge} title="This invoice groups multiple orders/rounds">
+                            {r.orderCount} orders
+                          </span>
+                        )}
                       {r.hasEdits && (
                         <span className={styles.editedBadge} title="This order has edited or removed items">
                           <Icon name="edit" size={11} />
                           edited
                         </span>
                       )}
-                      </div>
                     </td>
                     <td>{r.invoiceNumber ?? '—'}</td>
-                    <td>{r.orderType === 'dine_in' ? 'Dine In' : 'TakeAway'}</td>
+                    <td>{r.orderType === 'dine_in' ? 'Dine In' : 'Takeaway'}</td>
                     <td>{new Date(r.createdAt).toLocaleString('en-IN', {day:'2-digit', month: '2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', hour12:true})}</td>
                     <td>{r.itemCount}</td>
                     <td>{formatCurrency(r.totalAmount)}</td>
@@ -413,7 +449,7 @@ export function OrdersList() {
                         <button
                           className={styles.iconBtn}
                           title="Print / Reprint"
-                          onClick={() => handlePrint(r.orderId)}
+                          onClick={() => handlePrint(r)}
                           disabled={busyOrderId === r.orderId}
                         >
                           <Icon name="print" size={16} />
@@ -438,7 +474,11 @@ export function OrdersList() {
                             </button>
                             <button
                               className={styles.iconBtn}
-                              title="Cancel"
+                                title={
+                                  grouped
+                                    ? 'This invoice has multiple orders — cancel each round from the item view'
+                                    : 'Cancel'
+                                }
                               onClick={() => openCancel(r.orderId)}
                               disabled={busyOrderId === r.orderId}
                             >
@@ -449,7 +489,8 @@ export function OrdersList() {
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -482,7 +523,7 @@ export function OrdersList() {
           title={
             detailIsDineIn
               ? `Table ${detailOrder?.tableNumber ?? '—'}`
-              : `Order# ${detailOrderId.slice(0, 8)}`
+              : `Order# ${detailOrder?.orderNumber}`
           }
           headerAmount={detailOrder?.totalAmount}
           orders={detailOrders}

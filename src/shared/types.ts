@@ -54,7 +54,7 @@ export interface FoodOrder {
   orderType: OrderType;
   specialNotes?: string;
   createdAt: string;
-  tableNumber?: number;
+  tableNumber?: string | number;
   /** 'open' | 'completed' | 'cancelled' — used e.g. to decide the DUPLICATE BILL banner on reprint. */
   status?: string;
   /** Raw header/footer config (JSON string or object) for the receipt. */
@@ -203,7 +203,20 @@ export interface OrderListRow {
   tableNumber?: string;
   /** Format YYYY-MM-DD-NNNNN — see FoodOrder.invoiceNumber. Undefined only for orders created before this column existed. */
   invoiceNumber?: string;
+  /**
+   * How many individual orders (rounds) are merged into this row — the grid
+   * groups by invoice_number, so a dine-in table with several rounds under
+   * one invoice appears as ONE row with orderCount > 1 rather than one row
+   * per round. Always 1 for takeaway/pickup (each gets its own invoice
+   * number) and for a dine-in order with no invoice_number yet (pre-feature
+   * legacy row). orderId/status/totals on a grouped row are aggregated
+   * across the whole group — see list_orders() in db/functions.sql — so
+   * Complete/Cancel (single-order operations) are disabled in the UI
+   * whenever this is > 1, to avoid guessing which round a click means.
+   */
+  orderCount: number;
 }
+
 /** Settings page's "Invoicing" panel — admin-only (see get_invoice_sequence_status()/reset_invoice_sequence() in db/functions.sql). */
 export interface InvoiceSequenceStatus {
   outletId: string;
@@ -402,6 +415,8 @@ export const IpcChannels = {
   GET_ORDER_DETAIL: 'get-order-detail',
   GET_TABLE_ORDER_DETAIL: 'get-table-order-detail',
   GET_TABLE_ACTIVITY_LOG: 'get-table-activity-log',
+  GET_INVOICE_ORDER_DETAIL: 'get-invoice-order-detail',
+  GET_INVOICE_ACTIVITY_LOG: 'get-invoice-activity-log',
   EDIT_ORDER_ITEM: 'edit-order-item',
   DELETE_ORDER_ITEM: 'delete-order-item',
   CANCEL_ORDER_WITH_REASON: 'cancel-order-with-reason',
@@ -460,6 +475,9 @@ export interface ElectronApi {
   getOrderDetail(orderId: string): Promise<OrderDetailItem[]>;
   getTableOrderDetail(orderId: string): Promise<TableOrderDetail>;
   getTableActivityLog(orderId: string): Promise<OrderActivityLogEntry[]>;
+  /** Orders List's invoice-grouped row detail — every order sharing that invoice_number, via get_orders_by_invoice(). */
+  getInvoiceOrderDetail(invoiceNumber: string): Promise<TableOrderDetail>;
+  getInvoiceActivityLog(invoiceNumber: string): Promise<OrderActivityLogEntry[]>;
   editOrderItem(payload: EditOrderItemPayload): Promise<void>;
   deleteOrderItem(orderItemId: string, reason?: string): Promise<void>;
   cancelOrderWithReason(orderId: string, reason: string): Promise<void>;

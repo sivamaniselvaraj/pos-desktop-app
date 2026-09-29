@@ -73,6 +73,14 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.GET_TABLE_ACTIVITY_LOG, orderId) as Promise<
       OrderActivityLogEntry[]
     >,
+      getInvoiceOrderDetail: (invoiceNumber) =>
+        ipcRenderer.invoke(IpcChannels.GET_INVOICE_ORDER_DETAIL, invoiceNumber) as Promise<
+          TableOrderDetail
+        >,
+      getInvoiceActivityLog: (invoiceNumber) =>
+        ipcRenderer.invoke(IpcChannels.GET_INVOICE_ACTIVITY_LOG, invoiceNumber) as Promise<
+          OrderActivityLogEntry[]
+        >,
     editOrderItem: (payload) =>
       ipcRenderer.invoke(IpcChannels.EDIT_ORDER_ITEM, payload) as Promise<void>,
     deleteOrderItem: (orderItemId, reason) =>

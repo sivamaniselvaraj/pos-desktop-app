@@ -143,13 +143,13 @@ export function OrderDetailModal({
 
         {meta && (
           <div className={styles.modalSubheader}>
-            <span>Type: {meta.orderType === 'dine_in' ? 'Dine In' : 'TakeAway'}</span>
+            <span>Type: {meta.orderType === 'dine_in' ? 'Dine In' : 'Takeaway'}</span>
             {meta.invoiceNumber && <span>Invoice No.: {meta.invoiceNumber}</span>}
             <span className={`${styles.statusBadge} ${statusClass(meta.status)}`}>
               {statusLabel(meta.status)}
             </span>
           <div>
-            <span>Date: {new Date(meta.date).toLocaleString('en-IN', {day:'2-digit', month: '2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false})}</span>
+            <span>Date: {new Date(meta.date).toLocaleString('en-IN', {day:'2-digit', month: '2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', hour12:true})}</span>
           </div>
           </div>
         )}
