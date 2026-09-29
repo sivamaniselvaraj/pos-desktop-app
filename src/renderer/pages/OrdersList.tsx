@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../components/Icon';
+import { OrderDetailModal } from '../components/OrderDetailModal';
 import type {
   OrderListRow,
   OrderListStatus,
@@ -50,12 +51,13 @@ export function OrdersList() {
 
   // Item view/edit modal — also carries the activity log, shown below the items table
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
-  const [detailOrderNumber, setDetailOrderNumber] = useState<string | null>(null);
+  const [detailIsDineIn, setDetailIsDineIn] = useState(false);
+
+  const [detailOrders, setDetailOrders] = useState<{ id: string; orderNumber: number }[]>([]);
   
   const [detailItems, setDetailItems] = useState<OrderDetailItem[]>([]);
   const [detailLog, setDetailLog] = useState<OrderActivityLogEntry[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [editing, setEditing] = useState<{ id: string; quantity: string } | null>(null);
 
   // Cancel-reason modal
   const [cancelTarget, setCancelTarget] = useState<string | null>(null);
@@ -178,58 +180,71 @@ export function OrdersList() {
     }
   }
 
-  async function openDetail(orderId: string, orderNumber: string) {
-    setDetailOrderId(orderId);
-    setDetailOrderNumber(orderNumber);
-    setEditing(null);
+  async function openDetail(row: OrderListRow) {
+    const isDineIn = row.orderType === 'dine_in';
+    setDetailOrderId(row.orderId);
+    setDetailIsDineIn(isDineIn);
     try {
       setDetailLoading(true);
+      if (isDineIn) {
+        // Dine-in: fetch the whole table's current batch (every order still
+        // open on that table), keyed off this order id — the table itself is
+        // resolved server-side from it, same as the Table Dashboard's grouping.
+        const [detail, log] = await Promise.all([
+          window.api.getTableOrderDetail(row.orderId),
+          window.api.getTableActivityLog(row.orderId),
+        ]);
+        setDetailOrders(detail.orders);
+        setDetailItems(detail.items);
+        setDetailLog(log);
+      } else {
       const [items, log] = await Promise.all([
-        window.api.getOrderDetail(orderId),
-        window.api.getOrderActivityLog(orderId),
+        window.api.getOrderDetail(row.orderId),
+        window.api.getOrderActivityLog(row.orderId),
       ]);
+      setDetailOrders([]);
       setDetailItems(items);
       setDetailLog(log);
+      }
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Failed to load order details');
-      setDetailOrderId(null);
-      setDetailOrderNumber(null);
     } finally {
       setDetailLoading(false);
     }
   }
 
-  function closeDetail() {
-    setDetailOrderId(null);
-    setDetailOrderNumber(null);
-    setDetailItems([]);
-    setDetailLog([]);
-    setEditing(null);
-  }
-
-  function startEdit(item: OrderDetailItem) {
-    setEditing({
-      id: item.orderItemId,
-      quantity: String(item.quantity),
-    });
-  }
-
-  async function saveEdit() {
-    if (!editing || !detailOrderId) return;
-    const quantity = Number(editing.quantity);
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      flash('error', 'Quantity must be a positive number');
-      return;
-    }
-    try {
-      await window.api.editOrderItem({ orderItemId: editing.id, quantity });
-      setEditing(null);
+  async function reloadDetail() {
+    if (!detailOrderId) return;
+    if (detailIsDineIn) {
+      const [detail, log] = await Promise.all([
+        window.api.getTableOrderDetail(detailOrderId),
+        window.api.getTableActivityLog(detailOrderId),
+      ]);
+      setDetailOrders(detail.orders);
+      setDetailItems(detail.items);
+      setDetailLog(log);
+    } else {
       const [items, log] = await Promise.all([
         window.api.getOrderDetail(detailOrderId),
         window.api.getOrderActivityLog(detailOrderId),
       ]);
       setDetailItems(items);
       setDetailLog(log);
+    }
+  }
+
+  function closeDetail() {
+    setDetailOrderId(null);
+    setDetailIsDineIn(false);
+    setDetailOrders([]);
+    setDetailItems([]);
+    setDetailLog([]);
+  }
+
+  async function handleEditItem(orderItemId: string, quantity: number, reason: string): Promise<void> {
+    try {
+      await window.api.editOrderItem({ orderItemId, quantity, reason });
+      await reloadDetail();
       await load(); // refresh the grid's total/has-edits indicator
       flash('success', 'Item updated');
     } catch (err) {
@@ -237,17 +252,10 @@ export function OrdersList() {
     }
   }
 
-  async function deleteItem(item: OrderDetailItem) {
-    if (!detailOrderId) return;
-    if (!confirm(`Remove "${item.name}" from this order?`)) return;
+   async function handleDeleteItem(item: OrderDetailItem, reason: string): Promise<void> {
     try {
-      await window.api.deleteOrderItem(item.orderItemId);
-      const [items, log] = await Promise.all([
-        window.api.getOrderDetail(detailOrderId),
-        window.api.getOrderActivityLog(detailOrderId),
-      ]);
-      setDetailItems(items);
-      setDetailLog(log);
+      await window.api.deleteOrderItem(item.orderItemId, reason);
+      await reloadDetail();
       await load();
       flash('success', 'Item removed');
     } catch (err) {
@@ -355,7 +363,8 @@ export function OrdersList() {
           <table className={pageStyles.table}>
             <thead>
               <tr>
-                <th>Order Number</th>
+                <th>Order / Table</th>
+                <th>Invoice No.</th>
                 <th>Type</th>
                 <th>Created On</th>
                 <th>Items</th>
@@ -376,8 +385,10 @@ export function OrdersList() {
                   <tr key={r.orderId}>
                     <td>
                       <div className={styles.orderIdCell}>
-                      <button className={styles.linkBtn} onClick={() => openDetail(r.orderId, r.orderNumber)}>
-                        {r.orderNumber}
+                      <button className={styles.linkBtn} onClick={() => openDetail(r)}>
+                        {r.orderType === 'dine_in'
+                          ? `Table ${r.tableNumber ?? '—'}`
+                          : r.orderNumber}
                       </button>
                       {r.hasEdits && (
                         <span className={styles.editedBadge} title="This order has edited or removed items">
@@ -387,8 +398,9 @@ export function OrdersList() {
                       )}
                       </div>
                     </td>
-                    <td>{r.orderType}</td>
-                    <td>{new Date(r.createdAt).toLocaleString('en-IN')}</td>
+                    <td>{r.invoiceNumber ?? '—'}</td>
+                    <td>{r.orderType === 'dine_in' ? 'Dine In' : 'TakeAway'}</td>
+                    <td>{new Date(r.createdAt).toLocaleString('en-IN', {day:'2-digit', month: '2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', hour12:true})}</td>
                     <td>{r.itemCount}</td>
                     <td>{formatCurrency(r.totalAmount)}</td>
                     <td>
@@ -409,7 +421,7 @@ export function OrdersList() {
                         <button
                           className={styles.iconBtn}
                           title="View / Edit Items"
-                          onClick={() => openDetail(r.orderId, r.orderNumber)}
+                          onClick={() => openDetail(r)}
                           disabled={busyOrderId === r.orderId}
                         >
                           <Icon name="edit" size={16} />
@@ -466,200 +478,45 @@ export function OrdersList() {
 
       {/* View / Edit items modal */}
       {detailOrderId && (
-        <div className={styles.modalOverlay} onClick={closeDetail}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3>
-              Order {detailOrderNumber?.slice(0, 8)}
-              {detailOrder && ` · ${formatCurrency(detailOrder.totalAmount)}`}
-            </h3>
-
-            {detailOrder && (
-              <div className={styles.modalSubheader}>
-                <span>Type: {detailOrder.orderType}</span>
-                <span className={`${styles.statusBadge} ${statusClass(detailOrder.status)}`}>
-                  {statusLabel(detailOrder.status)}
-                </span>
-              </div>
-            )}
-
-            {detailOrder && detailOrder.status !== 'open' && (
-              <p className={styles.lockedNotice}>
-                This order is {statusLabel(detailOrder.status).toLowerCase()} — items can be
-                viewed but not edited.
-              </p>
-            )}
-
-            {detailLoading ? (
-              <p className={pageStyles.muted}>Loading items…</p>
-            ) : (
-              <table className={styles.itemsTable}>
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th>Qty</th>
-                    <th>Price</th>
-                    <th>Total</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detailItems.map((item) => (
-                    <tr
-                      key={item.orderItemId}
-                      className={item.isDeleted ? styles.deletedRow : undefined}
-                    >
-                      {editing?.id === item.orderItemId ? (
-                        <>
-                          <td>{item.name}</td>
-                          <td>
-                            <input
-                              type="number"
-                              className={styles.inlineInput}
-                              value={editing.quantity}
-                              onChange={(e) => setEditing({ ...editing, quantity: e.target.value })}
-                            />
-                          </td>
-                          <td>{formatCurrency(item.unitPrice)}</td>
-                          <td>{formatCurrency(Number(editing.quantity) * item.unitPrice || 0)}</td>
-                          <td className={styles.itemActions}>
-                            <button className={styles.smallBtn} onClick={saveEdit}>
-                              Save
-                            </button>
-                            <button className={styles.smallBtnGhost} onClick={() => setEditing(null)}>
-                              Cancel
-                            </button>
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td>
-                            {item.name}
-                            {item.isDeleted && <span className={styles.tag}>deleted</span>}
-                            {!item.isDeleted && item.editedAt && (
-                              <span className={styles.tag}>edited</span>
-                            )}
-                          </td>
-                          <td>{item.quantity}</td>
-                          <td>{formatCurrency(item.unitPrice)}</td>
-                          <td>{formatCurrency(item.totalPrice)}</td>
-                          <td className={styles.itemActions}>
-                            {!item.isDeleted && detailOrder?.status === 'open' && (
-                              <>
-                                <button className={styles.smallBtn} onClick={() => startEdit(item)}>
-                                  Edit
-                                </button>
-                                <button
-                                  className={styles.smallBtnDanger}
-                                  onClick={() => deleteItem(item)}
-                                >
-                                  Remove
-                                </button>
-                              </>
-                            )}
-                          </td>
-                        </>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-
-            {!detailLoading && detailOrder && (
-              <div className={styles.totalBreakdown}>
-                <div className={styles.breakdownRow}>
-                  <span>Subtotal</span>
-                  <span>{formatCurrency(detailOrder.subtotalAmount)}</span>
-                </div>
-
-                {detailOrder.orderType === 'pickup' || 'takeaway'? (
-                  <>
-                    <div className={styles.breakdownRow}>
-                      <span>Container Charge</span>
-                      <span>{formatCurrency(detailOrder.containerChargeAmount)}</span>
-                    </div>
-                  </>
-                ) : (
-                 <></>
-                )}
-                 <>
-                    <div className={styles.breakdownRow}>
-                      <span>GST</span>
-                      <span>{formatCurrency(detailOrder.taxAmount)}</span>
-                    </div>
-                    {detailOrder.discountAmount > 0 && (
-                      <div className={styles.breakdownRow}>
-                        <span>Discount</span>
-                        <span>-{formatCurrency(detailOrder.discountAmount)}</span>
-                      </div>
-                    )}
-                  </>
-
-                <div className={`${styles.breakdownRow} ${styles.breakdownTotal}`}>
-                  <span>Grand Total</span>
-                  <span>{formatCurrency(detailOrder.totalAmount)}</span>
-                </div>
-              </div>
-            )}
-
-            {!detailLoading && (
-              <>
-                <h4 className={styles.logHeading}>Activity Log</h4>
-                {detailLog.length === 0 ? (
-                  <p className={pageStyles.muted}>No items have been edited or removed.</p>
-                ) : (
-                  <table className={styles.itemsTable}>
-                    <thead>
-                      <tr>
-                        <th>Item</th>
-                        <th>Action</th>
-                        <th>Qty</th>
-                        <th>Reason</th>
-                        <th>By</th>
-                        <th>When</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detailLog
-                        .slice()
-                        .reverse()
-                        .map((entry) => (
-                          <tr key={entry.auditId}>
-                            <td>{entry.itemName}</td>
-                            <td>{entry.action === 'delete' ? 'Removed' : !entry.action.indexOf('Cancelled') ? 'Modified' : 'Order Cancelled'}</td>
-                            <td>
-                              {entry.action === 'delete'
-                                ? entry.newQuantity ?? entry.oldQuantity
-                                : entry.oldQuantity !== entry.newQuantity
-                                  ? `${entry.oldQuantity} → ${entry.newQuantity}`
-                                  : entry.newQuantity}
-                              {/* Historical edits made before price-editing was removed may still
-                                  carry a price change — keep showing it for those older rows. */}
-                              {entry.action === 'edit' && entry.oldUnitPrice !== entry.newUnitPrice && (
-                                <div className={styles.timelineDetail}>
-                                  {formatCurrency(entry.oldUnitPrice ?? 0)} →{' '}
-                                  {formatCurrency(entry.newUnitPrice ?? 0)}
-                                </div>
-                              )}
-                            </td>
-                            <td>{entry.reason || '—'}</td>
-                            <td>{entry.changedByName}</td>
-                            <td>{new Date(entry.changedAt).toLocaleString('en-IN')}</td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                )}
-              </>
-            )}
-
-            <div className={styles.modalActions}>
-              <button className={styles.cancelBtn} onClick={closeDetail}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
+        <OrderDetailModal
+          title={
+            detailIsDineIn
+              ? `Table ${detailOrder?.tableNumber ?? '—'}`
+              : `Order# ${detailOrderId.slice(0, 8)}`
+          }
+          headerAmount={detailOrder?.totalAmount}
+          orders={detailOrders}
+          meta={
+            detailOrder
+              ? {
+                  orderType: detailOrder.orderType,
+                  status: detailOrder.status,
+                  invoiceNumber: detailOrder.invoiceNumber,
+                  date: detailOrder.createdAt
+                }
+              : undefined
+          }
+          totals={
+            detailOrder
+              ? {
+                  subtotalAmount: detailOrder.subtotalAmount,
+                  taxAmount: detailOrder.taxAmount,
+                  containerChargeAmount: detailOrder.containerChargeAmount,
+                  discountAmount: detailOrder.discountAmount,
+                  totalAmount: detailOrder.totalAmount,
+                  orderType: detailOrder.orderType,
+                }
+              : undefined
+          }
+          items={detailItems}
+          log={detailLog}
+          loading={detailLoading}
+          editable={detailOrder?.status === 'open'}
+          onClose={closeDetail}
+          onEditItem={handleEditItem}
+          onDeleteItem={handleDeleteItem}
+          onMessage={flash}
+        />
       )}
 
       {/* Cancel-reason modal */}

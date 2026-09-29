@@ -67,6 +67,14 @@ export interface FoodOrder {
    */
   orderNumbers?: number[];
   placedBy?: string;
+   /**
+   * Format YYYY-MM-DD-NNNNN (assign_invoice_number() trigger, db/schema.sql).
+   * Assigned once per dine-in table batch (every round on that table shares
+   * it until the table is settled + paid) or once per takeaway/pickup order.
+   * Undefined only for pre-existing orders created before this column
+   * existed.
+   */
+  invoiceNumber?: string;
 }
 
 export type PrintStatus = 'pending' | 'printing' | 'printed' | 'failed';
@@ -189,6 +197,22 @@ export interface OrderListRow {
   totalAmount: number;
   status: string;
   hasEdits: boolean;
+   /** Dine-in rows only — the table this order was placed at. Absent for takeaway/pickup rows. */
+  tableId?: string;
+  /** Dine-in rows only — the table's display number, e.g. "T4". Absent for takeaway/pickup rows. */
+  tableNumber?: string;
+  /** Format YYYY-MM-DD-NNNNN — see FoodOrder.invoiceNumber. Undefined only for orders created before this column existed. */
+  invoiceNumber?: string;
+}
+/** Settings page's "Invoicing" panel — admin-only (see get_invoice_sequence_status()/reset_invoice_sequence() in db/functions.sql). */
+export interface InvoiceSequenceStatus {
+  outletId: string;
+  /** How many invoice numbers have been issued since the last reset (or ever, if never reset). The NEXT order gets currentSeq + 1. */
+  currentSeq: number;
+  /** Null if this outlet's sequence has never been manually reset. */
+  lastResetAt: string | null;
+  /** Display name of whoever triggered the last reset, if any. */
+  resetByName?: string;
 }
 
 export interface OrderListPage {
@@ -397,6 +421,8 @@ export const IpcChannels = {
   UPDATE_SETTINGS: 'update-settings',
   REMOVE_PRINTER: 'remove-printer',
   GET_MAX_PRINTERS: 'get-max-printers',
+  GET_INVOICE_SEQUENCE_STATUS: 'get-invoice-sequence-status',
+  RESET_INVOICE_SEQUENCE: 'reset-invoice-sequence',
   // server (renderer -> main, invoke)
   GET_SERVER_STATUS: 'get-server-status',
   // main -> renderer (send)
@@ -452,6 +478,8 @@ export interface ElectronApi {
   updateSettings(printerType: string, deviceName: string): Promise<void>;
   removePrinter(printerType: string): Promise<void>;
   getMaxPrinters(): Promise<number>;
+  getInvoiceSequenceStatus(): Promise<InvoiceSequenceStatus | null>;
+  resetInvoiceSequence(): Promise<void>;
   getServerStatus(): Promise<ServerStatus>;
   onOrderReceived(cb: (order: OrderWithStatus) => void): () => void;
   onOrderStatusChanged(cb: (order: OrderWithStatus) => void): () => void;

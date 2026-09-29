@@ -22,6 +22,7 @@ import type {
   ServerStatus,  
   SavePaymentPayload,
   TableOrderDetail,
+  InvoiceSequenceStatus,
 } from './shared/types.js';
 
 // Helper to subscribe to a main->renderer channel and return an unsubscribe fn.
@@ -109,6 +110,10 @@ const api: ElectronApi = {
   removePrinter: (printerType) =>
     ipcRenderer.invoke(IpcChannels.REMOVE_PRINTER, printerType) as Promise<void>,
   getMaxPrinters: () => ipcRenderer.invoke(IpcChannels.GET_MAX_PRINTERS) as Promise<number>,
+  getInvoiceSequenceStatus: () =>
+    ipcRenderer.invoke(IpcChannels.GET_INVOICE_SEQUENCE_STATUS) as Promise<InvoiceSequenceStatus | null>,
+  resetInvoiceSequence: () =>
+    ipcRenderer.invoke(IpcChannels.RESET_INVOICE_SEQUENCE) as Promise<void>,
   getServerStatus: () => 
     ipcRenderer.invoke(IpcChannels.GET_SERVER_STATUS) as Promise<ServerStatus>,
   onOrderReceived: (cb) => on<OrderWithStatus>(IpcChannels.ORDER_RECEIVED, cb),

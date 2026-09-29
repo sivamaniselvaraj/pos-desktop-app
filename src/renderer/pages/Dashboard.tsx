@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Icon } from '../components/Icon';
+import { OrderDetailModal } from '../components/OrderDetailModal';
 import type {
   TableCard,
   OrderDetailItem,
@@ -220,7 +221,7 @@ export function Dashboard() {
     await load();
   }
 
-  async function saveEdit() {
+  async function handleEditItem() {
     if (!editing) return;
     const quantity = Number(editing.quantity);
     if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -237,7 +238,7 @@ export function Dashboard() {
     }
   }
 
-  async function removeItem(item: OrderDetailItem) {
+  async function handleDeleteItem(item: OrderDetailItem) {
     if (!confirm(`Remove "${item.name}" from this order?`)) return;
     try {
       await window.api.deleteOrderItem(item.orderItemId);
@@ -447,144 +448,19 @@ export function Dashboard() {
       )}
 
       {viewTableId && (
-        <div className={styles.modalOverlay} onClick={closeView}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3>
-              Table {viewingTable?.tableNumber ?? ''}
-              {viewingTable && ` · ${formatCurrency(viewingTable.orderTotalAmount ?? 0)}`}
-            </h3>
-            {viewOrders.length > 1 && (
-              <p className={styles.muted}>
-                Orders: {viewOrders.map((o) => o.orderNumber).join(', ')}
-              </p>
-            )}
-
-            {viewLoading ? (
-              <p className={styles.muted}>Loading…</p>
-            ) : (
-              <table className={styles.itemsTable}>
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th>Qty</th>
-                    <th>Price</th>
-                    <th>Total</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {viewItems.map((item, idx) => {
-                    const showOrderHeader =
-                      viewOrders.length > 1 &&
-                      item.orderNumber !== undefined &&
-                      viewItems[idx - 1]?.orderNumber !== item.orderNumber;
-                    return (
-                      <Fragment key={item.orderItemId}>
-                        {showOrderHeader && (
-                          <tr className={styles.groupHeaderRow}>
-                            <td colSpan={5}>Order #{item.orderNumber}</td>
-                          </tr>
-                        )}
-                        <tr className={item.isDeleted ? styles.deletedRow : undefined}>
-                      {editing?.id === item.orderItemId ? (
-                        <>
-                          <td>{item.name}</td>
-                          <td>
-                            <input
-                              type="number"
-                              className={styles.inlineInput}
-                              value={editing.quantity}
-                              onChange={(e) => setEditing({ ...editing, quantity: e.target.value })}
-                            />
-                          </td>
-                          <td>{formatCurrency(item.unitPrice)}</td>
-                          <td>{formatCurrency(Number(editing.quantity) * item.unitPrice || 0)}</td>
-                          <td className={styles.itemActions}>
-                            <button className={styles.smallBtn} onClick={saveEdit}>
-                              Save
-                            </button>
-                            <button className={styles.smallBtnGhost} onClick={() => setEditing(null)}>
-                              Cancel
-                            </button>
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td>
-                            {item.name}
-                            {item.isDeleted && <span className={styles.tag}>deleted</span>}
-                            {!item.isDeleted && item.editedAt && <span className={styles.tag}>edited</span>}
-                          </td>
-                          <td>{item.quantity}</td>
-                          <td>{formatCurrency(item.unitPrice)}</td>
-                          <td>{formatCurrency(item.totalPrice)}</td>
-                          <td className={styles.itemActions}>
-                            {!item.isDeleted && (
-                              <>
-                                <button
-                                  className={styles.smallBtn}
-                                  onClick={() =>
-                                    setEditing({ id: item.orderItemId, quantity: String(item.quantity) })
-                                  }
-                                >
-                                  Edit
-                                </button>
-                                <button className={styles.smallBtnDanger} onClick={() => removeItem(item)}>
-                                  Remove
-                                </button>
-                              </>
-                            )}
-                          </td>
-                        </>
-                      )}
-                    </tr>
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-
-            {!viewLoading && (
-              <>
-                <h4 className={styles.logHeading}>Activity Log</h4>
-                {viewLog.length === 0 ? (
-                  <p className={styles.muted}>No items have been edited or removed.</p>
-                ) : (
-                  <table className={styles.itemsTable}>
-                    <thead>
-                      <tr>
-                        <th>Item</th>
-                        <th>Action</th>
-                        <th>Reason</th>
-                        <th>By</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {viewLog
-                        .slice()
-                        .reverse()
-                        .map((entry) => (
-                          <tr key={entry.auditId}>
-                            <td>{entry.itemName}</td>
-                            <td>{entry.action === 'delete' ? 'Removed' : 'Modified'}</td>
-                            <td>{entry.reason || '—'}</td>
-                            <td>{entry.changedByName}</td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                )}
-              </>
-            )}
-
-            <div className={styles.modalActions}>
-              <button className={styles.cancelBtn} onClick={closeView}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
+        <OrderDetailModal
+          title={`Table ${viewingTable?.tableNumber ?? ''}`}
+          headerAmount={viewingTable?.orderTotalAmount ?? 0}
+          orders={viewOrders}
+          items={viewItems}
+          log={viewLog}
+          loading={viewLoading}
+          editable
+          onClose={closeView}
+          onEditItem={handleEditItem}
+          onDeleteItem={handleDeleteItem}
+          onMessage={flash}
+        />
       )}
     </div>
   );

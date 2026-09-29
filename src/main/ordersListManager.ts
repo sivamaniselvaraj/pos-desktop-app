@@ -36,13 +36,16 @@ function mapListRow(row: Record<string, unknown>): OrderListRow {
     orderType: String(row.order_type ?? ''),
     createdAt: String(row.created_at ?? ''),
     itemCount: Number(row.item_count ?? 0),
-    subtotalAmount: Number(row.subtotal_amount ?? 0),
+    subtotalAmount: Number(row.subtotal ?? 0),
     taxAmount: Number(row.tax_amount ?? 0),
-    containerChargeAmount: Number(row.container_charge_amount ?? 0),
+    containerChargeAmount: Number(row.container_amount ?? 0),
     discountAmount: Number(row.discount_amount ?? 0),
     totalAmount: Number(row.total_amount ?? 0),
     status: String(row.status ?? ''),
     hasEdits: row.has_edits === true,
+    tableId: row.table_id ? String(row.table_id) : undefined,
+    tableNumber: row.table_number ? String(row.table_number) : undefined,
+    invoiceNumber: row.invoice_number ? String(row.invoice_number) : undefined,
   };
 }
 
@@ -176,8 +179,51 @@ export async function getTableActivityLog(orderId: string): Promise<OrderActivit
   return perOrder.flat();
 }
 
-export async function editOrderItem(payload: EditOrderItemPayload): Promise<void> {
+const NOT_EDITABLE_MESSAGE =
+  'Not authorized, item not found, or the order is not editable in its current status.';
+
+/**
+ * Pre-flight read for editOrderItem/deleteOrderItem — two plain, individually
+ * visible-in-logs SELECTs (item, then its parent order's status), gated by
+ * the "staff read own outlet order items/orders" RLS policies in
+ * db/schema.sql. This exists purely so a bad request fails fast with a clear
+ * message before we even attempt the write; it does not by itself authorize
+ * anything the write RPC below wouldn't already re-check on its own.
+ */
+async function assertItemEditable(orderItemId: string): Promise<ReturnType<typeof getAuthedClient>> {
   const supabase = getAuthedClient();
+
+  const { data: item, error: itemErr } = await supabase
+    .from('order_items')
+    .select('id, order_id')
+    .eq('id', orderItemId)
+    .single();
+  if (itemErr || !item) throw new Error(NOT_EDITABLE_MESSAGE);
+
+  const { data: order, error: orderErr } = await supabase
+    .from('orders')
+    .select('status')
+    .eq('id', (item as { order_id: string }).order_id)
+    .single();
+  if (orderErr || !order || (order as { status: string }).status !== 'open') {
+    throw new Error(NOT_EDITABLE_MESSAGE);
+  }
+
+  return supabase;
+}
+
+/**
+ * The actual mutation — update + audit insert + totals recompute — stays a
+ * single security-definer RPC (edit_order_item(), db/functions.sql) rather
+ * than several client round trips: those three writes need to succeed or
+ * fail together (an edit that updates the item but crashes before the
+ * totals recompute would leave the order's displayed total wrong), and
+ * Postgres already gives us that atomicity for free inside one function
+ * call. The RPC re-validates role/outlet/open-order itself, independent of
+ * the read above and of RLS — same as before this change.
+ */
+export async function editOrderItem(payload: EditOrderItemPayload): Promise<void> {
+  const supabase = await assertItemEditable(payload.orderItemId);
   const { error } = await supabase.rpc('edit_order_item', {
     p_order_item_id: payload.orderItemId,
     p_quantity: payload.quantity,
@@ -187,7 +233,7 @@ export async function editOrderItem(payload: EditOrderItemPayload): Promise<void
 }
 
 export async function deleteOrderItem(orderItemId: string, reason?: string): Promise<void> {
-  const supabase = getAuthedClient();
+  const supabase = await assertItemEditable(orderItemId);
   const { error } = await supabase.rpc('delete_order_item', {
     p_order_item_id: orderItemId,
     p_reason: reason ?? null,
