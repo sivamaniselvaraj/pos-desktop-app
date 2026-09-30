@@ -192,7 +192,7 @@ export function OrdersList() {
   }
 
   async function openDetail(row: OrderListRow) {
-    const isDineIn = row.orderType === 'dine-in';
+    const isDineIn = row.orderType === 'dine_in';
     const invoiceNumber = isDineIn ? row.invoiceNumber ?? null : null;
     setDetailOrderId(row.orderId);
     setDetailIsDineIn(isDineIn);
@@ -204,16 +204,6 @@ export function OrdersList() {
         const [detail, log] = await Promise.all([
           window.api.getInvoiceOrderDetail(invoiceNumber),
           window.api.getInvoiceActivityLog(invoiceNumber),
-        ]);
-        setDetailOrders(detail.orders);
-        setDetailItems(detail.items);
-        setDetailLog(log);
-      } else if (isDineIn) {
-        // Legacy dine-in order with no invoice_number yet — fall back to the
-        // table's live batch, resolved server-side from this order id.
-        const [detail, log] = await Promise.all([
-          window.api.getTableOrderDetail(row.orderId),
-          window.api.getTableActivityLog(row.orderId),
         ]);
         setDetailOrders(detail.orders);
         setDetailItems(detail.items);
@@ -241,14 +231,6 @@ export function OrdersList() {
       const [detail, log] = await Promise.all([
         window.api.getInvoiceOrderDetail(detailInvoiceNumber),
         window.api.getInvoiceActivityLog(detailInvoiceNumber),
-      ]);
-      setDetailOrders(detail.orders);
-      setDetailItems(detail.items);
-      setDetailLog(log);
-    } else if (detailIsDineIn) {
-      const [detail, log] = await Promise.all([
-        window.api.getTableOrderDetail(detailOrderId),
-        window.api.getTableActivityLog(detailOrderId),
       ]);
       setDetailOrders(detail.orders);
       setDetailItems(detail.items);

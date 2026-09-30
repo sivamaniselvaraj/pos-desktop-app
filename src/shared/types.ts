@@ -473,8 +473,6 @@ export interface ElectronApi {
   setUserActive(userId: string, isActive: boolean): Promise<void>;
   listOrders(filter: OrderListFilter): Promise<OrderListPage>;
   getOrderDetail(orderId: string): Promise<OrderDetailItem[]>;
-  getTableOrderDetail(orderId: string): Promise<TableOrderDetail>;
-  getTableActivityLog(orderId: string): Promise<OrderActivityLogEntry[]>;
   /** Orders List's invoice-grouped row detail — every order sharing that invoice_number, via get_orders_by_invoice(). */
   getInvoiceOrderDetail(invoiceNumber: string): Promise<TableOrderDetail>;
   getInvoiceActivityLog(invoiceNumber: string): Promise<OrderActivityLogEntry[]>;

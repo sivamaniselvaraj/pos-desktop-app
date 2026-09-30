@@ -41,9 +41,9 @@ function mapListRow(row: Record<string, unknown>): OrderListRow {
     orderType: String(row.order_type ?? ''),
     createdAt: String(row.created_at ?? ''),
     itemCount: Number(row.item_count ?? 0),
-    subtotalAmount: Number(row.subtotal ?? 0),
+    subtotalAmount: Number(row.subtotal_amount ?? 0),
     taxAmount: Number(row.tax_amount ?? 0),
-    containerChargeAmount: Number(row.container_amount ?? 0),
+    containerChargeAmount: Number(row.container_charge_amount ?? 0),
     discountAmount: Number(row.discount_amount ?? 0),
     totalAmount: Number(row.total_amount ?? 0),
     status: String(row.status ?? ''),
@@ -58,6 +58,7 @@ function mapListRow(row: Record<string, unknown>): OrderListRow {
 export async function listOrders(filter: OrderListFilter): Promise<OrderListPage> {
   const supabase = getAuthedClient();
   const { data, error } = await supabase.rpc('list_orders', {
+    p_outlet_id: config.outletId,
     p_status: filter.status,
     p_search: filter.search?.trim() || null,
     p_from: filter.from ?? null,
@@ -87,43 +88,6 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetailItem[]
     isDeleted: row.is_deleted === true,
     editedAt: row.edited_at ? String(row.edited_at) : undefined,
   }));
-}
-
-/**
- * Table Dashboard's "View Items" on an active card — shows every order
- * (round) still in the table's current batch, not just the one order the
- * card happened to carry. Reuses get_order_detail per order (same RPC/shape
- * getOrderDetail above uses) and tags each item with which order it came
- * from, so the UI can group them under order# headings while individual
- * edit/delete actions still target the right orderItemId either way.
- */
-export async function getTableOrderDetail(
-  tableId: string,
-): Promise<{ orders: { id: string; orderNumber: number }[]; items: OrderDetailItem[] }> {
-  const supabase = getAuthedClient();
-  const batch = await fetchTableBatchOrders(tableId);
-  const orders = batch.orders.length > 0 ? batch.orders : [{ id: tableId, orderNumber: 0 }];
-
-  const perOrder = await Promise.all(
-    orders.map(async (o) => {
-      const { data, error } = await supabase.rpc('get_order_detail', { p_order_id: o.id });
-      if (error) throw new Error(error.message);
-      return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
-        orderItemId: String(row.order_item_id ?? ''),
-        menuItemId: String(row.menu_item_id ?? ''),
-        name: String(row.name ?? 'Item'),
-        quantity: Number(row.quantity ?? 0),
-        unitPrice: Number(row.unit_price ?? 0),
-        totalPrice: Number(row.total_price ?? 0),
-        isDeleted: row.is_deleted === true,
-        editedAt: row.edited_at ? String(row.edited_at) : undefined,
-        orderId: o.id,
-        orderNumber: o.orderNumber,
-      }));
-    }),
-  );
-
-  return { orders, items: perOrder.flat() };
 }
 
 /**
@@ -162,7 +126,6 @@ export async function getInvoiceOrderDetail(
 ): Promise<{ orders: { id: string; orderNumber: number }[]; items: OrderDetailItem[] }> {
   const supabase = getAuthedClient();
   const orders = await fetchInvoiceOrders(invoiceNumber);
-
   const perOrder = await Promise.all(
     orders.map(async (o) => {
       const { data, error } = await supabase.rpc('get_order_detail', { p_order_id: o.id });
@@ -237,40 +200,6 @@ export async function getOrderActivityLog(orderId: string): Promise<OrderActivit
     newUnitPrice: row.new_unit_price != null ? Number(row.new_unit_price) : undefined,
     reason: row.reason ? String(row.reason) : undefined,
   }));
-}
-
-/**
- * Table Dashboard's "View Items" activity log for a grouped table — same
- * per-order get_order_activity_log RPC as getOrderActivityLog above, called
- * once per order in the table's current batch and tagged with order#.
- */
-export async function getTableActivityLog(orderId: string): Promise<OrderActivityLogEntry[]> {
-  const supabase = getAuthedClient();
-  const batch = await fetchTableBatchOrders(orderId);
-  const orders = batch.orders.length > 0 ? batch.orders : [{ id: orderId, orderNumber: 0 }];
-
-  const perOrder = await Promise.all(
-    orders.map(async (o) => {
-      const { data, error } = await supabase.rpc('get_order_activity_log', { p_order_id: o.id });
-      if (error) throw new Error(error.message);
-      return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
-        auditId: String(row.audit_id ?? ''),
-        orderItemId: String(row.order_item_id ?? ''),
-        itemName: String(row.item_name ?? 'Item'),
-        action: row.action === 'delete' ? 'delete' : ('edit' as 'edit' | 'delete'),
-        changedAt: String(row.changed_at ?? ''),
-        changedByName: String(row.changed_by_name ?? 'Unknown'),
-        oldQuantity: row.old_quantity != null ? Number(row.old_quantity) : undefined,
-        newQuantity: row.new_quantity != null ? Number(row.new_quantity) : undefined,
-        oldUnitPrice: row.old_unit_price != null ? Number(row.old_unit_price) : undefined,
-        newUnitPrice: row.new_unit_price != null ? Number(row.new_unit_price) : undefined,
-        reason: row.reason ? String(row.reason) : undefined,
-        orderNumber: o.orderNumber,
-      }));
-    }),
-  );
-
-  return perOrder.flat();
 }
 
 const NOT_EDITABLE_MESSAGE =
