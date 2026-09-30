@@ -222,6 +222,24 @@ create table if not exists order_item_audit (
 
 create index if not exists idx_order_item_audit_order_id on order_item_audit (order_id);
 create index if not exists idx_order_items_not_deleted on order_items (order_id) where not is_deleted;
+-- General order_id index (not the partial "not deleted" one above) — needed
+-- by get_order_detail()/the activity-log RPCs, which must see deleted/
+-- edited rows too, not just the not-deleted subset the partial index above
+-- covers. (list_orders()'s own item_count lookup only needs not-deleted
+-- rows — the partial index alone already serves it — since has_edits was
+-- dropped from that query; see db/functions.sql.)
+create index if not exists idx_order_items_order_id on order_items (order_id);
+
+-- list_orders() (Orders List page) filters/sorts by outlet_id + created_at
+-- and groups by invoice_number on every call; orders had NO index at all
+-- before this, so every call was a full sequential scan of the whole orders
+-- table — the direct cause of "canceling statement due to statement
+-- timeout" once the table grew. These make the outlet-scoped date-range
+-- scan and the invoice grouping both index-backed.
+create index if not exists idx_orders_outlet_created_at on orders (outlet_id, created_at desc);
+create index if not exists idx_orders_outlet_invoice_number
+  on orders (outlet_id, invoice_number)
+  where invoice_number is not null;
 
 -- Cancellation: mandatory reason, who, when — enforced in cancel_order() below.
 alter table orders
@@ -523,7 +541,7 @@ begin
     return new; -- already set explicitly (e.g. a manual backfill) — don't override
   end if;
 
-  if new.order_type = 'dine-in' and new.table_id is not null then
+  if new.order_type = 'dine_in' and new.table_id is not null then
     perform pg_advisory_xact_lock(hashtext(new.table_id::text));
 
     select o.invoice_number into v_existing
