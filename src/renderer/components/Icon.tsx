@@ -28,7 +28,8 @@ type IconName =
   | 'users'
   | 'edit'
   | 'view'
-  | 'save';
+  | 'save'
+  | 'table';
 
 interface IconProps {
   name: IconName;
@@ -331,6 +332,16 @@ const paths: Record<IconName, ReactElement> = {
         strokeLinejoin="round"
         d="M17 21v-8H7v8M7 3v5h8"
       />
+    </>
+  ),
+  table: (
+    <>
+    <path fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round" d="M17 21v-8H7v8M7 3v5h8"
+        />
     </>
   ),
 };

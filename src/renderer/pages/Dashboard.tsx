@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Icon } from '../components/Icon';
 import { OrderDetailModal } from '../components/OrderDetailModal';
 import type {
@@ -6,8 +6,11 @@ import type {
   OrderDetailItem,
   OrderActivityLogEntry,
   PaymentMethod,
+  EditorApproval,
+  SaveManagedTablePayload,
 } from '@shared/types';
 import styles from '../styles/TableDashboard.module.css';
+import { TableFormModal } from '../components/TableFormModal';
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'card', label: 'Card' },
@@ -39,15 +42,13 @@ export function Dashboard() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [showAddTable, setShowAddTable] = useState(false);
-  const [newTableNumber, setNewTableNumber] = useState('');
-  const [adding, setAdding] = useState(false);
+  const [floors, setFloors] = useState<string[]>([]);
 
   const [viewTableId, setViewTableId] = useState<string | null>(null);
   const [viewOrders, setViewOrders] = useState<{ id: string; orderNumber: number }[]>([]);
   const [viewItems, setViewItems] = useState<OrderDetailItem[]>([]);
   const [viewLog, setViewLog] = useState<OrderActivityLogEntry[]>([]);
   const [viewLoading, setViewLoading] = useState(false);
-  const [editing, setEditing] = useState<{ id: string; quantity: string } | null>(null);
 
   const [payingTable, setPayingTable] = useState<TableCard | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
@@ -146,26 +147,7 @@ export function Dashboard() {
     }
   }
 
-  async function handleAddTable() {
-    if (!newTableNumber.trim()) {
-      flash('error', 'Enter a table number');
-      return;
-    }
-    try {
-      setAdding(true);
-      await window.api.createTable(newTableNumber.trim());
-      setNewTableNumber('');
-      setShowAddTable(false);
-      flash('success', `Table ${newTableNumber.trim()} added`);
-      await load();
-    } catch (err) {
-      flash('error', err instanceof Error ? err.message : 'Failed to add table');
-    } finally {
-      setAdding(false);
-    }
-  }
-
-    async function handleRefresh() {
+  async function handleRefresh() {
     try {
       setRefreshing(true);
       setMessage(null);
@@ -178,10 +160,20 @@ export function Dashboard() {
     }
   }
 
+  async function handleAddTable(payload: SaveManagedTablePayload): Promise<void> {
+    await window.api.saveManagedTable(payload); // throws -> shown inside the modal
+    setShowAddTable(false);
+    flash('success', `Table ${payload.tableNumber} added`);
+    try {
+      await load();
+    } catch (err) {
+      flash('error', err instanceof Error ? err.message : 'Added, but failed to refresh');
+    }
+  }
+
   async function openView(table: TableCard) {
     if (!table.tableId) return;
     setViewTableId(table.tableId);
-    setEditing(null);
     try {
       setViewLoading(true);
       // Grouped: pulls in every order still open on this table, not just the
@@ -206,7 +198,6 @@ export function Dashboard() {
     setViewOrders([]);
     setViewItems([]);
     setViewLog([]);
-    setEditing(null);
   }
 
   async function refreshView() {
@@ -221,32 +212,35 @@ export function Dashboard() {
     await load();
   }
 
-  async function handleEditItem() {
-    if (!editing) return;
-    const quantity = Number(editing.quantity);
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      flash('error', 'Quantity must be a positive number');
-      return;
-    }
+  // Write errors (e.g. wrong editor credentials) propagate to ApprovalModal;
+  // a refresh failure after a successful write is flashed separately.
+  async function refreshAfterWrite(): Promise<void> {
     try {
-      await window.api.editOrderItem({ orderItemId: editing.id, quantity });
-      setEditing(null);
       await refreshView();
-      flash('success', 'Item updated');
     } catch (err) {
-      flash('error', err instanceof Error ? err.message : 'Failed to update item');
+      flash('error', err instanceof Error ? err.message : 'Saved, but failed to refresh');
     }
   }
 
-  async function handleDeleteItem(item: OrderDetailItem) {
-    if (!confirm(`Remove "${item.name}" from this order?`)) return;
-    try {
-      await window.api.deleteOrderItem(item.orderItemId);
-      await refreshView();
-      flash('success', 'Item removed');
-    } catch (err) {
-      flash('error', err instanceof Error ? err.message : 'Failed to remove item');
-    }
+  async function handleEditItem(
+    orderItemId: string,
+    quantity: number,
+    reason: string,
+    approval: EditorApproval,
+  ): Promise<void> {
+    await window.api.editOrderItem({ orderItemId, quantity, reason, approval });
+    flash('success', 'Item updated');
+    await refreshAfterWrite();
+  }
+
+  async function handleDeleteItem(
+    item: OrderDetailItem,
+    reason: string,
+    approval: EditorApproval,
+  ): Promise<void> {
+    await window.api.deleteOrderItem(item.orderItemId, reason, approval);
+    flash('success', 'Item removed');
+    await refreshAfterWrite();
   }
 
   const viewingTable = useMemo(
@@ -344,29 +338,11 @@ export function Dashboard() {
       </div>
 
       {showAddTable && (
-        <div className={styles.modalOverlay} onClick={() => setShowAddTable(false)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3>Add Table</h3>
-            <label className={styles.formLabel}>
-              Table Number
-              <input
-                type="text"
-                value={newTableNumber}
-                onChange={(e) => setNewTableNumber(e.target.value)}
-                placeholder="e.g. 12"
-                autoFocus
-              />
-            </label>
-            <div className={styles.modalActions}>
-              <button className={styles.cancelBtn} onClick={() => setShowAddTable(false)}>
-                Cancel
-              </button>
-              <button className={styles.saveBtn} onClick={handleAddTable} disabled={adding}>
-                {adding ? 'Adding…' : 'Add Table'}
-              </button>
-            </div>
-          </div>
-            </div>
+        <TableFormModal
+          floors={floors}
+          onSave={handleAddTable}
+          onClose={() => setShowAddTable(false)}
+        />
           )}
 
       {payingTable && (

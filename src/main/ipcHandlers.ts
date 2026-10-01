@@ -9,7 +9,11 @@ import { listUsers, listOutlets, createUser, updateUser, setUserActive } from '.
 import { getAllPrinters, updatePrinter, removePrinter, getMaxPrinters } from './settingsManager';
 import { exportSalesReport } from './reportExport';
 import { getCachedMenuItems, refreshMenuCache, setMenuItemActive } from './menuCache';
-import { listTables, createTable, } from './tablesManager';
+import { listTables, createTable, 
+  listManagedTables,
+  saveManagedTable,
+  deleteManagedTable,
+} from './tablesManager';
 import { config } from './config';
 
 import { IpcChannels } from '../shared/types';
@@ -34,6 +38,8 @@ import {
   getInvoiceOrderDetail,
   getOrderActivityLog,
   getOrderDetail,
+  getTableActivityLog,
+  getTableOrderDetail,
   listOrders,
   reprintOrder,
   reprintTableBill,
@@ -134,7 +140,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   // Orders List (manager/owner/admin — enforced server-side by the RPCs)
   ipcMain.handle(IpcChannels.LIST_ORDERS, (_e, filter: OrderListFilter) => listOrders(filter));
   ipcMain.handle(IpcChannels.GET_ORDER_DETAIL, (_e, orderId: string) => getOrderDetail(orderId));
-
+  ipcMain.handle(IpcChannels.GET_TABLE_ORDER_DETAIL, (_e, orderId: string) =>
+    getTableOrderDetail(orderId),
+  );
+  ipcMain.handle(IpcChannels.GET_TABLE_ACTIVITY_LOG, (_e, orderId: string) =>
+    getTableActivityLog(orderId),
+  );
   ipcMain.handle(IpcChannels.GET_INVOICE_ORDER_DETAIL, (_e, invoiceNumber: string) =>
     getInvoiceOrderDetail(invoiceNumber),
   );
@@ -171,13 +182,13 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   // Dashboard table cards
   ipcMain.handle(IpcChannels.LIST_TABLES, () => listTables());
   ipcMain.handle(IpcChannels.CREATE_TABLE, (_e, tableNumber: string) => createTable(tableNumber));
-  // ipcMain.handle(IpcChannels.LIST_MANAGED_TABLES, () => listManagedTables());
-  // ipcMain.handle(IpcChannels.SAVE_MANAGED_TABLE, (_e, payload: SaveManagedTablePayload) =>
-  //   saveManagedTable(payload),
-  // );
-  // ipcMain.handle(IpcChannels.DELETE_MANAGED_TABLE, (_e, tableId: string) =>
-  //   deleteManagedTable(tableId),
-  // );
+  ipcMain.handle(IpcChannels.LIST_MANAGED_TABLES, () => listManagedTables());
+  ipcMain.handle(IpcChannels.SAVE_MANAGED_TABLE, (_e, payload: SaveManagedTablePayload) =>
+    saveManagedTable(payload),
+  );
+  ipcMain.handle(IpcChannels.DELETE_MANAGED_TABLE, (_e, tableId: string) =>
+    deleteManagedTable(tableId),
+  );
   // ipcMain.handle(IpcChannels.SAVE_ORDER_PAYMENT, (_e, payload: SavePaymentPayload) =>
   //   savePayment(payload),
   // );

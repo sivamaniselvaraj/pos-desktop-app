@@ -81,6 +81,9 @@
 .role_staff {
   background: #6b7280;
 }
+.role_editor {
+  background: #6b7280;
+}
 
 .actions {
   display: flex;

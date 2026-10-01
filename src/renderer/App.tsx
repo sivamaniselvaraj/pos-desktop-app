@@ -13,6 +13,7 @@ import styles from './styles/App.module.css';
 import { UserManagement } from './pages/UserManagement';
 import { OrdersList } from './pages/OrdersList';
 import { MenuItemsPage } from './pages/MenuItems';
+import { TablesManagement } from './pages/TablesManagement';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -46,6 +47,7 @@ export default function App() {
           {page === 'users' && <UserManagement />}
           {page === 'orders-list' && <OrdersList />}
           {page === 'menu-items' && <MenuItemsPage />}
+          {page === 'tables' && <TablesManagement />}
           {page === 'about' && <About />}
         </div>
       </main>
