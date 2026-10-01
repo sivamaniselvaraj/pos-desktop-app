@@ -19,6 +19,7 @@ import type {
   OrderActivityLogEntry,
   MenuCacheSnapshot,
   TableCard,
+  ManagedTable,
   ServerStatus,  
   SavePaymentPayload,
   TableOrderDetail,
@@ -77,10 +78,15 @@ const api: ElectronApi = {
         >,
     editOrderItem: (payload) =>
       ipcRenderer.invoke(IpcChannels.EDIT_ORDER_ITEM, payload) as Promise<void>,
-    deleteOrderItem: (orderItemId, reason) =>
-      ipcRenderer.invoke(IpcChannels.DELETE_ORDER_ITEM, orderItemId, reason) as Promise<void>,
-    cancelOrderWithReason: (orderId, reason) =>
-      ipcRenderer.invoke(IpcChannels.CANCEL_ORDER_WITH_REASON, orderId, reason) as Promise<void>,
+  deleteOrderItem: (orderItemId, reason, approval) =>
+    ipcRenderer.invoke(IpcChannels.DELETE_ORDER_ITEM, orderItemId, reason, approval) as Promise<void>,
+  cancelOrderWithReason: (orderId, reason, approval) =>
+    ipcRenderer.invoke(
+      IpcChannels.CANCEL_ORDER_WITH_REASON,
+      orderId,
+      reason,
+      approval,
+    ) as Promise<void>,
     completeOrder: (orderId) =>
       ipcRenderer.invoke(IpcChannels.COMPLETE_ORDER, orderId) as Promise<void>,
     reprintOrder: (orderId) =>
@@ -100,6 +106,12 @@ const api: ElectronApi = {
   listTables: () => ipcRenderer.invoke(IpcChannels.LIST_TABLES) as Promise<TableCard[]>,
   createTable: (tableNumber) =>
     ipcRenderer.invoke(IpcChannels.CREATE_TABLE, tableNumber) as Promise<void>,
+  listManagedTables: () =>
+    ipcRenderer.invoke(IpcChannels.LIST_MANAGED_TABLES) as Promise<ManagedTable[]>,
+  saveManagedTable: (payload) =>
+    ipcRenderer.invoke(IpcChannels.SAVE_MANAGED_TABLE, payload) as Promise<void>,
+  deleteManagedTable: (tableId) =>
+    ipcRenderer.invoke(IpcChannels.DELETE_MANAGED_TABLE, tableId) as Promise<void>,
   savePayment: (payload: SavePaymentPayload) =>
     ipcRenderer.invoke(IpcChannels.SAVE_ORDER_PAYMENT, payload) as Promise<void>,
   reprintTableBill: (orderId) =>

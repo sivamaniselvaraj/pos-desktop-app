@@ -6,11 +6,21 @@ import type {
   OrderListStatus,
   OrderDetailItem,
   OrderActivityLogEntry,
+  EditorApproval,
 } from '@shared/types';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/OrdersList.module.css';
+import { Toast } from '../components/Toast';
+import { ApprovalModal } from '../components/ApprovalModal';
 
 const PAGE_SIZE = 25;
+// list_orders() no longer counts the outlet's whole history (that count was
+// the linear cost that made it time out on large datasets) — it counts only
+// up to this many rows past the current page. Keep in sync with the "+ 100"
+// in db/functions.sql.
+const COUNT_LOOKAHEAD = 100;
+
+const DINE_IN_ORDER_TYPE = 'dine_in';
 
 type StatusFilter = OrderListStatus | 'all';
 
@@ -67,10 +77,13 @@ export function OrdersList() {
   const [detailLoading, setDetailLoading] = useState(false);
 
   // Cancel-reason modal
-  const [cancelTarget, setCancelTarget] = useState<string | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<{ orderId: string; orderNumber: string }  | null>(null);
   const [cancelReason, setCancelReason] = useState('');
+  const [cancelApproval, setCancelApproval] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
+  // True when the lookahead was exhausted — more rows exist than totalRows says.
+  const totalIsApproximate = totalRows >= page * PAGE_SIZE + COUNT_LOOKAHEAD;
 
   // Tracks the previously-applied search term so the status auto-switch
   // below only fires on a genuine transition (search starting or clearing),
@@ -140,7 +153,7 @@ export function OrdersList() {
   async function handlePrint(row: OrderListRow) {
     try {
       setBusyOrderId(row.orderId);
-      if (row.orderType === 'dine_in') {
+      if (row.orderType === DINE_IN_ORDER_TYPE) {
         await window.api.reprintTableBill(row.orderId);
       } else {
         await window.api.reprintOrder(row.orderId);
@@ -167,32 +180,38 @@ export function OrdersList() {
     }
   }
 
-  function openCancel(orderId: string) {
-    setCancelTarget(orderId);
+  function openCancel(orderId: string, orderNumber: string) {
+    setCancelTarget({orderId, orderNumber});
     setCancelReason('');
   }
 
-  async function submitCancel() {
+  // Step 1 of cancel: validate the reason, then ask for editor approval.
+  function submitCancel() {
     if (!cancelTarget) return;
     if (!cancelReason.trim()) {
       flash('error', 'A reason is required to cancel an order');
       return;
     }
-    try {
-      setBusyOrderId(cancelTarget);
-      await window.api.cancelOrderWithReason(cancelTarget, cancelReason.trim());
+    setCancelApproval(true);
+  }
+
+  // Step 2: runs inside ApprovalModal; throws on a rejected approval so the
+  // editor can retry without losing the reason.
+  async function confirmCancel(approval: EditorApproval): Promise<void> {
+    if (!cancelTarget) return;
+      await window.api.cancelOrderWithReason(cancelTarget.orderId, cancelReason.trim(), approval);
       flash('success', 'Order cancelled');
+setCancelApproval(false);
       setCancelTarget(null);
+try {
       await load();
     } catch (err) {
-      flash('error', err instanceof Error ? err.message : 'Failed to cancel order');
-    } finally {
-      setBusyOrderId(null);
+      flash('error', err instanceof Error ? err.message : 'Cancelled, but failed to refresh');
     }
   }
 
   async function openDetail(row: OrderListRow) {
-    const isDineIn = row.orderType === 'dine_in';
+    const isDineIn = row.orderType === DINE_IN_ORDER_TYPE;
     const invoiceNumber = isDineIn ? row.invoiceNumber ?? null : null;
     setDetailOrderId(row.orderId);
     setDetailIsDineIn(isDineIn);
@@ -254,26 +273,34 @@ export function OrdersList() {
     setDetailLog([]);
   }
 
-  async function handleEditItem(orderItemId: string, quantity: number, reason: string): Promise<void> {
+    async function refreshAfterWrite(): Promise<void> {
     try {
-      await window.api.editOrderItem({ orderItemId, quantity, reason });
       await reloadDetail();
-      await load(); // refresh the grid's total/has-edits indicator
-      flash('success', 'Item updated');
+      await load();
     } catch (err) {
-      flash('error', err instanceof Error ? err.message : 'Failed to update item');
+      flash('error', err instanceof Error ? err.message : 'Saved, but failed to refresh');
     }
   }
 
-   async function handleDeleteItem(item: OrderDetailItem, reason: string): Promise<void> {
-    try {
-      await window.api.deleteOrderItem(item.orderItemId, reason);
-      await reloadDetail();
-      await load();
-      flash('success', 'Item removed');
-    } catch (err) {
-      flash('error', err instanceof Error ? err.message : 'Failed to remove item');
-    }
+  async function handleEditItem(
+    orderItemId: string,
+    quantity: number,
+    reason: string,
+    approval: EditorApproval,
+  ): Promise<void> {
+    await window.api.editOrderItem({ orderItemId, quantity, reason, approval });
+      flash('success', 'Item updated');
+    await refreshAfterWrite();
+  }
+
+  async function handleDeleteItem(
+    item: OrderDetailItem,
+    reason: string,
+    approval: EditorApproval,
+  ): Promise<void> {
+    await window.api.deleteOrderItem(item.orderItemId, reason, approval);
+    flash('success', 'Item removed');
+    await refreshAfterWrite();
   }
 
   const detailOrder = useMemo(
@@ -365,9 +392,7 @@ export function OrdersList() {
         </div>
       </div>
 
-      {message && (
-        <p className={message.type === 'error' ? styles.error : styles.success}>{message.text}</p>
-      )}
+      <Toast message={message} />
       {error && <p className={styles.error}>{error}</p>}
       {loading && <p className={pageStyles.muted}>Loading orders…</p>}
 
@@ -389,7 +414,7 @@ export function OrdersList() {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className={pageStyles.muted}>
+                  <td colSpan={8} className={pageStyles.muted}>
                     No orders match this filter.
                   </td>
                 </tr>
@@ -400,7 +425,7 @@ export function OrdersList() {
                     <tr key={r.invoiceNumber ?? r.orderId}>
                       <td className={styles.orderIdCell}>
                       <button className={styles.linkBtn} onClick={() => openDetail(r)}>
-                        {r.orderType === 'dine_in'
+                        {r.orderType === DINE_IN_ORDER_TYPE
                           ? `Table ${r.tableNumber ?? '—'}`
                           : r.orderNumber}
                       </button>
@@ -417,7 +442,7 @@ export function OrdersList() {
                       )}
                     </td>
                     <td>{r.invoiceNumber ?? '—'}</td>
-                    <td>{r.orderType === 'dine_in' ? 'Dine In' : 'Takeaway'}</td>
+                    <td>{r.orderType === DINE_IN_ORDER_TYPE ? 'Dine In' : 'Takeaway'}</td>
                     <td>{new Date(r.createdAt).toLocaleString('en-IN', {day:'2-digit', month: '2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', hour12:true})}</td>
                     <td>{r.itemCount}</td>
                     <td>{formatCurrency(r.totalAmount)}</td>
@@ -461,7 +486,7 @@ export function OrdersList() {
                                     ? 'This invoice has multiple orders — cancel each round from the item view'
                                     : 'Cancel'
                                 }
-                              onClick={() => openCancel(r.orderId)}
+                              onClick={() => openCancel(r.orderId, r.orderNumber)}
                               disabled={busyOrderId === r.orderId}
                             >
                               <Icon name="cancel" size={16} />
@@ -486,7 +511,8 @@ export function OrdersList() {
               Previous
             </button>
             <span className={styles.pageInfo}>
-              Page {page} of {totalPages} ({totalRows} order{totalRows === 1 ? '' : 's'})
+              Page {page} of {totalPages}{totalIsApproximate ? '+' : ''} ({totalRows}
+              {totalIsApproximate ? '+' : ''} order{totalRows === 1 ? '' : 's'})
             </span>
             <button
               className={styles.pageBtn}
@@ -546,7 +572,7 @@ export function OrdersList() {
       {cancelTarget && (
         <div className={styles.modalOverlay} onClick={() => setCancelTarget(null)}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3>Cancel Order {cancelTarget.slice(0, 8)}</h3>
+            <h3>Cancel Order {cancelTarget.orderNumber}</h3>
             <label className={styles.formLabel}>
               Reason (required)
               <textarea
@@ -563,12 +589,21 @@ export function OrdersList() {
               <button
                 className={styles.dangerBtn}
                 onClick={submitCancel}
-                disabled={busyOrderId === cancelTarget}
+                disabled={busyOrderId === cancelTarget.orderId}
               >
-                {busyOrderId === cancelTarget ? 'Cancelling…' : 'Cancel Order'}
+                {busyOrderId === cancelTarget.orderId ? 'Cancelling…' : 'Cancel Order'}
               </button>
             </div>
           </div>
+          {cancelApproval && (
+            <div onClick={(e) => e.stopPropagation()}>
+              <ApprovalModal
+                action={`Cancel order ${cancelTarget.orderNumber}`}
+                onCancel={() => setCancelApproval(false)}
+                onSubmit={confirmCancel}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

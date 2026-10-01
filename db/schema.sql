@@ -574,3 +574,20 @@ drop trigger if exists trg_assign_invoice_number on orders;
 create trigger trg_assign_invoice_number
   before insert on orders
   for each row execute function assign_invoice_number();
+
+
+-- Failed/successful approval attempts, used to throttle password guessing
+-- (5 failures per username per 10 minutes). RLS on with NO policies: only the
+-- security-definer verifier reads/writes it. No password is ever stored.
+create table if not exists editor_approval_attempts (
+  id bigint generated always as identity primary key,
+  outlet_id uuid not null,
+  username text not null,
+  requested_by uuid,
+  succeeded boolean not null,
+  attempted_at timestamptz not null default now()
+);
+create index if not exists idx_editor_approval_attempts_recent
+  on editor_approval_attempts (outlet_id, lower(username), attempted_at desc)
+  where not succeeded;
+alter table editor_approval_attempts enable row level security;

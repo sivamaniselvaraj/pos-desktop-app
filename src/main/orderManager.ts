@@ -254,65 +254,8 @@ class OrderManager extends EventEmitter {
       return { success: true, orderId: anchor.id, message, printStatus: 'printed' };
     }
 
-  /**
-   * Settle: idempotent. If already settled => no-op (second tap prints
-   * nothing). Otherwise print the full bill aggregated by dish, then close the
-   * order and free the table.
-   */
-  private async handleSettle(orderId: string, order: FoodOrder): Promise<PrintOrderResponse> {
-    const cashierPrinter = config.cashierPrinter; //'RP3160 GOLD(U) 1'; // getPrinterFor('waiter');
-    if (!cashierPrinter) {
-      const msg =
-        'No cashier printer configured. Add a "Cashier" printer in Settings to print Bill.';
-      this.cacheForDisplay({ ...order, printStatus: 'failed', errorMessage: msg, retryCount: 0 });
-      return { success: false, orderId, message: msg, printStatus: 'failed', error: 'NO_PRINTER' };
-    }
-
-    // Idempotency guard: second tap on an already-settled order prints nothing.
-    const status = await getOrderStatus(orderId);
-    if (status === 'settled') {
-      const existing = this.orders.get(orderId);
-      return {
-        success: true,
-        orderId,
-        message: 'Order already settled',
-        printStatus: existing?.printStatus ?? 'printed',
-      };
-    }
-
-    const items = await fetchAggregatedItems(orderId);
-    const billOrder: OrderWithStatus = {
-      ...order,
-      items,
-      printStatus: 'printing',
-      retryCount: 0,
-    };
-    try {
-      await printOrderEscpos(billOrder, cashierPrinter);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown print error';
-      this.cacheForDisplay({ ...billOrder, printStatus: 'failed', errorMessage: message });
-      return { success: false, orderId, message, printStatus: 'failed', error: 'PRINT_FAILED' };
-    }
-
-    // Close the order and free the table only after the bill prints.
-    await closeOrderAndFreeTable(orderId);
-    const postClose = (await fetchOrderById(orderId)) ?? billOrder;
-    this.cacheForDisplay({
-      ...postClose,
-      printStatus: 'printed',
-      printedAt: new Date().toISOString(),
-      retryCount: 0,
-    });
-    return {
-      success: true,
-      orderId,
-      message: 'Bill printed and order settled',
-      printStatus: 'printed',
-    };
-  }
-
-  // Attempt a single print, with auto-retry/backoff if enabled.
+  // Attempt a single print, with auto-retry/backoff if enabled. (bill path)
+  // Mutates `order` in place; caller decides when/whether to cache it.
   private async attemptPrint(order: OrderWithStatus): Promise<boolean> {
     if (!order) return false;
 
@@ -339,7 +282,8 @@ class OrderManager extends EventEmitter {
     return false;
   }
 
-  // Manual retry triggered from the UI.
+  // Manual retry triggered from the UI. Operates on the cached (already
+  // printed-or-failed) entry — retries exactly what previously failed.
   async retry(orderId: string): Promise<PrintOrderResponse> {
     const order = this.orders.get(orderId);
     if (!order) {
@@ -352,14 +296,13 @@ class OrderManager extends EventEmitter {
       };
     }
     const ok = await this.attemptPrint(order);
-    const current = this.orders.get(orderId)!;
     this.cacheForDisplay(order);
     return {
       success: ok,
       orderId,
       message: ok ? 'Order printed' : 'Print failed',
-      printStatus: current.printStatus,
-      error: ok ? undefined : current.errorMessage,
+      printStatus: order.printStatus,
+      error: ok ? undefined : order.errorMessage,
     };
   }
 

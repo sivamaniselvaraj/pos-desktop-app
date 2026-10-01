@@ -163,7 +163,7 @@ export interface ExportResult {
   error?: string;
 }
 
-export type UserRole = 'staff' | 'manager' | 'owner' | 'admin';
+export type UserRole = 'staff' | 'manager' | 'owner' | 'admin' | 'editor';
 
 export interface ManagedUser {
   userId: string;
@@ -256,10 +256,21 @@ export interface OrderDetailItem {
   orderNumber?: number;
 }
 
+/**
+ * Second-factor approval: an 'editor' account's username (email) + password,
+ * entered fresh for EVERY edit/delete/cancel and verified server-side inside
+ * the RPC. Never stored or cached by the app.
+ */
+export interface EditorApproval {
+  username: string;
+  password: string;
+}
+
 export interface EditOrderItemPayload {
   orderItemId: string;
   quantity: number;
   reason?: string;
+  approval: EditorApproval;
 }
 
 export interface TableOrderDetail {
@@ -273,7 +284,7 @@ export interface OrderActivityLogEntry {
   auditId: string;
   orderItemId: string;
   itemName: string;
-  action: 'edit' | 'delete';
+  action: string;
   changedAt: string;
   changedByName: string;
   oldQuantity?: number;
@@ -291,8 +302,37 @@ export interface OrderActivityLogEntry {
  * (see get_menu_items_for_outlet's comment in db/functions.sql). Each item
  * is whatever JSON object the database actually returns; the Menu page
  * renders whichever keys are present rather than assuming specific fields.
+ *
+ * Two exceptions with guaranteed key names: category_id and category_name,
+ * explicitly added by the RPC's categories join (via jsonb_build_object,
+ * not just whatever menu_items' own column happens to be called) — null on
+ * either if the item has no category assigned.
  */
 export type MenuItemRecord = Record<string, unknown>;
+
+export type ManagedTableStatus = 'available' | 'occupied' | 'reserved' | 'cleaning';
+
+/** One row on the Tables management page. */
+export interface ManagedTable {
+  tableId: string;
+  tableNumber: string;
+  floor: string;
+  capacity: number | null;
+  /** The stored/manual status. */
+  status: ManagedTableStatus;
+  /** What the table is really doing now — 'occupied' while it carries a live order. */
+  effectiveStatus: ManagedTableStatus;
+  activeOrderCount: number;
+}
+
+export interface SaveManagedTablePayload {
+  /** Omit to create a new table. */
+  tableId?: string;
+  tableNumber: string;
+  floor: string;
+  capacity: number | null;
+  status: ManagedTableStatus;
+}
 
 export type TableCardStatus = 'active' | 'settled' | 'available';
 
@@ -428,6 +468,9 @@ export const IpcChannels = {
   SET_MENU_ITEM_ACTIVE: 'set-menu-item-active',
   LIST_TABLES: 'list-tables',
   CREATE_TABLE: 'create-table',
+  LIST_MANAGED_TABLES: 'list-managed-tables',
+  SAVE_MANAGED_TABLE: 'save-managed-table',
+  DELETE_MANAGED_TABLE: 'delete-managed-table',
   SAVE_ORDER_PAYMENT: 'save-order-payment',
   REPRINT_TABLE_BILL: 'reprint-table-bill',
   TEST_PRINT: 'test-print',
@@ -477,8 +520,8 @@ export interface ElectronApi {
   getInvoiceOrderDetail(invoiceNumber: string): Promise<TableOrderDetail>;
   getInvoiceActivityLog(invoiceNumber: string): Promise<OrderActivityLogEntry[]>;
   editOrderItem(payload: EditOrderItemPayload): Promise<void>;
-  deleteOrderItem(orderItemId: string, reason?: string): Promise<void>;
-  cancelOrderWithReason(orderId: string, reason: string): Promise<void>;
+  deleteOrderItem(orderItemId: string, reason: string, approval: EditorApproval): Promise<void>;
+  cancelOrderWithReason(orderId: string, reason: string, approval: EditorApproval): Promise<void>;
   completeOrder(orderId: string): Promise<void>;
   reprintOrder(orderId: string): Promise<void>;
   getOrderActivityLog(orderId: string): Promise<OrderActivityLogEntry[]>;
@@ -487,6 +530,9 @@ export interface ElectronApi {
   setMenuItemActive(menuItemId: string, isActive: boolean): Promise<MenuCacheSnapshot>;
   listTables(): Promise<TableCard[]>;
   createTable(tableNumber: string): Promise<void>;
+  listManagedTables(): Promise<ManagedTable[]>;
+  saveManagedTable(payload: SaveManagedTablePayload): Promise<void>;
+  deleteManagedTable(tableId: string): Promise<void>;
   savePayment(payload: SavePaymentPayload): Promise<void>;
   reprintTableBill(orderId: string): Promise<void>;
   testPrint(target?: string): Promise<string>;

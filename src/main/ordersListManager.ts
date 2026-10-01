@@ -5,6 +5,7 @@ import {
   fetchTableBatchOrders,
   fetchAggregatedItemsForOrders,
 } from './supabaseClient';
+import { config } from './config';
 import { printOrderEscpos } from './printerManager';
 import { printQueue } from './printQueue';
 import type {
@@ -14,9 +15,9 @@ import type {
   OrderDetailItem,
   OrderActivityLogEntry,
   EditOrderItemPayload,
+  EditorApproval,
   FoodOrder,
 } from '../shared/types';
-import { config } from './config';
 
 /**
  * ordersListManager.ts
@@ -56,9 +57,10 @@ function mapListRow(row: Record<string, unknown>): OrderListRow {
 }
 
 export async function listOrders(filter: OrderListFilter): Promise<OrderListPage> {
+  const outletId = requireOutletId();
   const supabase = getAuthedClient();
   const { data, error } = await supabase.rpc('list_orders', {
-    p_outlet_id: config.outletId,
+    p_outlet_id: outletId,
     p_status: filter.status,
     p_search: filter.search?.trim() || null,
     p_from: filter.from ?? null,
@@ -191,7 +193,7 @@ export async function getOrderActivityLog(orderId: string): Promise<OrderActivit
     auditId: String(row.audit_id ?? ''),
     orderItemId: String(row.order_item_id ?? ''),
     itemName: String(row.item_name ?? 'Item'),
-    action: row.action === 'delete' ? 'delete' : 'edit',
+    action: String(row.action),
     changedAt: String(row.changed_at ?? ''),
     changedByName: String(row.changed_by_name ?? 'Unknown'),
     oldQuantity: row.old_quantity != null ? Number(row.old_quantity) : undefined,
@@ -200,6 +202,17 @@ export async function getOrderActivityLog(orderId: string): Promise<OrderActivit
     newUnitPrice: row.new_unit_price != null ? Number(row.new_unit_price) : undefined,
     reason: row.reason ? String(row.reason) : undefined,
   }));
+}
+/**
+ * This machine's outlet (OUTLET_ID in .env.local), passed explicitly to the
+ * edit/delete/cancel RPCs and list_orders(). The RPCs still re-check that the
+ * signed-in user is a manager/owner/admin of that same outlet.
+ */
+function requireOutletId(): string {
+  if (!config.outletId) {
+    throw new Error('OUTLET_ID is not configured for this machine — set it in .env.local.');
+  }
+  return config.outletId;
 }
 
 const NOT_EDITABLE_MESSAGE =
@@ -223,12 +236,13 @@ async function assertItemEditable(orderItemId: string): Promise<ReturnType<typeo
     .single();
   if (itemErr || !item) throw new Error(NOT_EDITABLE_MESSAGE);
 
+
   const { data: order, error: orderErr } = await supabase
     .from('orders')
     .select('status')
     .eq('id', (item as { order_id: string }).order_id)
     .single();
-  if (orderErr || !order || (order as { status: string }).status !== 'open') {
+  if (orderErr || !order || (order as { status: string }).status == 'completed' || (order as { status: string }).status == 'cancelled') {
     throw new Error(NOT_EDITABLE_MESSAGE);
   }
 
@@ -245,29 +259,70 @@ async function assertItemEditable(orderItemId: string): Promise<ReturnType<typeo
  * call. The RPC re-validates role/outlet/open-order itself, independent of
  * the read above and of RLS — same as before this change.
  */
+/**
+ * The RPCs return jsonb: {ok:true} on success or {ok:false,error} when the
+ * editor credentials are rejected (returned rather than raised so the
+ * failed-attempt log row used for lockout survives the transaction).
+ * Authorization failures still raise and arrive as `error`.
+ */
+function unwrapApprovalResult(data: unknown): void {
+  const d = data as { ok?: boolean; error?: string } | null;
+  if (d && d.ok === false) throw new Error(d.error ?? 'Approval failed');
+}
+
+function approvalParams(approval: EditorApproval | undefined) {
+  return {
+    p_editor_username: (approval?.username ?? '').trim(),
+    p_editor_password: approval?.password ?? '',
+  };
+}
+
 export async function editOrderItem(payload: EditOrderItemPayload): Promise<void> {
+  const outletId = requireOutletId();
   const supabase = await assertItemEditable(payload.orderItemId);
-  const { error } = await supabase.rpc('edit_order_item', {
+  const { data, error } = await supabase.rpc('edit_order_item', {
+    p_outlet_id: outletId,
     p_order_item_id: payload.orderItemId,
     p_quantity: payload.quantity,
-    p_reason: payload.reason ?? null,
+    p_reason: payload.reason,
+    ...approvalParams(payload.approval),
   });
   if (error) throw new Error(error.message);
+  unwrapApprovalResult(data);
 }
 
-export async function deleteOrderItem(orderItemId: string, reason?: string): Promise<void> {
+export async function deleteOrderItem(
+  orderItemId: string,
+  reason: string,
+  approval: EditorApproval,
+): Promise<void> {
+  const outletId = requireOutletId();
   const supabase = await assertItemEditable(orderItemId);
-  const { error } = await supabase.rpc('delete_order_item', {
+  const { data, error } = await supabase.rpc('delete_order_item', {
+    p_outlet_id: outletId,
     p_order_item_id: orderItemId,
-    p_reason: reason ?? null,
+    p_reason: reason,
+    ...approvalParams(approval),
   });
   if (error) throw new Error(error.message);
+  unwrapApprovalResult(data);
 }
 
-export async function cancelOrderWithReason(orderId: string, reason: string): Promise<void> {
+export async function cancelOrderWithReason(
+  orderId: string,
+  reason: string,
+  approval: EditorApproval,
+): Promise<void> {
+  const outletId = requireOutletId();
   const supabase = getAuthedClient();
-  const { error } = await supabase.rpc('cancel_order', { p_order_id: orderId, p_reason: reason });
+  const { data, error } = await supabase.rpc('cancel_order', {
+    p_outlet_id: outletId,
+    p_order_id: orderId,
+    p_reason: reason,
+    ...approvalParams(approval),
+  });
   if (error) throw new Error(error.message);
+  unwrapApprovalResult(data);
 }
 
 export async function completeOrder(orderId: string): Promise<void> {

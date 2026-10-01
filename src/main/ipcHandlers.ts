@@ -9,7 +9,7 @@ import { listUsers, listOutlets, createUser, updateUser, setUserActive } from '.
 import { getAllPrinters, updatePrinter, removePrinter, getMaxPrinters } from './settingsManager';
 import { exportSalesReport } from './reportExport';
 import { getCachedMenuItems, refreshMenuCache, setMenuItemActive } from './menuCache';
-import { listTables, createTable } from './tablesManager';
+import { listTables, createTable, } from './tablesManager';
 import { config } from './config';
 
 import { IpcChannels } from '../shared/types';
@@ -20,8 +20,10 @@ import type {
   UpdateUserPayload,
   OrderListFilter,
   EditOrderItemPayload,
+  EditorApproval,
   ReportBucket,
-  SavePaymentPayload
+  SavePaymentPayload,
+  SaveManagedTablePayload,
 } from '../shared/types';
 import {
   cancelOrderWithReason,
@@ -142,11 +144,15 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.EDIT_ORDER_ITEM, (_e, payload: EditOrderItemPayload) =>
     editOrderItem(payload),
   );
-  ipcMain.handle(IpcChannels.DELETE_ORDER_ITEM, (_e, orderItemId: string, reason?: string) =>
-    deleteOrderItem(orderItemId, reason),
+  ipcMain.handle(
+    IpcChannels.DELETE_ORDER_ITEM,
+    (_e, orderItemId: string, reason: string, approval: EditorApproval) =>
+      deleteOrderItem(orderItemId, reason, approval),
   );
-  ipcMain.handle(IpcChannels.CANCEL_ORDER_WITH_REASON, (_e, orderId: string, reason: string) =>
-    cancelOrderWithReason(orderId, reason),
+  ipcMain.handle(
+    IpcChannels.CANCEL_ORDER_WITH_REASON,
+    (_e, orderId: string, reason: string, approval: EditorApproval) =>
+      cancelOrderWithReason(orderId, reason, approval),
   );
   ipcMain.handle(IpcChannels.COMPLETE_ORDER, (_e, orderId: string) => completeOrder(orderId));
   ipcMain.handle(IpcChannels.REPRINT_ORDER, (_e, orderId: string) => reprintOrder(orderId));
@@ -165,10 +171,17 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   // Dashboard table cards
   ipcMain.handle(IpcChannels.LIST_TABLES, () => listTables());
   ipcMain.handle(IpcChannels.CREATE_TABLE, (_e, tableNumber: string) => createTable(tableNumber));
+  // ipcMain.handle(IpcChannels.LIST_MANAGED_TABLES, () => listManagedTables());
+  // ipcMain.handle(IpcChannels.SAVE_MANAGED_TABLE, (_e, payload: SaveManagedTablePayload) =>
+  //   saveManagedTable(payload),
+  // );
+  // ipcMain.handle(IpcChannels.DELETE_MANAGED_TABLE, (_e, tableId: string) =>
+  //   deleteManagedTable(tableId),
+  // );
   // ipcMain.handle(IpcChannels.SAVE_ORDER_PAYMENT, (_e, payload: SavePaymentPayload) =>
-  //     //savePayment(payload),
-  //   );
-    ipcMain.handle(IpcChannels.REPRINT_TABLE_BILL, (_e, orderId: string) => reprintTableBill(orderId));
+  //   savePayment(payload),
+  // );
+  ipcMain.handle(IpcChannels.REPRINT_TABLE_BILL, (_e, orderId: string) => reprintTableBill(orderId));
 
   // main -> renderer (forward manager events to the active window)
   const send = (channel: string, payload: unknown) => {

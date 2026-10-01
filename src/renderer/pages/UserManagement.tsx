@@ -9,8 +9,9 @@ import type {
 } from '@shared/types';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/UserManagement.module.css';
+import { Toast } from '../components/Toast';
 
-const ROLES: UserRole[] = ['staff', 'manager', 'owner', 'admin'];
+const ROLES: UserRole[] = ['staff', 'manager', 'owner', 'admin', 'editor'];
 
 type StatusFilter = 'all' | 'active' | 'inactive';
 
@@ -196,9 +197,7 @@ export function UserManagement() {
         </select>
       </div>
 
-      {message && (
-        <p className={message.type === 'error' ? styles.error : styles.success}>{message.text}</p>
-      )}
+      <Toast message={message} />
       {error && <p className={styles.error}>{error}</p>}
       {loading && <p className={pageStyles.muted}>Loading users…</p>}
 

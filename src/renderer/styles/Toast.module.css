@@ -1,0 +1,26 @@
+.toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3000; /* above order detail (1000) and approval (2000) modals */
+  max-width: min(560px, 90vw);
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+.error {
+  color: #b91c1c;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+}
+
+.success {
+  color: #15803d;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+}

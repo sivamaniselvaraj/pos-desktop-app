@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react';
-import type { OrderDetailItem, OrderActivityLogEntry } from '@shared/types';
+import type { OrderDetailItem, OrderActivityLogEntry, EditorApproval } from '@shared/types';
+import { ApprovalModal } from './ApprovalModal';
 import styles from '../styles/OrderDetailModal.module.css';
 
 function formatCurrency(n: number): string {
@@ -54,9 +55,14 @@ export interface OrderDetailModalProps {
   editable: boolean;
   onClose: () => void;
   /** Persist the edit (call the editOrderItem IPC, reload, refresh the caller's own list) — quantity/reason are already validated non-empty/positive by this component before it's called. */
-  onEditItem: (orderItemId: string, quantity: number, reason: string) => Promise<void>;
+  onEditItem: (
+    orderItemId: string,
+    quantity: number,
+    reason: string,
+    approval: EditorApproval,
+  ) => Promise<void>;
   /** Persist the removal (call deleteOrderItem, reload, refresh) — reason is already collected and validated non-empty by this component before it's called. */
-  onDeleteItem: (item: OrderDetailItem, reason: string) => Promise<void>;
+  onDeleteItem: (item: OrderDetailItem, reason: string, approval: EditorApproval) => Promise<void>;
   /** Surface a validation message the same way the caller's own page does (e.g. its flash() banner). */
   onMessage: (type: 'success' | 'error', text: string) => void;
 }
@@ -96,13 +102,20 @@ export function OrderDetailModal({
   const [editing, setEditing] = useState<{ id: string; quantity: string; reason: string } | null>(
     null,
   );
+  // Pending change awaiting editor approval. The callbacks must THROW on
+  // failure (e.g. wrong editor password) so ApprovalModal can show the error
+  // and let the editor retry; resolve on success.
+  const [pending, setPending] = useState<{
+    action: string;
+    run: (approval: EditorApproval) => Promise<void>;
+  } | null>(null);
   const grouped = orders.length > 1;
 
   function startEdit(item: OrderDetailItem) {
     setEditing({ id: item.orderItemId, quantity: String(item.quantity), reason: '' });
   }
 
-  async function submitEdit() {
+  function submitEdit() {
     if (!editing) return;
     const quantity = Number(editing.quantity);
     if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -114,11 +127,18 @@ export function OrderDetailModal({
       onMessage('error', 'A reason is required to edit an item');
       return;
     }
-    await onEditItem(editing.id, quantity, reason);
+    const itemId = editing.id;
+    const itemName = items.find((i) => i.orderItemId === itemId)?.name ?? 'item';
+    setPending({
+      action: `Edit "${itemName}" to quantity ${quantity}`,
+      run: async (approval) => {
+        await onEditItem(itemId, quantity, reason, approval);
     setEditing(null);
+      },
+    });
   }
 
-  async function submitDelete(item: OrderDetailItem) {
+  function submitDelete(item: OrderDetailItem) {
     const raw = prompt(`Reason for removing "${item.name}" from this order:`);
     if (raw === null) return; // cancelled
     const reason = raw.trim();
@@ -126,7 +146,10 @@ export function OrderDetailModal({
       onMessage('error', 'A reason is required to remove an item');
       return;
     }
-    await onDeleteItem(item, reason);
+    setPending({
+      action: `Remove "${item.name}"`,
+      run: (approval) => onDeleteItem(item, reason, approval),
+    });
   }
 
   return (
@@ -326,7 +349,7 @@ export function OrderDetailModal({
                       <tr key={entry.auditId}>
                         <td>{entry.itemName}</td>
                         {grouped && <td>{entry.orderNumber ?? '—'}</td>}
-                        <td>{entry.action === 'delete' ? 'Removed' : 'Modified'}</td>
+                        <td>{entry.action}</td>
                         <td>
                           {entry.action === 'delete'
                             ? entry.newQuantity ?? entry.oldQuantity
@@ -356,6 +379,17 @@ export function OrderDetailModal({
             Close
           </button>
         </div>
+
+        {pending && (
+          <ApprovalModal
+            action={pending.action}
+            onCancel={() => setPending(null)}
+            onSubmit={async (approval) => {
+              await pending.run(approval);
+              setPending(null);
+            }}
+          />
+        )}
       </div>
     </div>
   );
