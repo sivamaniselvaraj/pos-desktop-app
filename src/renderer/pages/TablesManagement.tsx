@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
+import { useAuth } from '../context/AuthContext';
+import { TableFormModal, TABLE_STATUSES } from '../components/TableFormModal';
 import type { ManagedTable, ManagedTableStatus, SaveManagedTablePayload } from '@shared/types';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/TablesManagement.module.css';
-import { TableFormModal } from '../components/TableFormModal';
 
-const STATUSES: ManagedTableStatus[] = ['available', 'occupied', 'reserved', 'cleaning'];
+const STATUSES = TABLE_STATUSES;
 
 const STATUS_CLASS: Record<ManagedTableStatus, string> = {
   available: styles.statusAvailable,
@@ -15,7 +16,13 @@ const STATUS_CLASS: Record<ManagedTableStatus, string> = {
   cleaning: styles.statusCleaning,
 };
 
+const MANAGER_ROLES = ['manager', 'owner', 'admin'];
+
 export function TablesManagement() {
+  const { user } = useAuth();
+  // Managers add/edit/delete; staff/waiters only see the list and use the
+  // available <-> occupied toggle. The database enforces this too.
+  const canManage = MANAGER_ROLES.includes((user?.role ?? '').toLowerCase());
   const [tables, setTables] = useState<ManagedTable[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +93,23 @@ export function TablesManagement() {
       await load();
   }
 
+  // Quick toggle: on = available, off = occupied. Only these two states —
+  // reserved/cleaning are set by a manager via Edit. Disabled while the table
+  // has a live order (cancelled orders don't count).
+  async function handleToggle(t: ManagedTable) {
+    const next: ManagedTableStatus = t.status === 'available' ? 'occupied' : 'available';
+    try {
+      setBusyId(t.tableId);
+      await window.api.setManagedTableStatus(t.tableId, next);
+      flash('success', `Table ${t.tableNumber} is now ${next}`);
+      await load();
+    } catch (err) {
+      flash('error', err instanceof Error ? err.message : 'Failed to change status');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function handleDelete(t: ManagedTable) {
     if (t.activeOrderCount > 0) {
       flash('error', `Table ${t.tableNumber} has a live order and can't be deleted`);
@@ -112,10 +136,12 @@ export function TablesManagement() {
           <button className={styles.clearBtn} onClick={load} disabled={loading} title="Refresh">
             <Icon name="refresh" size={14} /> {loading ? 'Refreshing…' : 'Refresh'}
           </button>
+          {canManage && (
           <button className={styles.addBtn} onClick={() => setFormTable(null)}>
           <Icon name="plus" size={16} />
           Add Table
         </button>
+          )}
         </div>
       </div>
 
@@ -173,13 +199,14 @@ export function TablesManagement() {
               <th>Floor</th>
               <th>Capacity</th>
               <th>Status</th>
-              <th>Actions</th>
+              <th>Available</th>
+              {canManage && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={5} className={pageStyles.muted}>
+                <td colSpan={canManage ? 6 : 5} className={pageStyles.muted}>
                   {tables.length === 0 ? 'No tables yet — add one.' : 'No tables match these filters.'}
                 </td>
               </tr>
@@ -202,6 +229,35 @@ export function TablesManagement() {
                     )}
                   </td>
                   <td>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={t.effectiveStatus === 'available'}
+                      aria-label={`Table ${t.tableNumber} available`}
+                      className={`${styles.switch} ${
+                        t.effectiveStatus === 'available' ? styles.switchOn : ''
+                      }`}
+                      onClick={() => handleToggle(t)}
+                      disabled={
+                        busyId === t.tableId ||
+                        t.activeOrderCount > 0 ||
+                        (t.status !== 'available' && t.status !== 'occupied')
+                      }
+                      title={
+                        t.activeOrderCount > 0
+                          ? 'Has a live order — status follows the order'
+                          : t.status !== 'available' && t.status !== 'occupied'
+                            ? `This table is ${t.status}; a manager can change it from Edit`
+                            : t.status === 'available'
+                              ? 'Mark occupied'
+                              : 'Mark available'
+                      }
+                    >
+                      <span className={styles.knob} />
+                    </button>
+                  </td>
+                  {canManage && (
+                  <td>
                     <div className={styles.actions}>
                       <button
                         className={styles.iconBtn}
@@ -221,6 +277,7 @@ export function TablesManagement() {
                       </button>
                     </div>
                   </td>
+                  )}
                 </tr>
               ))
             )}
@@ -228,7 +285,7 @@ export function TablesManagement() {
         </table>
       )}
 
-      {formTable !== undefined && (
+      {canManage && formTable !== undefined && (
         <TableFormModal
           table={formTable ?? undefined}
           floors={floors}

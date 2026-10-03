@@ -43,6 +43,7 @@ export async function listTables(): Promise<TableCard[]> {
     tableId: String(row.table_id ?? ''),
     tableNumber: String(row.table_number ?? ''),
     tableState: String(row.table_state ?? ''),
+    invoiceNumber: row.invoice_number ? String(row.invoice_number) : undefined,
     orderIds,
     orderNumbers,
     orderId: orderIds && orderIds.length > 0 ? orderIds[0] : undefined,
@@ -53,12 +54,6 @@ export async function listTables(): Promise<TableCard[]> {
     paymentRecorded: row.payment_recorded === true,
   };
 });
-}
-
-export async function createTable(tableNumber: string): Promise<void> {
-  const supabase = getAuthedClient();
-  const { error } = await supabase.rpc('create_table', { p_table_number: tableNumber });
-  if (error) throw new Error(error.message);
 }
 
 export async function savePayment(payload: SavePaymentPayload): Promise<void> {
@@ -92,14 +87,14 @@ function toManagedStatus(value: unknown): ManagedTableStatus {
 }
 
 const DB_STATE: Record<ManagedTableStatus, string> = {
-  available: 'open', // 'open' is what settle/cancel already write for a free table
+  available: 'available', // 'available' is what settle/cancel already write for a free table
   occupied: 'occupied',
   reserved: 'reserved',
   cleaning: 'cleaning',
 };
 
 function fromDbState(state: unknown): ManagedTableStatus {
-  return toManagedStatus(state === 'open' ? 'available' : state);
+  return toManagedStatus(state === 'available' ? 'available' : state);
 }
 
 /** "1, 2, 2A, 10": leading number first, then the full text. */
@@ -128,6 +123,26 @@ function friendlyDbError(error: { code?: string; message: string }, fallback: st
  * outlet filters below are for correctness (this machine's outlet), RLS is
  * the security boundary.
  */
+async function fetchLiveOrderCounts(rows: any[]): Promise<Map<string, number>> {
+  const supabase = getAuthedClient();
+  // Live orders per table (not cancelled, not yet paid) -> "occupied".
+  const liveCount = new Map<string, number>();
+  const ids = rows.map((r) => String(r.id));
+  if (ids.length > 0) {
+    const { data: live, error: liveErr } = await supabase
+      .from('orders')
+      .select('table_id', { count: 'exact' } )
+      .in('table_id', ids)
+      .neq('status', 'cancelled')
+      .is('payment_details', null);
+    if (liveErr) throw new Error(liveErr.message);
+    for (const o of (live ?? []) as {  table_id: string; live_orders: number }[]) {
+      liveCount.set(o.table_id, (liveCount.get(o.table_id) ?? 0) + 1);
+    }
+  }
+  return liveCount;
+}
+
 export async function listManagedTables(): Promise<ManagedTable[]> {
   const outletId = requireOutletId();
   const supabase = getAuthedClient();
@@ -139,27 +154,15 @@ export async function listManagedTables(): Promise<ManagedTable[]> {
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as Record<string, unknown>[];
 
-  // Live orders per table (not cancelled, not yet paid) -> "occupied".
-  const liveCount = new Map<string, number>();
-  const ids = rows.map((r) => String(r.id));
-  if (ids.length > 0) {
-    const { data: live, error: liveErr } = await supabase
-      .from('orders')
-      .select('table_id')
-      .in('table_id', ids)
-      .neq('status', 'cancelled')
-      .is('payment_details', null);
-    if (liveErr) throw new Error(liveErr.message);
-    for (const o of (live ?? []) as { table_id: string }[]) {
-      liveCount.set(o.table_id, (liveCount.get(o.table_id) ?? 0) + 1);
-    }
-  }
+  // Live orders per table (not cancelled, not yet paid) -> "occupied". Via an
+  // RPC that returns table ids only, so staff (who can't read orders) get it too.
+  const liveCount = await fetchLiveOrderCounts(rows);
 
   return rows
     .map((row): ManagedTable => {
       const tableId = String(row.id);
       const active = liveCount.get(tableId) ?? 0;
-      const status = fromDbState(row.state);
+      const status = fromDbState(row.status);
       return {
         tableId,
         tableNumber: String(row.table_number ?? ''),
@@ -250,5 +253,51 @@ export async function deleteManagedTable(tableId: string): Promise<void> {
     .eq('outlet_id', outletId)
     .select('id');
   if (error) throw friendlyDbError(error, 'Failed to delete table');
+  if (!data || data.length === 0) throw new Error('Table not found in this outlet');
+}
+
+/**
+ * Quick toggle from the Tables list — available <-> occupied only, for every
+ * role (staff/waiters included). Anything else (reserved, cleaning) is set via
+ * the Edit form by a manager. Refused while the table has a live order
+ * (cancelled orders don't count). Enforced again in the database for staff
+ * (enforce_staff_table_update trigger), so this is not the only guard.
+ */
+export async function setManagedTableStatus(
+  tableId: string,
+  status: ManagedTableStatus,
+): Promise<void> {
+  const outletId = requireOutletId();
+  const supabase = getAuthedClient();
+  if (status !== 'available' && status !== 'occupied') {
+    throw new Error('The quick toggle only switches between available and occupied.');
+  }
+
+  const { data: current, error: curErr } = await supabase
+    .from('tables')
+    .select('status, id')
+    .eq('id', tableId)
+    .eq('outlet_id', outletId)
+    .maybeSingle();
+  if (curErr) throw new Error(curErr.message);
+  if (!current) throw new Error('Table not found in this outlet');
+  if (current.status !== 'available' && current.status !== 'occupied') {
+    throw new Error(
+      `This table is ${fromDbState(current.status)}; ask a manager to change it from Edit.`,
+    );
+  }
+
+  const live = await fetchLiveOrderCounts([current]);
+  if ((live.get(tableId) ?? 0) > 0) {
+    throw new Error("This table has a live order, so its status can't be changed manually.");
+  }
+
+  const { data, error } = await supabase
+    .from('tables')
+    .update({ status: DB_STATE[status] })
+    .eq('id', tableId)
+    .eq('outlet_id', outletId)
+    .select('id');
+  if (error) throw friendlyDbError(error, 'Failed to update table status');
   if (!data || data.length === 0) throw new Error('Table not found in this outlet');
 }

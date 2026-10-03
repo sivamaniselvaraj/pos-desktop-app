@@ -215,6 +215,8 @@ export interface OrderListRow {
    * whenever this is > 1, to avoid guessing which round a click means.
    */
   orderCount: number;
+  /** How many of those orders are cancelled. 0 < cancelledCount < orderCount is a partial cancel. */
+  cancelledCount: number;
 }
 
 /** Settings page's "Invoicing" panel — admin-only (see get_invoice_sequence_status()/reset_invoice_sequence() in db/functions.sql). */
@@ -269,13 +271,14 @@ export interface EditorApproval {
 export interface EditOrderItemPayload {
   orderItemId: string;
   quantity: number;
-  reason?: string;
+  /** Required — the UI always collects this before saving an edit. */
+  reason: string;
   approval: EditorApproval;
 }
 
 export interface TableOrderDetail {
   /** Every order (round) currently grouped for this table, in order# order. */
-  orders: { id: string; orderNumber: number }[];
+  orders: { id: string; orderNumber: number; status?: string }[];
   /** All orders' items, each tagged with orderId/orderNumber (see OrderDetailItem). */
   items: OrderDetailItem[];
 }
@@ -340,6 +343,8 @@ export interface TableCard {
   tableId: string;
   tableNumber: string;
   tableState: string;
+  /** Invoice shared by every order in the table's current sitting; used to fetch the detail. */
+  invoiceNumber?: string;
     /**
    * Every order in the table's current batch — every dine-in round that
    * isn't cancelled and isn't both completed AND paid yet (see
@@ -452,25 +457,22 @@ export const IpcChannels = {
   UPDATE_USER: 'update-user',
   SET_USER_ACTIVE: 'set-user-active',
   LIST_ORDERS: 'list-orders',
-  GET_ORDER_DETAIL: 'get-order-detail',
-  GET_TABLE_ORDER_DETAIL: 'get-table-order-detail',
-  GET_TABLE_ACTIVITY_LOG: 'get-table-activity-log',
   GET_INVOICE_ORDER_DETAIL: 'get-invoice-order-detail',
   GET_INVOICE_ACTIVITY_LOG: 'get-invoice-activity-log',
   EDIT_ORDER_ITEM: 'edit-order-item',
   DELETE_ORDER_ITEM: 'delete-order-item',
+  CANCEL_INVOICE_WITH_REASON: 'cancel-invoice-with-reason',
   CANCEL_ORDER_WITH_REASON: 'cancel-order-with-reason',
   COMPLETE_ORDER: 'complete-order',
   REPRINT_ORDER: 'reprint-order',
-  GET_ORDER_ACTIVITY_LOG: 'get-order-activity-log',
   GET_MENU_ITEMS: 'get-menu-items',
   REFRESH_MENU_CACHE: 'refresh-menu-cache',
   SET_MENU_ITEM_ACTIVE: 'set-menu-item-active',
   LIST_TABLES: 'list-tables',
-  CREATE_TABLE: 'create-table',
   LIST_MANAGED_TABLES: 'list-managed-tables',
   SAVE_MANAGED_TABLE: 'save-managed-table',
   DELETE_MANAGED_TABLE: 'delete-managed-table',
+  SET_MANAGED_TABLE_STATUS: 'set-managed-table-status',
   SAVE_ORDER_PAYMENT: 'save-order-payment',
   REPRINT_TABLE_BILL: 'reprint-table-bill',
   TEST_PRINT: 'test-print',
@@ -515,26 +517,25 @@ export interface ElectronApi {
   updateUser(payload: UpdateUserPayload): Promise<void>;
   setUserActive(userId: string, isActive: boolean): Promise<void>;
   listOrders(filter: OrderListFilter): Promise<OrderListPage>;
-  getOrderDetail(orderId: string): Promise<OrderDetailItem[]>;
-  getTableOrderDetail(orderId: string): Promise<TableOrderDetail>;
-  getTableActivityLog(orderId: string): Promise<OrderActivityLogEntry[]>;
   /** Orders List's invoice-grouped row detail — every order sharing that invoice_number, via get_orders_by_invoice(). */
   getInvoiceOrderDetail(invoiceNumber: string): Promise<TableOrderDetail>;
   getInvoiceActivityLog(invoiceNumber: string): Promise<OrderActivityLogEntry[]>;
   editOrderItem(payload: EditOrderItemPayload): Promise<void>;
   deleteOrderItem(orderItemId: string, reason: string, approval: EditorApproval): Promise<void>;
   cancelOrderWithReason(orderId: string, reason: string, approval: EditorApproval): Promise<void>;
+  /** Cancel every round of a dine-in invoice at once (one editor approval). */
+  cancelInvoiceWithReason(invoiceNumber: string, reason: string, approval: EditorApproval): Promise<void>;
   completeOrder(orderId: string): Promise<void>;
   reprintOrder(orderId: string): Promise<void>;
-  getOrderActivityLog(orderId: string): Promise<OrderActivityLogEntry[]>;
   getMenuItems(): Promise<MenuCacheSnapshot>;
   refreshMenuCache(): Promise<MenuCacheSnapshot>;
   setMenuItemActive(menuItemId: string, isActive: boolean): Promise<MenuCacheSnapshot>;
   listTables(): Promise<TableCard[]>;
-  createTable(tableNumber: string): Promise<void>;
   listManagedTables(): Promise<ManagedTable[]>;
   saveManagedTable(payload: SaveManagedTablePayload): Promise<void>;
   deleteManagedTable(tableId: string): Promise<void>;
+  /** Quick status toggle from the Tables list; refused while the table has a live order. */
+  setManagedTableStatus(tableId: string, status: ManagedTableStatus): Promise<void>;
   savePayment(payload: SavePaymentPayload): Promise<void>;
   reprintTableBill(orderId: string): Promise<void>;
   testPrint(target?: string): Promise<string>;

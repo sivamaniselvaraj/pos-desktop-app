@@ -15,7 +15,6 @@ import type {
   ManagedUser,
   OutletOption,
   OrderListPage,
-  OrderDetailItem,
   OrderActivityLogEntry,
   MenuCacheSnapshot,
   TableCard,
@@ -66,14 +65,6 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.SET_USER_ACTIVE, userId, isActive) as Promise<void>,
   listOrders: (filter) =>
       ipcRenderer.invoke(IpcChannels.LIST_ORDERS, filter) as Promise<OrderListPage>,
-    getOrderDetail: (orderId) =>
-      ipcRenderer.invoke(IpcChannels.GET_ORDER_DETAIL, orderId) as Promise<OrderDetailItem[]>,
-  getTableOrderDetail: (orderId) =>
-    ipcRenderer.invoke(IpcChannels.GET_TABLE_ORDER_DETAIL, orderId) as Promise<TableOrderDetail>,
-  getTableActivityLog: (orderId) =>
-    ipcRenderer.invoke(IpcChannels.GET_TABLE_ACTIVITY_LOG, orderId) as Promise<
-      OrderActivityLogEntry[]
-    >,
       getInvoiceOrderDetail: (invoiceNumber) =>
         ipcRenderer.invoke(IpcChannels.GET_INVOICE_ORDER_DETAIL, invoiceNumber) as Promise<
           TableOrderDetail
@@ -93,14 +84,17 @@ const api: ElectronApi = {
       reason,
       approval,
     ) as Promise<void>,
+  cancelInvoiceWithReason: (invoiceNumber, reason, approval) =>
+    ipcRenderer.invoke(
+      IpcChannels.CANCEL_INVOICE_WITH_REASON,
+      invoiceNumber,
+      reason,
+      approval,
+    ) as Promise<void>,
     completeOrder: (orderId) =>
       ipcRenderer.invoke(IpcChannels.COMPLETE_ORDER, orderId) as Promise<void>,
     reprintOrder: (orderId) =>
       ipcRenderer.invoke(IpcChannels.REPRINT_ORDER, orderId) as Promise<void>,
-    getOrderActivityLog: (orderId) =>
-      ipcRenderer.invoke(IpcChannels.GET_ORDER_ACTIVITY_LOG, orderId) as Promise<
-        OrderActivityLogEntry[]
-      >,
       getMenuItems: () =>
           ipcRenderer.invoke(IpcChannels.GET_MENU_ITEMS) as Promise<MenuCacheSnapshot>,
         refreshMenuCache: () =>
@@ -110,12 +104,12 @@ const api: ElectronApi = {
       MenuCacheSnapshot
     >,
   listTables: () => ipcRenderer.invoke(IpcChannels.LIST_TABLES) as Promise<TableCard[]>,
-  createTable: (tableNumber) =>
-    ipcRenderer.invoke(IpcChannels.CREATE_TABLE, tableNumber) as Promise<void>,
   listManagedTables: () =>
     ipcRenderer.invoke(IpcChannels.LIST_MANAGED_TABLES) as Promise<ManagedTable[]>,
   saveManagedTable: (payload) =>
     ipcRenderer.invoke(IpcChannels.SAVE_MANAGED_TABLE, payload) as Promise<void>,
+  setManagedTableStatus: (tableId, status) =>
+    ipcRenderer.invoke(IpcChannels.SET_MANAGED_TABLE_STATUS, tableId, status) as Promise<void>,
   deleteManagedTable: (tableId) =>
     ipcRenderer.invoke(IpcChannels.DELETE_MANAGED_TABLE, tableId) as Promise<void>,
   savePayment: (payload: SavePaymentPayload) =>

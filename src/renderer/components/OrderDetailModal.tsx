@@ -45,7 +45,7 @@ export interface OrderDetailModalProps {
   /** Shown after " · " next to the title, e.g. the order/batch grand total. */
   headerAmount?: number;
   /** Every order (round) in this batch. Length > 1 shows the "Orders: #, #, …" line and Order # group headers/columns; length <= 1 hides all of that grouping UI. */
-  orders: { id: string; orderNumber: number }[];
+  orders: { id: string; orderNumber: number; status?: string}[];
   meta?: OrderDetailModalMeta;
   totals?: OrderDetailModalTotals;
   items: OrderDetailItem[];
@@ -54,6 +54,8 @@ export interface OrderDetailModalProps {
   /** Whether the Edit/Remove actions render at all — false for a locked (completed/cancelled) order. */
   editable: boolean;
   onClose: () => void;
+  /** Dine-in only: cancel just this one round. The caller owns the reason/approval flow. Omit to hide the buttons. */
+  onCancelRound?: (round: { id: string; orderNumber: number }) => void;
   /** Persist the edit (call the editOrderItem IPC, reload, refresh the caller's own list) — quantity/reason are already validated non-empty/positive by this component before it's called. */
   onEditItem: (
     orderItemId: string,
@@ -95,6 +97,7 @@ export function OrderDetailModal({
   loading,
   editable,
   onClose,
+  onCancelRound,
   onEditItem,
   onDeleteItem,
   onMessage,
@@ -206,7 +209,25 @@ export function OrderDetailModal({
                   <Fragment key={item.orderItemId}>
                     {showOrderHeader && (
                       <tr className={styles.groupHeaderRow}>
-                        <td colSpan={5}>Order #{item.orderNumber}</td>
+                        <td colSpan={5}>
+                          <span>Order #{item.orderNumber}</span>
+                          {(() => {
+                            const round = orders.find((o) => o.orderNumber === item.orderNumber);
+                            if (!round) return null;
+                            if (round.status === 'cancelled') {
+                              return <span className={styles.tag}>cancelled</span>;
+                            }
+                            return onCancelRound && editable ? (
+                              <button
+                                className={styles.smallBtnDanger}
+                                style={{ float: 'right' }}
+                                onClick={() => onCancelRound({ id: round.id, orderNumber: round.orderNumber })}
+                              >
+                                Cancel this order
+                              </button>
+                            ) : null;
+                          })()}
+                        </td>
                       </tr>
                     )}
                     <tr className={item.isDeleted ? styles.deletedRow : undefined}>

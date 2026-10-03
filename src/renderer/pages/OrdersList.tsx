@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import { OrderDetailModal } from '../components/OrderDetailModal';
+import { ApprovalModal } from '../components/ApprovalModal';
 import type {
   OrderListRow,
   OrderListStatus,
@@ -10,8 +12,6 @@ import type {
 } from '@shared/types';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/OrdersList.module.css';
-import { Toast } from '../components/Toast';
-import { ApprovalModal } from '../components/ApprovalModal';
 
 const PAGE_SIZE = 25;
 // list_orders() no longer counts the outlet's whole history (that count was
@@ -77,7 +77,13 @@ export function OrdersList() {
   const [detailLoading, setDetailLoading] = useState(false);
 
   // Cancel-reason modal
-  const [cancelTarget, setCancelTarget] = useState<{ orderId: string; orderNumber: string }  | null>(null);
+  // What a pending cancel applies to: one order (any order type, or one round
+  // of a dine-in table) or a whole dine-in invoice ("cancel all rounds").
+  const [cancelTarget, setCancelTarget] = useState<
+    | { scope: 'order'; orderId: string; title: string; summary: string }
+    | { scope: 'invoice'; invoiceNumber: string; title: string; summary: string }
+    | null
+  >(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelApproval, setCancelApproval] = useState(false);
 
@@ -166,11 +172,11 @@ export function OrdersList() {
     }
   }
 
-  async function handleComplete(orderId: string) {
-    if (!confirm('Mark this order as completed?')) return;
+  async function handleComplete(row: OrderListRow) {
+    if (!confirm('Mark this order# ' +row.orderNumber+' as completed?')) return;
     try {
-      setBusyOrderId(orderId);
-      await window.api.completeOrder(orderId);
+      setBusyOrderId(row.orderId);
+      await window.api.completeOrder(row.orderId);
       flash('success', 'Order completed');
       await load();
     } catch (err) {
@@ -180,8 +186,22 @@ export function OrdersList() {
     }
   }
 
-  function openCancel(orderId: string, orderNumber: string) {
-    setCancelTarget({orderId, orderNumber});
+  function openCancelOrder(orderId: string, title: string, summary = '') {
+    setCancelTarget({ scope: 'order', orderId, title, summary });
+    setCancelReason('');
+  }
+
+    function openCancelRow(r: OrderListRow) {
+    if (r.orderCount > 1 && r.invoiceNumber) {
+      setCancelTarget({
+        scope: 'invoice',
+        invoiceNumber: r.invoiceNumber,
+        title: `Cancel all ${r.orderCount} orders`,
+        summary: `${r.orderType === DINE_IN_ORDER_TYPE ? `Table ${r.tableNumber ?? '—'}` : 'Invoice'} · ${r.invoiceNumber} · ${formatCurrency(r.totalAmount)}. Every order (round) on this invoice will be cancelled and the table released.`,
+      });
+    } else {
+      openCancelOrder(r.orderId, `Cancel Order ${r.orderNumber}`);
+    }
     setCancelReason('');
   }
 
@@ -199,27 +219,29 @@ export function OrdersList() {
   // editor can retry without losing the reason.
   async function confirmCancel(approval: EditorApproval): Promise<void> {
     if (!cancelTarget) return;
-      await window.api.cancelOrderWithReason(cancelTarget.orderId, cancelReason.trim(), approval);
+    const reason = cancelReason.trim();
+    if (cancelTarget.scope === 'invoice') {
+      await window.api.cancelInvoiceWithReason(cancelTarget.invoiceNumber, reason, approval);
+      flash('success', 'All orders on the invoice cancelled');
+    } else {
+      await window.api.cancelOrderWithReason(cancelTarget.orderId, reason, approval);
       flash('success', 'Order cancelled');
+    }
 setCancelApproval(false);
       setCancelTarget(null);
 try {
+      // If the detail view is open (cancel-this-round), refresh it too.
+      if (detailInvoiceNumber) await reloadDetail();
       await load();
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Cancelled, but failed to refresh');
     }
   }
 
-  async function openDetail(row: OrderListRow) {
-    const isDineIn = row.orderType === DINE_IN_ORDER_TYPE;
-    const invoiceNumber = isDineIn ? row.invoiceNumber ?? null : null;
-    setDetailOrderId(row.orderId);
-    setDetailIsDineIn(isDineIn);
-    setDetailInvoiceNumber(invoiceNumber);
-    try {
-      setDetailLoading(true);
-      if (invoiceNumber) {
-        // Grouped dine-in row: fetch every order sharing this invoice_number.
+  // Order detail is always fetched by invoice number — one path for every
+  // order type. A dine-in invoice returns every round; a pickup/delivery
+  // invoice returns its single order.
+  async function fetchDetail(invoiceNumber: string) {
         const [detail, log] = await Promise.all([
           window.api.getInvoiceOrderDetail(invoiceNumber),
           window.api.getInvoiceActivityLog(invoiceNumber),
@@ -227,41 +249,30 @@ try {
         setDetailOrders(detail.orders);
         setDetailItems(detail.items);
         setDetailLog(log);
-      } else {
-      const [items, log] = await Promise.all([
-        window.api.getOrderDetail(row.orderId),
-        window.api.getOrderActivityLog(row.orderId),
-      ]);
-      setDetailOrders([]);
-      setDetailItems(items);
-      setDetailLog(log);
-      }
+  }
+
+  async function openDetail(row: OrderListRow) {
+    if (!row.invoiceNumber) {
+      flash('error', 'This order has no invoice number, so its details cannot be loaded.');
+      return;
+    }
+    setDetailOrderId(row.orderId);
+    setDetailIsDineIn(row.orderType === DINE_IN_ORDER_TYPE);
+    setDetailInvoiceNumber(row.invoiceNumber);
+    try {
+      setDetailLoading(true);
+      await fetchDetail(row.invoiceNumber);
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Failed to load order details');
-      setDetailOrderId(null);
+      closeDetail();
     } finally {
       setDetailLoading(false);
     }
   }
 
   async function reloadDetail() {
-    if (!detailOrderId) return;
-    if (detailInvoiceNumber) {
-      const [detail, log] = await Promise.all([
-        window.api.getInvoiceOrderDetail(detailInvoiceNumber),
-        window.api.getInvoiceActivityLog(detailInvoiceNumber),
-      ]);
-      setDetailOrders(detail.orders);
-      setDetailItems(detail.items);
-      setDetailLog(log);
-    } else {
-      const [items, log] = await Promise.all([
-        window.api.getOrderDetail(detailOrderId),
-        window.api.getOrderActivityLog(detailOrderId),
-      ]);
-      setDetailItems(items);
-      setDetailLog(log);
-    }
+    if (!detailInvoiceNumber) return;
+    await fetchDetail(detailInvoiceNumber);
   }
 
   function closeDetail() {
@@ -434,10 +445,12 @@ try {
                             {r.orderCount} orders
                           </span>
                         )}
-                      {r.hasEdits && (
-                        <span className={styles.editedBadge} title="This order has edited or removed items">
-                          <Icon name="edit" size={11} />
-                          edited
+                        {r.cancelledCount > 0 && r.cancelledCount < r.orderCount && (
+                          <span
+                            className={styles.partialCancelBadge}
+                            title="Some orders on this invoice are cancelled; totals exclude them"
+                          >
+                            {r.cancelledCount} cancelled
                         </span>
                       )}
                     </td>
@@ -473,20 +486,20 @@ try {
                           <>
                             <button
                               className={styles.iconBtn}
-                              title="Complete"
-                              onClick={() => handleComplete(r.orderId)}
-                              disabled={busyOrderId === r.orderId}
+                                title={
+                                  grouped
+                                    ? 'This invoice has multiple orders — complete each round from the item view'
+                                    : 'Complete'
+                                }
+                              onClick={() => handleComplete(r)}
+                                disabled={busyOrderId === r.orderId || grouped}
                             >
                               <Icon name="check" size={16} />
                             </button>
                             <button
                               className={styles.iconBtn}
-                                title={
-                                  grouped
-                                    ? 'This invoice has multiple orders — cancel each round from the item view'
-                                    : 'Cancel'
-                                }
-                              onClick={() => openCancel(r.orderId, r.orderNumber)}
+                                title={grouped ? `Cancel all ${r.orderCount} orders` : 'Cancel'}
+                                onClick={() => openCancelRow(r)}
                               disabled={busyOrderId === r.orderId}
                             >
                               <Icon name="cancel" size={16} />
@@ -562,6 +575,16 @@ try {
           loading={detailLoading}
           editable={detailOrder?.status === 'open'}
           onClose={closeDetail}
+          onCancelRound={
+            detailIsDineIn
+              ? (round) =>
+                  openCancelOrder(
+                    round.id,
+                    `Cancel order #${round.orderNumber}`,
+                    'Only this order is cancelled; the other orders on the table stay as they are.',
+                  )
+              : undefined
+          }
           onEditItem={handleEditItem}
           onDeleteItem={handleDeleteItem}
           onMessage={flash}
@@ -572,7 +595,8 @@ try {
       {cancelTarget && (
         <div className={styles.modalOverlay} onClick={() => setCancelTarget(null)}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3>Cancel Order {cancelTarget.orderNumber}</h3>
+            <h3>{cancelTarget.title}</h3>
+            {cancelTarget.summary && <p className={pageStyles.muted}>{cancelTarget.summary}</p>}
             <label className={styles.formLabel}>
               Reason (required)
               <textarea
@@ -589,16 +613,15 @@ try {
               <button
                 className={styles.dangerBtn}
                 onClick={submitCancel}
-                disabled={busyOrderId === cancelTarget.orderId}
               >
-                {busyOrderId === cancelTarget.orderId ? 'Cancelling…' : 'Cancel Order'}
+                {cancelTarget.scope === 'invoice' ? 'Cancel All Orders' : 'Cancel Order'}
               </button>
             </div>
           </div>
           {cancelApproval && (
             <div onClick={(e) => e.stopPropagation()}>
               <ApprovalModal
-                action={`Cancel order ${cancelTarget.orderNumber}`}
+                action={cancelTarget.title}
                 onCancel={() => setCancelApproval(false)}
                 onSubmit={confirmCancel}
               />

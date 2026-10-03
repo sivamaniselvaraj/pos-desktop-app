@@ -160,6 +160,7 @@ returns table (
   invoice_number text,
   order_number text,
   order_count integer,
+  cancelled_count integer,
   total_rows bigint
 )
 language sql
@@ -181,11 +182,12 @@ as $$
   ),
   cand as (
     select o.id as order_id, o.order_type, o.created_at, o.table_id, o.invoice_number, o.order_number,
-           o.outlet_id, g.order_count, g.status
+           o.outlet_id, g.order_count, g.cancelled_count, g.status
     from caller c
     join orders o on o.outlet_id = c.outlet_id
     cross join lateral (
       select count(*)::integer as order_count,
+            (count(*) filter (where m.status = 'cancelled'))::integer as cancelled_count,
              case when bool_or(m.status not in ('cancelled', 'completed')) then 'open'
                   else (array_agg(m.status order by m.order_number desc))[1] end as status
       from orders m
@@ -220,7 +222,7 @@ as $$
       and (p_status is null
            or (p_status = 'active' and g.status not in ('cancelled', 'completed'))
            or (p_status = 'completed' and g.status = 'completed')
-           or (p_status = 'cancelled' and g.status = 'cancelled'))
+            or (p_status = 'cancelled' and g.cancelled_count > 0))
     order by o.created_at desc
     limit (greatest(p_page - 1, 0) * greatest(p_page_size, 1)) + greatest(p_page_size, 1) + 100
   ),
@@ -273,6 +275,7 @@ as $$
     p.invoice_number,
     p.order_number,
     p.order_count,
+    p.cancelled_count,
     p.fetched::bigint as total_rows
   from paged p
   left join totals t on t.anchor_id = p.order_id

@@ -8,11 +8,25 @@ import { signIn, signOut, getCurrentUser } from './authManager';
 import { listUsers, listOutlets, createUser, updateUser, setUserActive } from './userAdmin';
 import { getAllPrinters, updatePrinter, removePrinter, getMaxPrinters } from './settingsManager';
 import { exportSalesReport } from './reportExport';
+import {
+  listOrders,
+    getInvoiceOrderDetail,
+    getInvoiceActivityLog,
+    editOrderItem,
+    deleteOrderItem,
+    cancelOrderWithReason,
+    cancelInvoiceWithReason,
+    completeOrder,
+    reprintOrder,
+    reprintTableBill,
+} from './ordersListManager';
 import { getCachedMenuItems, refreshMenuCache, setMenuItemActive } from './menuCache';
-import { listTables, createTable, 
+import { 
+  listTables, 
   listManagedTables,
   saveManagedTable,
   deleteManagedTable,
+  setManagedTableStatus,
 } from './tablesManager';
 import { config } from './config';
 
@@ -28,22 +42,8 @@ import type {
   ReportBucket,
   SavePaymentPayload,
   SaveManagedTablePayload,
+  ManagedTableStatus,
 } from '../shared/types';
-import {
-  cancelOrderWithReason,
-  completeOrder,
-  deleteOrderItem,
-  editOrderItem,
-  getInvoiceActivityLog,
-  getInvoiceOrderDetail,
-  getOrderActivityLog,
-  getOrderDetail,
-  getTableActivityLog,
-  getTableOrderDetail,
-  listOrders,
-  reprintOrder,
-  reprintTableBill,
-} from './ordersListManager';
 
 /**
  * This machine's LAN IPv4 address — what Android should actually point the
@@ -103,8 +103,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.GET_MAX_PRINTERS, () => getMaxPrinters());
 
   // Invoicing (admin-only — enforced server-side by the RPCs)
-  //ipcMain.handle(IpcChannels.GET_INVOICE_SEQUENCE_STATUS, () => getInvoiceSequenceStatus());
-  //ipcMain.handle(IpcChannels.RESET_INVOICE_SEQUENCE, () => resetInvoiceSequence());
+  // ipcMain.handle(IpcChannels.GET_INVOICE_SEQUENCE_STATUS, () => getInvoiceSequenceStatus());
+  // ipcMain.handle(IpcChannels.RESET_INVOICE_SEQUENCE, () => resetInvoiceSequence());
 
   ipcMain.handle(IpcChannels.GET_SERVER_STATUS, () => buildServerStatus());
 
@@ -139,13 +139,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
 
   // Orders List (manager/owner/admin — enforced server-side by the RPCs)
   ipcMain.handle(IpcChannels.LIST_ORDERS, (_e, filter: OrderListFilter) => listOrders(filter));
-  ipcMain.handle(IpcChannels.GET_ORDER_DETAIL, (_e, orderId: string) => getOrderDetail(orderId));
-  ipcMain.handle(IpcChannels.GET_TABLE_ORDER_DETAIL, (_e, orderId: string) =>
-    getTableOrderDetail(orderId),
-  );
-  ipcMain.handle(IpcChannels.GET_TABLE_ACTIVITY_LOG, (_e, orderId: string) =>
-    getTableActivityLog(orderId),
-  );
   ipcMain.handle(IpcChannels.GET_INVOICE_ORDER_DETAIL, (_e, invoiceNumber: string) =>
     getInvoiceOrderDetail(invoiceNumber),
   );
@@ -165,11 +158,13 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     (_e, orderId: string, reason: string, approval: EditorApproval) =>
       cancelOrderWithReason(orderId, reason, approval),
   );
+  ipcMain.handle(
+    IpcChannels.CANCEL_INVOICE_WITH_REASON,
+    (_e, invoiceNumber: string, reason: string, approval: EditorApproval) =>
+      cancelInvoiceWithReason(invoiceNumber, reason, approval),
+  );
   ipcMain.handle(IpcChannels.COMPLETE_ORDER, (_e, orderId: string) => completeOrder(orderId));
   ipcMain.handle(IpcChannels.REPRINT_ORDER, (_e, orderId: string) => reprintOrder(orderId));
-  ipcMain.handle(IpcChannels.GET_ORDER_ACTIVITY_LOG, (_e, orderId: string) =>
-    getOrderActivityLog(orderId),
-  );
   // Menu cache: getCachedMenuItems() is synchronous (no DB call) — wrapped
     // in Promise.resolve() only so it matches the async invoke() contract.
     ipcMain.handle(IpcChannels.GET_MENU_ITEMS, () => Promise.resolve(getCachedMenuItems()));
@@ -181,10 +176,13 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
 
   // Dashboard table cards
   ipcMain.handle(IpcChannels.LIST_TABLES, () => listTables());
-  ipcMain.handle(IpcChannels.CREATE_TABLE, (_e, tableNumber: string) => createTable(tableNumber));
   ipcMain.handle(IpcChannels.LIST_MANAGED_TABLES, () => listManagedTables());
   ipcMain.handle(IpcChannels.SAVE_MANAGED_TABLE, (_e, payload: SaveManagedTablePayload) =>
     saveManagedTable(payload),
+  );
+  ipcMain.handle(
+    IpcChannels.SET_MANAGED_TABLE_STATUS,
+    (_e, tableId: string, status: ManagedTableStatus) => setManagedTableStatus(tableId, status),
   );
   ipcMain.handle(IpcChannels.DELETE_MANAGED_TABLE, (_e, tableId: string) =>
     deleteManagedTable(tableId),

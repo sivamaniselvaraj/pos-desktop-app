@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import { OrderDetailModal } from '../components/OrderDetailModal';
+import { TableFormModal } from '../components/TableFormModal';
 import type {
   TableCard,
   OrderDetailItem,
@@ -10,7 +12,7 @@ import type {
   SaveManagedTablePayload,
 } from '@shared/types';
 import styles from '../styles/TableDashboard.module.css';
-import { TableFormModal } from '../components/TableFormModal';
+
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'card', label: 'Card' },
@@ -45,6 +47,7 @@ export function Dashboard() {
   const [floors, setFloors] = useState<string[]>([]);
 
   const [viewTableId, setViewTableId] = useState<string | null>(null);
+  const [viewInvoiceNumber, setViewInvoiceNumber] = useState<string | null>(null);
   const [viewOrders, setViewOrders] = useState<{ id: string; orderNumber: number }[]>([]);
   const [viewItems, setViewItems] = useState<OrderDetailItem[]>([]);
   const [viewLog, setViewLog] = useState<OrderActivityLogEntry[]>([]);
@@ -159,6 +162,17 @@ export function Dashboard() {
       setRefreshing(false);
     }
   }
+  
+  async function openAddTable() {
+    setShowAddTable(true);
+    try {
+      // Best-effort: floor suggestions for the shared form. Never blocks adding.
+      const all = await window.api.listManagedTables();
+      setFloors(Array.from(new Set(all.map((t) => t.floor).filter(Boolean))).sort());
+    } catch {
+      setFloors([]);
+    }
+  }
 
   async function handleAddTable(payload: SaveManagedTablePayload): Promise<void> {
     await window.api.saveManagedTable(payload); // throws -> shown inside the modal
@@ -171,23 +185,32 @@ export function Dashboard() {
     }
   }
 
+  // Detail is fetched by invoice number (shared by every round of the table's
+  // current sitting), the same path the Orders List uses.
+  async function fetchView(invoiceNumber: string) {
+    const [detail, log] = await Promise.all([
+      window.api.getInvoiceOrderDetail(invoiceNumber),
+      window.api.getInvoiceActivityLog(invoiceNumber),
+    ]);
+    setViewOrders(detail.orders);
+    setViewItems(detail.items);
+    setViewLog(log);
+  }
+
   async function openView(table: TableCard) {
     if (!table.tableId) return;
+    if (!table.invoiceNumber) {
+      flash('error', 'This order has no invoice number, so its details cannot be loaded.');
+      return;
+    }
     setViewTableId(table.tableId);
+    setViewInvoiceNumber(table.invoiceNumber);
     try {
       setViewLoading(true);
-      // Grouped: pulls in every order still open on this table, not just the
-      // one the card happened to carry.
-      const [detail, log] = await Promise.all([
-        window.api.getTableOrderDetail(table.tableId),
-        window.api.getTableActivityLog(table.tableId),
-      ]);
-      setViewOrders(detail.orders);
-      setViewItems(detail.items);
-      setViewLog(log);
+      await fetchView(table.invoiceNumber);
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Failed to load order');
-      setViewTableId(null);
+      closeView();
     } finally {
       setViewLoading(false);
     }
@@ -195,20 +218,15 @@ export function Dashboard() {
 
   function closeView() {
     setViewTableId(null);
+    setViewInvoiceNumber(null);
     setViewOrders([]);
     setViewItems([]);
     setViewLog([]);
   }
 
   async function refreshView() {
-    if (!viewTableId) return;
-    const [detail, log] = await Promise.all([
-      window.api.getTableOrderDetail(viewTableId),
-      window.api.getTableActivityLog(viewTableId),
-    ]);
-    setViewOrders(detail.orders);
-    setViewItems(detail.items);
-    setViewLog(log);
+    if (!viewInvoiceNumber) return;
+    await fetchView(viewInvoiceNumber);
     await load();
   }
 
@@ -258,15 +276,13 @@ export function Dashboard() {
           <Icon name="refresh" size={16} />
           {refreshing ? 'Refreshing…' : 'Refresh Tables'}
         </button>
-        <button className={styles.addBtn} onClick={() => setShowAddTable(true)}>
+        <button className={styles.addBtn} onClick={openAddTable}>
           <Icon name="plus" size={16} />
           Add Table
         </button>
         </div>
 
-      {message && (
-        <p className={message.type === 'error' ? styles.error : styles.success}>{message.text}</p>
-      )}
+      <Toast message={message} />
       {error && <p className={styles.error}>{error}</p>}
       {loading && <p className={styles.muted}>Loading tables…</p>}
 
