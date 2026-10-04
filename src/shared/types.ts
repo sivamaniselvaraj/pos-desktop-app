@@ -316,6 +316,32 @@ export interface OrderActivityLogEntry {
  */
 export type MenuItemRecord = Record<string, unknown>;
 
+export interface MenuCategory {
+  id: string;
+  name: string;
+}
+
+/** Add (no id) or edit (id) a menu item. outlet_id is always this machine's outlet. */
+export interface SaveMenuItemPayload {
+  id?: string;
+  name: string;
+  categoryId: string;
+  price: number;
+  description?: string;
+  isVeg: boolean;
+  /** Percentage of the line total, applied to pickup orders only. */
+  containerCharge: number | null;
+  costPrice: number | null;
+  /** Comma/space separated search keywords. */
+  searchKey?: string;
+  /** Minutes. */
+  cookingTime: number | null;
+  sortOrder: number | null;
+  imageUrl?: string;
+  isAvailable: boolean;
+  isActive: boolean;
+}
+
 /** One cart line sent to place_order / place_pickup_order. */
 export interface PlaceOrderLine {
   menuItemId: string;
@@ -506,6 +532,8 @@ export const IpcChannels = {
   LIST_TABLES: 'list-tables',
   LIST_MANAGED_TABLES: 'list-managed-tables',
   GET_TAX_RATE: 'get-tax-rate',
+  LIST_MENU_CATEGORIES: 'list-menu-categories',
+  SAVE_MENU_ITEM: 'save-menu-item',
   PLACE_ORDER: 'place-order',
   SAVE_MANAGED_TABLE: 'save-managed-table',
   DELETE_MANAGED_TABLE: 'delete-managed-table',
@@ -570,6 +598,8 @@ export interface ElectronApi {
   listTables(): Promise<TableCard[]>;
   listManagedTables(): Promise<ManagedTable[]>;
   getTaxRate(): Promise<TaxRate>;
+  listMenuCategories(): Promise<MenuCategory[]>;
+  saveMenuItem(payload: SaveMenuItemPayload): Promise<MenuCacheSnapshot>;
   placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrderResult>;
   saveManagedTable(payload: SaveManagedTablePayload): Promise<void>;
   deleteManagedTable(tableId: string): Promise<void>;

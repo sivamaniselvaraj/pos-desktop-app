@@ -21,6 +21,7 @@ import {
   updateUser, 
   setUserActive 
 } from './userAdmin';
+import { listMenuCategories, saveMenuItem } from './menuManager';
 import { getTaxRate, placeOrder } from './orderEntryManager';
 import {
   listOrders,
@@ -57,6 +58,7 @@ import type {
   SavePaymentPayload,
   SaveManagedTablePayload,
   PlaceOrderPayload,
+  SaveMenuItemPayload,
   ManagedTableStatus,
 } from '../shared/types';
 
@@ -192,6 +194,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   // Dashboard table cards
   ipcMain.handle(IpcChannels.LIST_TABLES, () => listTables());
   ipcMain.handle(IpcChannels.LIST_MANAGED_TABLES, () => listManagedTables());
+  ipcMain.handle(IpcChannels.LIST_MENU_CATEGORIES, () => listMenuCategories());
+  ipcMain.handle(IpcChannels.SAVE_MENU_ITEM, (_e, payload: SaveMenuItemPayload) => saveMenuItem(payload));
   ipcMain.handle(IpcChannels.GET_TAX_RATE, () => getTaxRate());
   ipcMain.handle(IpcChannels.PLACE_ORDER, (_e, payload: PlaceOrderPayload) => placeOrder(payload));
   ipcMain.handle(IpcChannels.SAVE_MANAGED_TABLE, (_e, payload: SaveManagedTablePayload) =>

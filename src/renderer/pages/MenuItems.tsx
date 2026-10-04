@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
-import type { MenuCacheSnapshot, MenuItemRecord } from '@shared/types';
+import { MenuItemFormModal } from '../components/MenuItemFormModal';
+import { useAuth } from '../context/AuthContext';
+import type { MenuCacheSnapshot, MenuCategory, MenuItemRecord, SaveMenuItemPayload  } from '@shared/types';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/MenuItems.module.css';
 
@@ -8,12 +11,25 @@ import styles from '../styles/MenuItems.module.css';
 // outlet) or just DB bookkeeping rather than something an operator needs to
 // see on a menu list. Anything else is rendered, whatever it turns out to
 // be called — see MenuItemRecord's comment for why the shape isn't fixed.
-const HIDDEN_KEYS = new Set(['id', 'category_id', 'outlet_id', 'created_at', 'updated_at','description', 'image_url', 'cost_price', 'is_active']);
+const HIDDEN_KEYS = new Set([
+  'id',
+  'outlet_id', 
+  'created_at', 
+  'updated_at',
+  'category_id', 
+  'description', 
+  'is_veg',
+  'cooking_time',
+  'container_charge',
+  'image_url', 
+  'cost_price', 
+  'is_active'
+]);
 
 // A few keys, if present, are shown first in this order; everything else
 // follows alphabetically. Purely cosmetic — works fine if none of these
 // exist under these exact names.
-const PRIORITY_KEYS = ['id', 'name', 'price', 'category'];
+const PRIORITY_KEYS = ['name', 'category_name', 'price'];
 
 function formatCell(value: unknown): string {
   if (value === null || value === undefined) return '—';
@@ -28,7 +44,15 @@ function columnLabel(key: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+const MANAGER_ROLES = ['manager', 'owner', 'admin'];
+
 export function MenuItemsPage() {
+  const { user } = useAuth();
+  // Only managers+ add/edit. The database enforces this too (RLS on menu_items).
+  const canManage = MANAGER_ROLES.includes(user?.role.toLowerCase() ?? '');
+  const [categories, setCategories] = useState<MenuCategory[]>([]);
+  // undefined = closed, null = adding, MenuItemRecord = editing
+  const [formItem, setFormItem] = useState<MenuItemRecord | null | undefined>(undefined);
   const [snapshot, setSnapshot] = useState<MenuCacheSnapshot>({
     items: [],
     lastRefreshedAt: null,
@@ -76,6 +100,34 @@ export function MenuItemsPage() {
       setRefreshing(false);
     }
   }
+
+  async function openForm(item: MenuItemRecord | null) {
+    // Categories come from the categories table; if that can't be read, fall
+    // back to the ones already present on the cached items.
+    let list: MenuCategory[] = [];
+    try {
+      list = await window.api.listMenuCategories();
+    } catch {
+      /* fall through to the cache */
+    }
+    if (list.length === 0) {
+      const seen = new Map<string, string>();
+      for (const it of snapshot.items) {
+        if (it.category_id) seen.set(String(it.category_id), String(it.category_name ?? 'Category'));
+      }
+      list = [...seen.entries()].map(([id, name]) => ({ id, name }));
+    }
+    setCategories(list);
+    setFormItem(item);
+  }
+
+  async function handleSaveItem(payload: SaveMenuItemPayload) {
+    const result = await window.api.saveMenuItem(payload); // throws -> shown inside the modal
+    setSnapshot(result);
+    setFormItem(undefined);
+    flash('success', payload.id ? `${payload.name} updated` : `${payload.name} added`);
+  }
+
     async function handleToggleActive(item: MenuItemRecord) {
     const id = String(item.id ?? '');
     if (!id) return;
@@ -123,10 +175,18 @@ export function MenuItemsPage() {
     <div className={pageStyles.page}>
       <div className={styles.header}>
         <h2>Menu Items</h2>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {canManage && (
+            <button className={styles.refreshBtn} onClick={() => void openForm(null)}>
+              <Icon name="plus" size={14} />
+              Add Item
+            </button>
+          )}
         <button className={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing}>
           <Icon name="refresh" size={14} />
           {refreshing ? 'Refreshing…' : 'Refresh from Database'}
         </button>
+        </div>
       </div>
 
       <p className={pageStyles.muted}>
@@ -145,9 +205,7 @@ export function MenuItemsPage() {
         onChange={(e) => setSearchQuery(e.target.value)}
       />
 
-      {message && (
-        <p className={message.type === 'error' ? styles.error : styles.success}>{message.text}</p>
-      )}
+      <Toast message={message} />
       {!message && snapshot.lastError && <p className={styles.error}>{snapshot.lastError}</p>}
 
       {loading ? (
@@ -166,6 +224,7 @@ export function MenuItemsPage() {
                 <th key={col}>{columnLabel(col)}</th>
               ))}
               <th>Status</th>
+              {canManage && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -175,7 +234,7 @@ export function MenuItemsPage() {
               return (
                 <tr key={id} className={isActive ? undefined : styles.inactiveRow}>
                   {columns.map((col) => (
-                    <td key={col}>{formatCell(item[col])}</td>
+                    <td key={col}>{formatCell(item[col])} {col === 'name' ? <span className={`${styles.dot} ${item['is_veg'] ? '' : styles.dotNv}`} /> : ''}</td>
                   ))}
                   <td>
                     <button
@@ -187,11 +246,31 @@ export function MenuItemsPage() {
                       {togglingId === id ? '…' : isActive ? 'On' : 'Off'}
                     </button>
                   </td>
+                  {canManage && (
+                    <td>
+                      <button
+                        className={styles.refreshBtn}
+                        onClick={() => void openForm(item)}
+                        aria-label={`Edit ${String(item.name ?? 'item')}`}
+                      >
+                        <Icon name="edit" size={14} />
+                        Edit
+                      </button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
           </tbody>
         </table>
+      )}
+      {formItem !== undefined && (
+        <MenuItemFormModal
+          item={formItem ?? undefined}
+          categories={categories}
+          onSave={handleSaveItem}
+          onClose={() => setFormItem(undefined)}
+        />
       )}
     </div>
   );

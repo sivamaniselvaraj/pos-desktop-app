@@ -9,6 +9,27 @@
   margin: 0;
 }
 
+.dot {
+  display: inline-flex;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1.5px solid #16a34a;
+  align-items: center;
+  justify-content: center;
+}
+
+.dot::after {
+  content: "";
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #16a34a;
+}
+
+.dotNv { border-color: #b91c1c; }
+.dotNv::after { background: #b91c1c; }
+
 .refreshBtn {
   display: flex;
   align-items: center;
