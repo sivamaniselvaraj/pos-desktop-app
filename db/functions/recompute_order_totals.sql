@@ -26,25 +26,41 @@
     declare
     v_subtotal numeric;
     v_order_type text;
+    v_outlet_id uuid;
     v_container_charge numeric := 0;
+    v_rate numeric := 0;
     v_tax numeric;
     begin
+
+    select o.order_type, o.outlet_id
+    into v_order_type, v_outlet_id
+  from orders o
+  where o.id = p_order_id;
+
     select coalesce(sum(oi.quantity * oi.unit_price), 0)
         into v_subtotal
     from order_items oi
     where oi.order_id = p_order_id and not oi.is_deleted;
 
-    select o.order_type into v_order_type from orders o where o.id = p_order_id;
-
     if v_order_type = 'pickup' or v_order_type = 'takeaway' then
-        select coalesce(sum(oi.quantity * oi.unit_price * coalesce(mi.container_charge / 100, 0)), 0)
+        select coalesce(sum(oi.quantity * oi.unit_price * coalesce(mi.container_charge, 0) / 100), 0)
         into v_container_charge
         from order_items oi
         join menu_items mi on mi.id = oi.menu_item_id 
         where oi.order_id = p_order_id and not oi.is_deleted;
     end if;
 
-    v_tax := round((v_subtotal + v_container_charge) * 0.05, 2);
+     select coalesce(
+           (select ts.rate_percent
+              from tax_settings ts
+             where ts.outlet_id = v_outlet_id
+               and ts.is_active
+             order by ts.updated_at desc
+             limit 1),
+           0)
+    into v_rate;
+
+    v_tax := round((v_subtotal + v_container_charge) * v_rate / 100, 2);
 
     update orders
         set subtotal = v_subtotal,
