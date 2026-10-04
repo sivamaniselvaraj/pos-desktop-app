@@ -32,6 +32,12 @@ const USER_MANAGEMENT_ROLES = ['admin'];
 // Report, matching Cancel's mandatory manager/owner/admin requirement.
 const ORDERS_LIST_ROLES = ['manager', 'owner', 'admin'];
 
+// Tables page: managers+ manage tables; staff/waiters see them and can only
+// toggle available <-> occupied (enforced server-side by RLS + a trigger).
+// New Order: anyone who can place orders.
+const NEW_ORDER_ROLES = ['staff', 'manager', 'owner', 'admin'];
+const TABLES_ROLES = ['staff', 'manager', 'owner', 'admin'];
+
 interface SidebarProps {
   active: string;
   onNavigate: (id: string) => void;
@@ -58,8 +64,16 @@ export function Sidebar({ active, onNavigate, printers }: SidebarProps) {
   // Dashboard, History, [Sales Report], [Users], Settings, About — the
   // conditional items are inserted between History and Settings in that order.
   const canViewOrdersList = !!role && ORDERS_LIST_ROLES.includes(role);
+  const canPlaceOrders = !!role && NEW_ORDER_ROLES.includes(role);
+  const canViewTables = !!role && TABLES_ROLES.includes(role);
+
+  // Dashboard, History, [Orders], Menu Items, [Sales Report], [Users],
+  // Settings, About — the conditional items are inserted between History
+  // and Settings in order. Menu Items has no role gate (unlike the others
+  // here) — it's read-only-plus-refresh, not a financial or account action.
   const navItems: NavItem[] = [
     ...NAV.slice(0, 1),
+    ...(canPlaceOrders ? [{ id: 'new-order', label: 'New Order', icon: 'plus' as IconName }] : []),
     ...(canViewOrdersList
       ? [{ id: 'orders-list', label: 'Orders', icon: 'orders' as IconName }]
       : []),

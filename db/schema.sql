@@ -591,3 +591,41 @@ create index if not exists idx_editor_approval_attempts_recent
   on editor_approval_attempts (outlet_id, lower(username), attempted_at desc)
   where not succeeded;
 alter table editor_approval_attempts enable row level security;
+
+-- ============================================================================
+-- New Order page: veg/non-veg flag + GST rates
+-- ============================================================================
+-- menu_items had no veg/non-veg column. Existing items default to veg;
+-- flag the non-veg ones once (update menu_items set is_veg = false where ...).
+alter table menu_items add column if not exists is_veg boolean not null default true;
+
+-- GST rate per outlet. The New Order page reads the newest active row for the
+-- signed-in user's outlet. Only manager/owner/admin may change it.
+create table if not exists tax_settings (
+  id           uuid primary key default gen_random_uuid(),
+  outlet_id    uuid not null references outlets(id),
+  name         text not null default 'GST',
+  rate_percent numeric(5,2) not null check (rate_percent >= 0 and rate_percent <= 100),
+  is_active    boolean not null default true,
+  updated_at   timestamptz not null default now()
+);
+create index if not exists idx_tax_settings_outlet on tax_settings (outlet_id, is_active, updated_at desc);
+
+alter table tax_settings enable row level security;
+
+drop policy if exists "staff read own outlet tax" on tax_settings;
+create policy "staff read own outlet tax" on tax_settings
+  for select to authenticated
+  using (exists (select 1 from profiles p
+                  where p.user_id = auth.uid() and p.outlet_id = tax_settings.outlet_id));
+
+drop policy if exists "managers manage own outlet tax" on tax_settings;
+create policy "managers manage own outlet tax" on tax_settings
+  for all to authenticated
+  using (exists (select 1 from profiles p
+                  where p.user_id = auth.uid() and p.outlet_id = tax_settings.outlet_id
+                    and p.role in ('manager', 'owner', 'admin')))
+  with check (exists (select 1 from profiles p
+                  where p.user_id = auth.uid() and p.outlet_id = tax_settings.outlet_id
+                    and p.role in ('manager', 'owner', 'admin')));
+

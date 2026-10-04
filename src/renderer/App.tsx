@@ -14,6 +14,7 @@ import { UserManagement } from './pages/UserManagement';
 import { OrdersList } from './pages/OrdersList';
 import { MenuItemsPage } from './pages/MenuItems';
 import { TablesManagement } from './pages/TablesManagement';
+import { NewOrder } from './pages/NewOrder';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -46,8 +47,9 @@ export default function App() {
           {page === 'sales-report' && <SalesReport />}
           {page === 'users' && <UserManagement />}
           {page === 'orders-list' && <OrdersList />}
-          {page === 'menu-items' && <MenuItemsPage />}
           {page === 'tables' && <TablesManagement />}
+          {page === 'new-order' && <NewOrder />}
+          {page === 'menu-items' && <MenuItemsPage />}
           {page === 'about' && <About />}
         </div>
       </main>

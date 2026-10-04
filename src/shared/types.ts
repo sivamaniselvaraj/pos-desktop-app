@@ -15,6 +15,9 @@ export interface OrderItem {
 
 export type OrderType = 'delivery' | 'pickup' | 'dine-in' | 'takeaway' | 'dine_in';
 
+export const DINE_IN_ORDER_TYPE = 'dine_in' as const;
+export const PICK_UP_ORDER_TYPE = 'takeaway' as const;
+
 export interface OutletInfo {
   id: string;
   name: string;
@@ -313,6 +316,38 @@ export interface OrderActivityLogEntry {
  */
 export type MenuItemRecord = Record<string, unknown>;
 
+/** One cart line sent to place_order / place_pickup_order. */
+export interface PlaceOrderLine {
+  menuItemId: string;
+  quantity: number;
+  /** Re-read from the menu cache in the main process; the renderer's value is not trusted. */
+  containerPercent?: number;
+}
+
+export interface PlaceOrderPayload {
+  orderType: OrderType;
+  /** Required for dine-in. */
+  tableId?: string;
+  items: PlaceOrderLine[];
+  customerName?: string;
+  customerPhone?: string;
+  notes?: string;
+}
+
+export interface PlaceOrderResult {
+  orderId: string;
+  orderNumber?: number;
+  invoiceNumber?: string;
+  total: number;
+}
+
+export interface TaxRate {
+  name: string;
+  ratePercent: number;
+  /** false when no active tax_settings row exists for the outlet (rate falls back to 0). */
+  configured: boolean;
+}
+
 export type ManagedTableStatus = 'available' | 'occupied' | 'reserved' | 'cleaning';
 
 /** One row on the Tables management page. */
@@ -470,6 +505,8 @@ export const IpcChannels = {
   SET_MENU_ITEM_ACTIVE: 'set-menu-item-active',
   LIST_TABLES: 'list-tables',
   LIST_MANAGED_TABLES: 'list-managed-tables',
+  GET_TAX_RATE: 'get-tax-rate',
+  PLACE_ORDER: 'place-order',
   SAVE_MANAGED_TABLE: 'save-managed-table',
   DELETE_MANAGED_TABLE: 'delete-managed-table',
   SET_MANAGED_TABLE_STATUS: 'set-managed-table-status',
@@ -532,6 +569,8 @@ export interface ElectronApi {
   setMenuItemActive(menuItemId: string, isActive: boolean): Promise<MenuCacheSnapshot>;
   listTables(): Promise<TableCard[]>;
   listManagedTables(): Promise<ManagedTable[]>;
+  getTaxRate(): Promise<TaxRate>;
+  placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrderResult>;
   saveManagedTable(payload: SaveManagedTablePayload): Promise<void>;
   deleteManagedTable(tableId: string): Promise<void>;
   /** Quick status toggle from the Tables list; refused while the table has a live order. */

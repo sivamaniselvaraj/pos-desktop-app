@@ -3,11 +3,25 @@ import { networkInterfaces } from 'os';
 import { orderManager } from './orderManager';
 import { getPrinters, testPrint } from './printerManager';
 import { isServerRunning } from './httpServer';
-import { isDatabaseReachable, fetchSalesReport, fetchTopItems, fetchSalesByOrderType, fetchSalesByTypeBucketed } from './supabaseClient';
+import { 
+  isDatabaseReachable, 
+  fetchSalesReport, 
+  fetchTopItems, 
+  fetchSalesByOrderType, 
+  fetchSalesByTypeBucketed, 
+} from './supabaseClient';
 import { signIn, signOut, getCurrentUser } from './authManager';
-import { listUsers, listOutlets, createUser, updateUser, setUserActive } from './userAdmin';
+
 import { getAllPrinters, updatePrinter, removePrinter, getMaxPrinters } from './settingsManager';
 import { exportSalesReport } from './reportExport';
+import { 
+  listUsers, 
+  listOutlets, 
+  createUser, 
+  updateUser, 
+  setUserActive 
+} from './userAdmin';
+import { getTaxRate, placeOrder } from './orderEntryManager';
 import {
   listOrders,
     getInvoiceOrderDetail,
@@ -42,6 +56,7 @@ import type {
   ReportBucket,
   SavePaymentPayload,
   SaveManagedTablePayload,
+  PlaceOrderPayload,
   ManagedTableStatus,
 } from '../shared/types';
 
@@ -177,6 +192,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   // Dashboard table cards
   ipcMain.handle(IpcChannels.LIST_TABLES, () => listTables());
   ipcMain.handle(IpcChannels.LIST_MANAGED_TABLES, () => listManagedTables());
+  ipcMain.handle(IpcChannels.GET_TAX_RATE, () => getTaxRate());
+  ipcMain.handle(IpcChannels.PLACE_ORDER, (_e, payload: PlaceOrderPayload) => placeOrder(payload));
   ipcMain.handle(IpcChannels.SAVE_MANAGED_TABLE, (_e, payload: SaveManagedTablePayload) =>
     saveManagedTable(payload),
   );

@@ -19,6 +19,8 @@ import type {
   MenuCacheSnapshot,
   TableCard,
   ManagedTable,
+  TaxRate,
+  PlaceOrderResult,
   ServerStatus,  
   SavePaymentPayload,
   TableOrderDetail,
@@ -106,6 +108,9 @@ const api: ElectronApi = {
   listTables: () => ipcRenderer.invoke(IpcChannels.LIST_TABLES) as Promise<TableCard[]>,
   listManagedTables: () =>
     ipcRenderer.invoke(IpcChannels.LIST_MANAGED_TABLES) as Promise<ManagedTable[]>,
+  getTaxRate: () => ipcRenderer.invoke(IpcChannels.GET_TAX_RATE) as Promise<TaxRate>,
+  placeOrder: (payload) =>
+    ipcRenderer.invoke(IpcChannels.PLACE_ORDER, payload) as Promise<PlaceOrderResult>,
   saveManagedTable: (payload) =>
     ipcRenderer.invoke(IpcChannels.SAVE_MANAGED_TABLE, payload) as Promise<void>,
   setManagedTableStatus: (tableId, status) =>
