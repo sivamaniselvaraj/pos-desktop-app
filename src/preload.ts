@@ -13,6 +13,10 @@ import type {
   SalesByTypeBucketRow,
   ExportResult,
   ManagedUser,
+  UserGroup,
+  PermissionInfo,
+  GroupMembership,
+  UserAccessEntry,
   OutletOption,
   OrderListPage,
   OrderActivityLogEntry,
@@ -20,9 +24,12 @@ import type {
   TableCard,
   ManagedTable,
   TaxRate,
+  MyAccess,
   MenuCategory,
   PlaceOrderResult,
   ServerStatus,  
+  ApiDevice,
+  CreatedApiDevice,
   SavePaymentPayload,
   TableOrderDetail,
   InvoiceSequenceStatus,
@@ -66,6 +73,18 @@ const api: ElectronApi = {
   updateUser: (payload) => ipcRenderer.invoke(IpcChannels.UPDATE_USER, payload) as Promise<void>,
   setUserActive: (userId, isActive) =>
     ipcRenderer.invoke(IpcChannels.SET_USER_ACTIVE, userId, isActive) as Promise<void>,
+  listGroups: () => ipcRenderer.invoke(IpcChannels.LIST_GROUPS) as Promise<UserGroup[]>,
+  listPermissions: () => ipcRenderer.invoke(IpcChannels.LIST_PERMISSIONS) as Promise<PermissionInfo[]>,
+  listGroupMemberships: () =>
+    ipcRenderer.invoke(IpcChannels.LIST_GROUP_MEMBERSHIPS) as Promise<GroupMembership[]>,
+  saveGroup: (payload) => ipcRenderer.invoke(IpcChannels.SAVE_GROUP, payload) as Promise<string>,
+  deleteGroup: (groupId) => ipcRenderer.invoke(IpcChannels.DELETE_GROUP, groupId) as Promise<void>,
+  setGroupMembers: (groupId, userIds) =>
+    ipcRenderer.invoke(IpcChannels.SET_GROUP_MEMBERS, groupId, userIds) as Promise<void>,
+  setUserGroups: (userId, groupIds) =>
+    ipcRenderer.invoke(IpcChannels.SET_USER_GROUPS, userId, groupIds) as Promise<void>,
+  getUserAccess: (userId) =>
+    ipcRenderer.invoke(IpcChannels.GET_USER_ACCESS, userId) as Promise<UserAccessEntry[]>,
   listOrders: (filter) =>
       ipcRenderer.invoke(IpcChannels.LIST_ORDERS, filter) as Promise<OrderListPage>,
       getInvoiceOrderDetail: (invoiceNumber) =>
@@ -113,6 +132,7 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.LIST_MENU_CATEGORIES) as Promise<MenuCategory[]>,
   saveMenuItem: (payload) =>
     ipcRenderer.invoke(IpcChannels.SAVE_MENU_ITEM, payload) as Promise<MenuCacheSnapshot>,
+  getMyAccess: () => ipcRenderer.invoke(IpcChannels.GET_MY_ACCESS) as Promise<MyAccess | null>,
   getTaxRate: () => ipcRenderer.invoke(IpcChannels.GET_TAX_RATE) as Promise<TaxRate>,
   placeOrder: (payload) =>
     ipcRenderer.invoke(IpcChannels.PLACE_ORDER, payload) as Promise<PlaceOrderResult>,
@@ -140,6 +160,11 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.RESET_INVOICE_SEQUENCE) as Promise<void>,
   getServerStatus: () => 
     ipcRenderer.invoke(IpcChannels.GET_SERVER_STATUS) as Promise<ServerStatus>,
+  listApiDevices: () => ipcRenderer.invoke(IpcChannels.LIST_API_DEVICES) as Promise<ApiDevice[]>,
+  createApiDevice: (name) =>
+    ipcRenderer.invoke(IpcChannels.CREATE_API_DEVICE, name) as Promise<CreatedApiDevice>,
+  revokeApiDevice: (id) => ipcRenderer.invoke(IpcChannels.REVOKE_API_DEVICE, id) as Promise<void>,
+  invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
   onOrderReceived: (cb) => on<OrderWithStatus>(IpcChannels.ORDER_RECEIVED, cb),
   onOrderStatusChanged: (cb) => on<OrderWithStatus>(IpcChannels.ORDER_STATUS_CHANGED, cb),
   onPrinterStatus: (cb) => on<PrinterInfo[]>(IpcChannels.PRINTER_STATUS, cb),

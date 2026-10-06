@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Menu } from 'electron';
-import path, { join } from 'path';
+import { join } from 'path';
 import { existsSync, readFileSync } from 'fs';
-import { startHttpServer, stopHttpServer } from './httpServer';
+import { startHttpServer, stopHttpServer } from './api/httpServer';
 import { registerIpcHandlers } from './ipcHandlers';
 import { startKotReconciliation, stopKotReconciliation } from './kotReconciliation';
 import { startMenuCache, stopMenuCache } from './menuCache';
@@ -88,7 +88,7 @@ function createWindow(): void {
     // bar underneath it, not the window frame.
     autoHideMenuBar: true,
     webPreferences: {
-      preload: path.join(__dirname, '../preload.js'),
+      preload: join(__dirname, '../preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false, // preload is bundled (esbuild), so it needs no local requires
@@ -109,10 +109,22 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   loadEnv();
+
+  // Removes File/Edit/View/Window/Help entirely on Windows/Linux — no menu
+  // bar, and nothing for Alt to reveal either (autoHideMenuBar on the
+  // BrowserWindow above only hides-until-Alt; this removes it outright).
+  // On macOS the OS always requires a minimal application menu (app name +
+  // Quit/Hide) — that's an OS-level constraint Electron can't override, not
+  // a gap in this approach. It does still strip Electron's default
+  // File/Edit/View/Window/Help additions there too. The native title bar
+  // (minimize/maximize/close) is a separate thing entirely and is untouched
+  // by this — those stay because `frame` was never set to false.
   Menu.setApplicationMenu(null);
-    // Load settings from local config
+
+  // Load settings from DB or local config
   const { loadSettings } = await import('./settingsManager.js');
   await loadSettings();
+
   registerIpcHandlers(() => mainWindow);
 
   try {
@@ -120,13 +132,16 @@ app.whenReady().then(async () => {
   } catch (err) {
     console.error('Failed to start HTTP server:', err);
   }
+
   // Runs once now, then every 30s — catches any order whose KOT never made
   // it to the printer because the app was down when it should have fired.
   // See kotReconciliation.ts for the full design and its constraints.
   startKotReconciliation();
+
     // Populates the in-memory menu cache now, then refreshes every 5 minutes.
     // See menuCache.ts.
   startMenuCache();
+
   createWindow();
 
   app.on('activate', () => {

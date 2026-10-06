@@ -4,9 +4,9 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { promisify } from 'util';
 import { randomUUID } from 'crypto';
+import { ThermalPrinter, PrinterTypes, CharacterSet } from 'node-thermal-printer';
 import { config } from './config';
-import type { FoodOrder, HeaderConfig, PrinterInfo } from '../shared/types';
-import { CharacterSet, PrinterTypes, ThermalPrinter, printer } from 'node-thermal-printer';
+import type { FoodOrder, PrinterInfo, HeaderConfig } from '../shared/types';
 
 const electron = typeof process !== 'undefined' && process.versions && !!process.versions.electron;
 
@@ -22,23 +22,6 @@ const isWindows = process.platform === 'win32';
 // clear, actionable message rather than crashing at startup.
 let cachedDriver: object | null = null;
  
-function loadSpoolerDriver(): object {
-  if (cachedDriver) return cachedDriver;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const driver = require('@grandchef/node-printer') as object;
-    cachedDriver = driver;
-    return driver;
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      'Printer driver (@grandchef/node-printer) could not be loaded. Ensure it is installed and rebuilt for Electron: ' +
-        'npm install @grandchef/node-printer && npx electron-rebuild -f -w @grandchef/node-printer. ' +
-        `Details: ${detail}`,
-    );
-  }
-}
-
 function loadPrinterDriver(printerName: string): ThermalPrinter {
    const printer = new ThermalPrinter({
       type: PrinterTypes.CUSTOM,
@@ -463,7 +446,9 @@ export function formatReceipt(order: FoodOrder): string {
   const typeStr = `${order.orderType.toUpperCase()}`;
   rows.push(dateCol + rightAlign(typeStr, width - dateCol.length));
 
-  rows.push(`Bill No.: ${order.orderNumber}`);
+  rows.push(
+    `Bill No.: ${order.orderNumbers && order.orderNumbers.length > 0 ? order.orderNumbers.join(', ') : order.orderNumber}`,
+  );
   if (order.customerPhone) rows.push(`Phone: ${order.customerPhone}`);
   if (order.deliveryAddress) rows.push(`Address: ${order.deliveryAddress}`);
   rows.push('');
@@ -484,8 +469,8 @@ export function formatReceipt(order: FoodOrder): string {
   for (const item of order.items) {
     totalQty += item.quantity;
     const qtyStr = String(item.quantity);
-    const priceStr = formatCurrency(item.unit_price);
-    const amountStr = formatCurrency(item.unit_price * item.quantity);
+    const priceStr = formatCurrency(item.unitPrice);
+    const amountStr = formatCurrency(item.unitPrice * item.quantity);
 
        // First line carries the numeric columns; any remaining name lines are
     // indented continuations. (Previously the remainder was re-tested after
@@ -657,8 +642,8 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string, isD
     for (const item of order.items) {
       totalQty += item.quantity;
       const qtyStr = String(item.quantity);
-      const priceStr = formatCurrency(item.unit_price);
-      const amountStr = formatCurrency(item.unit_price * item.quantity);
+      const priceStr = formatCurrency(item.unitPrice);
+      const amountStr = formatCurrency(item.unitPrice * item.quantity);
 
       // First line carries the numeric columns; remaining name lines are
       // indented continuations.
@@ -754,7 +739,7 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
   const name = (printerName ?? '').trim();
   console.log("printerName ", printerName)
   let isPickup = order.orderType === "pickup" || order.orderType === 'takeaway';
-  let kotType = isPickup  ? 'TAKEAWAY' : 'WAITER KOT';
+  let kotTitle = isPickup  ? 'TAKEAWAY' : 'WAITER KOT';
   let orderType = isPickup ? "Pick Up" : "Dine In";
 
     const tableLabel =
@@ -785,7 +770,7 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
     printer.println(`Time   : ${new Date(order.createdAt).toLocaleString('en-IN')}`);
     printer.bold(true);
     printer.setTextSize(1, 1);
-    printer.println(kotType);
+    printer.println(kotTitle);
     printer.setTextSize(0, 0);
     printer.println(`Time   : ${new Date(order.createdAt).toLocaleString('en-IN')}`);
     if(order.tokenNumber){
@@ -920,16 +905,12 @@ function padRight(text: string, width: number): string {
   return text + ' '.repeat(padding);
 }
  
-function padLeft(text: string, width: number): string {
-  const padding = Math.max(0, width - text.length);
-  return ' '.repeat(padding) + text;
-}
-
-
-// ---- Printing ------------------------------------------------------------
-
-export async function printOrder(order: FoodOrder, printerName: string): Promise<void> {
-  //const printerName = config.kitchenPrinter;
+/**
+ * Plain-text printing fallback (when ESC/POS not available).
+ * Prints using OS print drivers (CUPS on macOS/Linux, Windows spooler on Windows).
+ */
+export async function printOrderPlainText(order: FoodOrder): Promise<void> {
+  const printerName = config.cashierPrinter;
   const receipt = formatReceipt(order);
   const tmpFile = join(tmpdir(), `order-${order.orderId}-${randomUUID()}.txt`);
   await writeFile(tmpFile, receipt, 'utf8');

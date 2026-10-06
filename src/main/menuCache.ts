@@ -1,23 +1,20 @@
 import { config } from './config';
-import { getAuthedClient } from './supabaseAuthClient';
-import { fetchMenuItemsForOutlet } from './supabaseClient';
+import { db } from './data';
 
 /**
  * menuCache.ts
  * ---------------------------------------------------------------------------
- * Holds this machine's outlet's menu in memory. Populated from Supabase via
+ * Holds this machine's outlet's menu in memory. Populated from the database (db.menu) via
  * refreshMenuCache() (on startup, on a timer, and via a manual "Refresh"
  * button on the Menu page); every other read — including the HTTP endpoint
- * Android calls — reads the in-memory array directly, with no Supabase call
+ * Android calls — reads the in-memory array directly, with no database call
  * on the request path at all. That's the actual point of this file: turning
  * "every menu fetch is a DB round trip" into "one DB round trip populates
  * memory, everything else is instant."
  *
- * Each cached item is a raw JSON object (whatever get_menu_items_for_outlet
- * returns via to_jsonb) rather than a typed MenuItem — this project has
+ * Each cached item is a raw JSON object (whatever the provider returns) rather than a typed MenuItem — this project has
  * never confirmed menu_items' real columns beyond id/name, so this
- * deliberately doesn't assume a fixed shape. See that RPC's comment in
- * db/functions.sql for why.
+ * deliberately doesn't assume a fixed shape. 
  * ---------------------------------------------------------------------------
  */
 
@@ -40,9 +37,8 @@ export function getCachedMenuItems(): MenuCacheState {
 }
 
 /**
- * Re-fetches this machine's outlet's menu from Supabase and replaces the
- * in-memory cache. Uses the anon client — get_menu_items_for_outlet() is
- * deliberately not login-gated (see its comment in db/functions.sql), since
+ * Re-fetches this machine's outlet's menu from the database and replaces the
+ * in-memory cache. Needs no signed-in user (db.menu.fetchMenu), since
  * this has to work all day regardless of whether anyone's signed into the
  * desktop UI.
  */
@@ -52,14 +48,14 @@ export async function refreshMenuCache(): Promise<MenuCacheState> {
     console.error(`[menuCache] ${lastError}`);
     return getCachedMenuItems();
   }
-  if (!config.supabase.url || !config.supabase.anonKey) {
-    lastError = 'Supabase is not configured.';
+  if (!db.isConfigured()) {
+    lastError = 'The database is not configured.';
     console.error(`[menuCache] ${lastError}`);
     return getCachedMenuItems();
   }
-try {
 
-    items = await fetchMenuItemsForOutlet(config.outletId);
+try {
+    items = await db.menu.fetchMenu(config.outletId);
     lastRefreshedAt = new Date().toISOString();
     lastError = null;
     console.log(`[menuCache] Refreshed — ${items.length} item(s) cached.`);
@@ -85,14 +81,16 @@ export async function setMenuItemActive(
   menuItemId: string,
   isActive: boolean,
 ): Promise<MenuCacheState> {
-  const supabase = getAuthedClient();
-  const { error } = await supabase.rpc('set_menu_item_active', {
-    p_menu_item_id: menuItemId,
-    p_is_active: isActive,
-  });
-  if (error) throw new Error(error.message);
+  await db.menu.setItemActive(menuItemId, isActive);
 
   return refreshMenuCache();
+}
+
+/** Drops the cached menu (used when a runtime-bound outlet signs out, so the next user never sees it). */
+export function clearMenuCache(): void {
+  items = [];
+  lastRefreshedAt = null;
+  lastError = null;
 }
 
 /** Call once during app startup. Refreshes immediately, then every 5 minutes. */

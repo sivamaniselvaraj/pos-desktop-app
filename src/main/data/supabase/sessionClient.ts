@@ -2,7 +2,11 @@ import { app, safeStorage } from 'electron';
 import { join } from 'path';
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { config, isConfigured } from './config';
+import { supabaseSettings } from './settings';
+
+function isConfigured(): boolean {
+  return Boolean(supabaseSettings.url && supabaseSettings.anonKey);
+}
 
 /**
  * supabaseAuthClient.ts
@@ -10,15 +14,15 @@ import { config, isConfigured } from './config';
  * Owns the SESSION-BEARING Supabase client — the one tied to whichever
  * operator is signed in — plus its encrypted-at-rest session storage.
  *
- * This is deliberately separate from supabaseClient.ts's client, which is
- * anon/session-less and used for order fetches that don't require a login.
+ * This is deliberately separate from the anon client below, which is
+ * session-less and used for order fetches that don't require a login.
  * Any RPC that resolves auth.uid() in Postgres (e.g. the sales report RPCs)
  * MUST be called on the client from here, not the anon one — auth.uid()
  * would otherwise be null and those RPCs treat that as "no access" (an
  * empty result, not an error), which is easy to misdiagnose.
  *
  * Higher-level auth flows (sign in/out, profile authorization) live in
- * authManager.ts, which imports getAuthedClient() from this file.
+ * authManager.ts, which reaches this only through data/supabase/auth.ts.
  * ---------------------------------------------------------------------------
  */
 
@@ -72,7 +76,7 @@ export function getAuthedClient(): SupabaseClient {
     throw new Error('Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.');
   }
   if (!client) {
-    client = createClient(config.supabase.url, config.supabase.anonKey, {
+    client = createClient(supabaseSettings.url, supabaseSettings.anonKey, {
       auth: {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         storage: new EncryptedSessionStorage() as any,
@@ -84,3 +88,14 @@ export function getAuthedClient(): SupabaseClient {
   }
   return client;
 }
+
+let anon: SupabaseClient | null = null;
+
+/** Session-less client (anon key) for reads that don't need a signed-in user. Null when not configured. */
+export function getAnonClient(): SupabaseClient | null {
+  if (!isConfigured()) return null;
+  if (!anon) anon = createClient(supabaseSettings.url, supabaseSettings.anonKey);
+  return anon;
+}
+
+export { isConfigured as isSupabaseConfigured };

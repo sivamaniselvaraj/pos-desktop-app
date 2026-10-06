@@ -2,15 +2,10 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { networkInterfaces } from 'os';
 import { orderManager } from './orderManager';
 import { getPrinters, testPrint } from './printerManager';
-import { isServerRunning } from './httpServer';
-import { 
-  isDatabaseReachable, 
-  fetchSalesReport, 
-  fetchTopItems, 
-  fetchSalesByOrderType, 
-  fetchSalesByTypeBucketed, 
-} from './supabaseClient';
+import { isServerRunning } from './api/httpServer';
+import { db } from './data';
 import { signIn, signOut, getCurrentUser } from './authManager';
+import { listDevices, createDevice, revokeDevice } from './api/apiSecurity';
 
 import { getAllPrinters, updatePrinter, removePrinter, getMaxPrinters } from './settingsManager';
 import { exportSalesReport } from './reportExport';
@@ -19,9 +14,18 @@ import {
   listOutlets, 
   createUser, 
   updateUser, 
-  setUserActive 
+  setUserActive,
+  listGroups,
+  listPermissions,
+  listGroupMemberships,
+  saveGroup,
+  deleteGroup,
+  setGroupMembers,
+  setUserGroups,
+  getUserAccess, 
 } from './userAdmin';
 import { listMenuCategories, saveMenuItem } from './menuManager';
+import { getMyAccess } from './accessManager';
 import { getTaxRate, placeOrder } from './orderEntryManager';
 import {
   listOrders,
@@ -50,6 +54,7 @@ import type {
   ServerStatus,
   SalesReportExportPayload,
   CreateUserPayload,
+  SaveGroupPayload,
   UpdateUserPayload,
   OrderListFilter,
   EditOrderItemPayload,
@@ -83,12 +88,21 @@ function getLocalIpAddress(): string | null {
   return null;
 }
 
+// Pairing a phone grants it access to orders and the menu, so only a user who may
+// manage users can do it. Checked here, in the main process, not just hidden in the UI.
+async function requireDeviceAdmin(): Promise<void> {
+  const access = await getMyAccess();
+  if (!access?.permissions.includes('users.manage')) {
+    throw new Error('Only an administrator can manage paired devices.');
+  }
+}
+
 async function buildServerStatus(): Promise<ServerStatus> {
   return {
     running: isServerRunning(),
     port: config.http.port,
     host: config.http.host,
-    database: (await isDatabaseReachable()) ? 'connected' : 'disconnected',
+    database: (await db.orders.isReachable()) ? 'connected' : 'disconnected',
     ipAddress: getLocalIpAddress(),
   };
 }
@@ -124,27 +138,40 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   // ipcMain.handle(IpcChannels.RESET_INVOICE_SEQUENCE, () => resetInvoiceSequence());
 
   ipcMain.handle(IpcChannels.GET_SERVER_STATUS, () => buildServerStatus());
+  ipcMain.handle(IpcChannels.LIST_API_DEVICES, async () => {
+    await requireDeviceAdmin();
+    return listDevices();
+  });
+  ipcMain.handle(IpcChannels.CREATE_API_DEVICE, async (_e, name: string) => {
+    await requireDeviceAdmin();
+    return createDevice(name);
+  });
+  ipcMain.handle(IpcChannels.REVOKE_API_DEVICE, async (_e, id: string) => {
+    await requireDeviceAdmin();
+    revokeDevice(id);
+  });
 
   // Sales report (manager/owner/admin — enforced server-side by the RPC)
   ipcMain.handle(
     IpcChannels.GET_SALES_REPORT,
     (_e, from: string, to: string, bucket: 'day' | 'month') => 
-    fetchSalesReport(from, to, bucket),
+    db.reports.salesReport(from, to, bucket),
   );
   ipcMain.handle(IpcChannels.GET_TOP_ITEMS, (_e, from: string, to: string) =>
-    fetchTopItems(from, to),
+    db.reports.topItems(from, to, 10),
   );
     ipcMain.handle(IpcChannels.GET_SALES_BY_ORDER_TYPE, (_e, from: string, to: string) =>
-      fetchSalesByOrderType(from, to),
+    db.reports.salesByOrderType(from, to),
     );
     ipcMain.handle(
       IpcChannels.GET_SALES_BY_TYPE_BUCKETED,
       (_e, from: string, to: string, bucket: ReportBucket) =>
-        fetchSalesByTypeBucketed(from, to, bucket),
+      db.reports.salesByTypeBucketed(from, to, bucket),
     );
   ipcMain.handle(IpcChannels.EXPORT_SALES_REPORT, (_e, payload: SalesReportExportPayload) =>
     exportSalesReport(getWindow(), payload),
   );
+
   // User management (admin-only — enforced server-side by the RPCs / assertCallerIsAdmin)
   ipcMain.handle(IpcChannels.LIST_USERS, () => listUsers());
   ipcMain.handle(IpcChannels.LIST_OUTLETS, () => listOutlets());
@@ -153,6 +180,20 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.SET_USER_ACTIVE, (_e, userId: string, isActive: boolean) =>
     setUserActive(userId, isActive),
   );
+
+  // User groups (admin-only — enforced server-side by the RPCs)
+  ipcMain.handle(IpcChannels.LIST_GROUPS, () => listGroups());
+  ipcMain.handle(IpcChannels.LIST_PERMISSIONS, () => listPermissions());
+  ipcMain.handle(IpcChannels.LIST_GROUP_MEMBERSHIPS, () => listGroupMemberships());
+  ipcMain.handle(IpcChannels.SAVE_GROUP, (_e, payload: SaveGroupPayload) => saveGroup(payload));
+  ipcMain.handle(IpcChannels.DELETE_GROUP, (_e, groupId: string) => deleteGroup(groupId));
+  ipcMain.handle(IpcChannels.SET_GROUP_MEMBERS, (_e, groupId: string, userIds: string[]) =>
+    setGroupMembers(groupId, userIds),
+  );
+  ipcMain.handle(IpcChannels.SET_USER_GROUPS, (_e, userId: string, groupIds: string[]) =>
+    setUserGroups(userId, groupIds),
+  );
+  ipcMain.handle(IpcChannels.GET_USER_ACCESS, (_e, userId: string) => getUserAccess(userId));
 
   // Orders List (manager/owner/admin — enforced server-side by the RPCs)
   ipcMain.handle(IpcChannels.LIST_ORDERS, (_e, filter: OrderListFilter) => listOrders(filter));
@@ -182,6 +223,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   );
   ipcMain.handle(IpcChannels.COMPLETE_ORDER, (_e, orderId: string) => completeOrder(orderId));
   ipcMain.handle(IpcChannels.REPRINT_ORDER, (_e, orderId: string) => reprintOrder(orderId));
+
   // Menu cache: getCachedMenuItems() is synchronous (no DB call) — wrapped
     // in Promise.resolve() only so it matches the async invoke() contract.
     ipcMain.handle(IpcChannels.GET_MENU_ITEMS, () => Promise.resolve(getCachedMenuItems()));
@@ -196,6 +238,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.LIST_MANAGED_TABLES, () => listManagedTables());
   ipcMain.handle(IpcChannels.LIST_MENU_CATEGORIES, () => listMenuCategories());
   ipcMain.handle(IpcChannels.SAVE_MENU_ITEM, (_e, payload: SaveMenuItemPayload) => saveMenuItem(payload));
+  ipcMain.handle(IpcChannels.GET_MY_ACCESS, () => getMyAccess());
   ipcMain.handle(IpcChannels.GET_TAX_RATE, () => getTaxRate());
   ipcMain.handle(IpcChannels.PLACE_ORDER, (_e, payload: PlaceOrderPayload) => placeOrder(payload));
   ipcMain.handle(IpcChannels.SAVE_MANAGED_TABLE, (_e, payload: SaveManagedTablePayload) =>

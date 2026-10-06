@@ -1,15 +1,5 @@
 import { EventEmitter } from 'events';
-import {
-  fetchOrderById,
-  fetchUnprintedItems,
-  markItemsKotPrinted,
-  fetchAggregatedItems,
-  getOrderStatus,
-  closeOrderAndFreeTable,
-  markOrdersCompleted,
-  fetchOrdersByNumbers,
-  fetchAggregatedItemsForOrders,
-} from './supabaseClient';
+import { db } from './data';
 import { printOrderEscpos, printKot } from './printerManager';
 import { getPrinterFor } from './settingsManager';
 import { config } from './config';
@@ -17,7 +7,6 @@ import type {
   FoodOrder,
   OrderWithStatus,
   PrintOrderResponse,
-  PrintStatus,
   PrintType,
 } from '../shared/types';
 
@@ -25,6 +14,12 @@ import type {
 const RETRY_DELAYS = [0, 5000, 10000];
 
 class OrderManager extends EventEmitter {
+  // Display cache ONLY. This is populated after a print attempt concludes
+  // (success or failure) so the operator console has something to show and
+  // failed prints can be retried from the UI. It is never read as a source
+  // of order data during a print — every print attempt fetches fresh from
+  // the DB first (see handleIncoming). This avoids the earlier bug where a
+  // pre-populated cache went stale relative to the database.
   private orders = new Map<string, OrderWithStatus>();
 
   getAll(): OrderWithStatus[] {
@@ -44,10 +39,16 @@ class OrderManager extends EventEmitter {
     this.emit(existed ? 'status-changed' : 'order-received', { ...order });
   }
 
-  // Called by the HTTP server when Android posts an order ID.
+  // Called by the HTTP server when Android posts an order ID / print event.
+  // Always fetches fresh from the DB — the cache is not consulted here.
+  // 'settle' can also arrive via handleSettleByNumbers directly (see below)
+  // when the request already carries a table/order NUMBER rather than a
+  // single orderId — that's the preferred path now (httpServer.ts resolves
+  // it there, using the request's orderType to know which). This orderId
+  // entrypoint stays for KOT/plain-bill (always orderId-based) and as a
+  // backward-compatible shim for a legacy orderId-only settle request.
   async handleIncoming(orderId: string, type: PrintType = 'bill'): Promise<PrintOrderResponse> {
-    
-    let order = await fetchOrderById(orderId);
+    let order = await db.orders.fetchOrderById(orderId);
 
     if (!order) {
       return {
@@ -86,7 +87,7 @@ class OrderManager extends EventEmitter {
           return { success: false, orderId, message: msg, printStatus: 'failed', error: 'NO_PRINTER' };
         }
 
-    const deltaItems = await fetchUnprintedItems(orderId);
+    const deltaItems = await db.orders.fetchUnprintedItems(orderId);
     if (deltaItems.length === 0) {
       // Nothing new since the last KOT — idempotent no-op, nothing to cache.
       const existing = this.orders.get(orderId);
@@ -115,10 +116,11 @@ class OrderManager extends EventEmitter {
     }
 
     // Stamp only after a successful print.
-    await markItemsKotPrinted(orderId);
+    await db.orders.markItemsKotPrinted(deltaItems.map((i) => i.id));
+
     // Re-fetch so the UI shows the full order (all items, updated
     // kot_printed flags) rather than just the delta that was printed.
-    const postStamp = (await fetchOrderById(orderId)) ?? order;
+    const postStamp = (await db.orders.fetchOrderById(orderId)) ?? order;
     this.cacheForDisplay({
       ...postStamp,
       printStatus: 'printed',
@@ -168,7 +170,7 @@ class OrderManager extends EventEmitter {
         };
       }
   
-      const orders = await fetchOrdersByNumbers(orderNumbers, outletId);
+    const orders = await db.orders.fetchOrdersByNumbers(orderNumbers, outletId);
       if (orders.length === 0) {
         return {
           success: false,
@@ -197,8 +199,8 @@ class OrderManager extends EventEmitter {
       const isGrouped = orders.length > 1;
       const orderIds = orders.map((o) => o.id);
       const items = isGrouped
-        ? await fetchAggregatedItemsForOrders(orderIds)
-        : await fetchAggregatedItems(anchor.id);
+      ? await db.orders.fetchAggregatedItemsForOrders(orderIds)
+      : await db.orders.fetchAggregatedItems(anchor.id);
   
       // For a grouped table bill, sum every order's totals rather than using
       // just the anchor's own subtotal/tax/total.
@@ -238,7 +240,7 @@ class OrderManager extends EventEmitter {
   
       // Mark every order in the batch completed only after the bill prints.
       // The table is freed later, once payment is recorded (save_order_payment RPC).
-      await markOrdersCompleted(orderIds);
+    await db.orders.markOrdersCompleted(orderIds);
   
       // Cache every settled order for display directly from what was already
       // fetched — no extra round trip needed, we already know the resulting
@@ -276,6 +278,7 @@ class OrderManager extends EventEmitter {
         return true;
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown print error';
+        order.errorMessage = message;
         order.printStatus = 'failed';
       }
     }

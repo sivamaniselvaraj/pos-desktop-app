@@ -1,4 +1,4 @@
-import { getAuthedClient } from './supabaseAuthClient';
+import { db, type MenuItemValues } from './data';
 import { refreshMenuCache } from './menuCache';
 import { config } from './config';
 import type { MenuCacheSnapshot, MenuCategory, SaveMenuItemPayload } from '../shared/types';
@@ -6,21 +6,15 @@ import type { MenuCacheSnapshot, MenuCategory, SaveMenuItemPayload } from '../sh
 /**
  * menuAdmin.ts
  * ---------------------------------------------------------------------------
- * Add / edit menu items from the desktop app. Plain table queries; the
- * authorization is RLS on menu_items (manager/owner/admin of the outlet),
- * so a staff session simply gets a permission error from the database.
+ * Add / edit menu items from the desktop app. Validation lives here; storage is
+ * behind db.menu, which enforces who may write (manager/owner/admin of the
+ * outlet), so a staff session simply gets a permission error.
  * The outlet is always this machine's configured outlet, never the payload.
  * ---------------------------------------------------------------------------
  */
 
-export async function listMenuCategories(): Promise<MenuCategory[]> {
-  const supabase = getAuthedClient();
-  const { data, error } = await supabase.from('categories').select('id, name').order('name');
-  if (error) throw new Error(error.message);
-  return ((data ?? []) as { id: string; name: string }[]).map((c) => ({
-    id: String(c.id),
-    name: String(c.name),
-  }));
+export function listMenuCategories(): Promise<MenuCategory[]> {
+  return db.menu.listCategories();
 }
 
 function optNumber(v: number | null | undefined, label: string, min: number, max: number): number | null {
@@ -47,47 +41,32 @@ export async function saveMenuItem(p: SaveMenuItemPayload): Promise<MenuCacheSna
   const imageUrl = p.imageUrl?.trim() || null;
   if (imageUrl && !/^https?:\/\//i.test(imageUrl)) throw new Error('Image URL must start with http:// or https://');
 
-  const supabase = getAuthedClient();
-
   // Case-insensitive duplicate check within the outlet.
-  const { data: same, error: dupErr } = await supabase
-    .from('menu_items')
-    .select('id')
-    .eq('outlet_id', config.outletId)
-    .ilike('name', name.replace(/[%_\\]/g, '\\$&'));
-  if (dupErr) throw new Error(dupErr.message);
-  if ((same ?? []).some((r) => String(r.id) !== p.id)) {
+  const same = await db.menu.findItemIdsByName(config.outletId, name);
+  if (same.some((id) => id !== p.id)) {
     throw new Error(`A menu item named "${name}" already exists.`);
   }
 
-  const row = {
+  const values: MenuItemValues = {
     name,
-    category_id: p.categoryId,
+    categoryId: p.categoryId,
     price: p.price,
     description: p.description?.trim() || null,
-    is_veg: p.isVeg,
-    container_charge: containerCharge,
-    cost_price: costPrice,
-    search_key: p.searchKey?.trim() || null,
-    cooking_time: cookingTime ?? 0,
-    sort_order: sortOrder ?? 0,
-    image_url: imageUrl,
-    is_available: p.isAvailable,
-    is_active: p.isActive,
+    isVeg: p.isVeg,
+    containerCharge,
+    costPrice,
+    searchKey: p.searchKey?.trim() || null,
+    cookingTime: cookingTime ?? 0,
+    sortOrder: sortOrder ?? 0,
+    imageUrl,
+    isAvailable: p.isAvailable,
+    isActive: p.isActive,
   };
 
   if (p.id) {
-    const { data, error } = await supabase
-      .from('menu_items')
-      .update({ ...row, updated_at: new Date().toISOString() })
-      .eq('id', p.id)
-      .eq('outlet_id', config.outletId)
-      .select('id');
-    if (error) throw new Error(error.message);
-    if (!data || data.length === 0) throw new Error('Not allowed, or the item no longer exists.');
+    await db.menu.updateItem(config.outletId, p.id, values);
   } else {
-    const { error } = await supabase.from('menu_items').insert({ ...row, outlet_id: config.outletId });
-    if (error) throw new Error(error.message);
+    await db.menu.insertItem(config.outletId, values);
   }
 
   // Refresh now so the New Order page and Android see the change immediately.

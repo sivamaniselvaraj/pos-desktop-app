@@ -1,4 +1,4 @@
-import { getAuthedClient } from './supabaseAuthClient';
+import { db } from './data';
 import { orderManager } from './orderManager';
 import { printQueue } from './printQueue';
 
@@ -40,15 +40,14 @@ export async function reconcilePendingKots(): Promise<void> {
   running = true;
 
   try {
-    const supabase = getAuthedClient();
-    const { data, error } = await supabase.rpc('find_orders_with_pending_kot');
-
-    if (error) {
-      console.error('[kotReconciliation] Discovery query failed:', error.message);
+    let rows: { orderId: string; orderType: string }[];
+    try {
+      rows = await db.orders.findOrdersWithPendingKot();
+    } catch (err) {
+      console.error('[kotReconciliation] Discovery query failed:', err instanceof Error ? err.message : err);
       return;
     }
-
-    const rows = (data ?? []) as { order_id: string; order_type: string }[];
+    
     if (rows.length === 0) return; // the common case — nothing to log every 30s
 
     console.log(
@@ -59,23 +58,23 @@ export async function reconcilePendingKots(): Promise<void> {
       try {
         // Same queue as every other print entry point — never a direct call.
         const result = await printQueue.enqueue(() =>
-          orderManager.handleIncoming(row.order_id, 'kot'),
+          orderManager.handleIncoming(row.orderId, 'kot'),
         );
         if (result.success) {
-          console.log(`[kotReconciliation] Order ${row.order_id}: ${result.message}`);
+          console.log(`[kotReconciliation] Order ${row.orderId}: ${result.message}`);
         } else {
-          console.error(`[kotReconciliation] Order ${row.order_id}: ${result.message}`);
+          console.error(`[kotReconciliation] Order ${row.orderId}: ${result.message}`);
         }
       } catch (err) {
         // One bad order must not stop the rest of this cycle's list.
         console.error(
-          `[kotReconciliation] Order ${row.order_id} failed:`,
+          `[kotReconciliation] Order ${row.orderId} failed:`,
           err instanceof Error ? err.message : err,
         );
       }
     }
   } catch (err) {
-    // Expected during early startup (Supabase not configured yet) or while
+    // Expected during early startup (database not configured yet) or while
     // logged out — not an error worth alarming about, just skip this cycle.
     console.log(
       '[kotReconciliation] Skipped this cycle:',

@@ -1,108 +1,90 @@
-import { type SupabaseClient } from '@supabase/supabase-js';
-import { isConfigured } from './config';
-import { getAuthedClient } from './supabaseAuthClient';
+import { config, setRuntimeOutletId } from './config';
+import { db, type UserProfile } from './data';
+import { refreshMenuCache, clearMenuCache } from './menuCache';
 import type { AuthResult, AuthUser } from '../shared/types';
 
-interface ProfileRow {
-  id: string;
-  email: string | null;
-  first_name: string | null;
-  role: string | null;
-  is_active: boolean | null;
-  outlet_id: string | null;
-}
+/**
+ * authManager.ts
+ * ---------------------------------------------------------------------------
+ * Auth business logic: sign in/out, session restore, and authorization
+ * (profile must exist and be active). The identity provider itself is behind
+ * db.auth (src/main/data) — this module knows nothing about it.
+ * ---------------------------------------------------------------------------
+ */
 
-// Reads the signed-in user's own profile (allowed by RLS "read own profile").
-async function loadProfile(supabase: SupabaseClient, userId: string): Promise<ProfileRow | null> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, email, first_name, role, is_active, outlet_id')
-    .eq('user_id', userId)
-    .single();
-  if (error) return null;
-  return data as ProfileRow;
-}
-
-
-// Separate query rather than a nested select (profiles -> outlets) — keeps
-// this working regardless of whether PostgREST can infer that foreign-key
-// relationship, and a lookup failure here shouldn't fail sign-in, just leave
-// outletName unset (Header.tsx already treats it as optional).
-async function loadOutletName(supabase: SupabaseClient, outletId: string): Promise<string | undefined> {
-  const { data, error } = await supabase.from('outlets').select('name').eq('id', outletId).single();
-  if (error || !data) return undefined;
-  return (data as { name: string | null }).name ?? undefined;
-}
-
-async function toAuthUser(
-  supabase: SupabaseClient,
-  id: string,
-  email: string,
-  profile: ProfileRow,
-): Promise<AuthUser> {
-  const outletName = profile.outlet_id
-    ? await loadOutletName(supabase, profile.outlet_id)
-    : undefined;
+async function toAuthUser(id: string, email: string, profile: UserProfile): Promise<AuthUser> {
+  // A lookup failure here shouldn't fail sign-in, just leave outletName unset.
+  const outletName = profile.outletId ? await db.auth.loadOutletName(profile.outletId) : undefined;
   return {
     id,
     email: profile.email ?? email,
-    fullName: profile.first_name ?? '',
+    fullName: profile.fullName ?? '',
     role: profile.role ?? 'staff',
-    isActive: profile.is_active ?? false,
-    outletId: profile.outlet_id ?? undefined,
+    isActive: profile.isActive ?? false,
+    outletId: profile.outletId ?? undefined,
     outletName,
   };
+}
+
+// When this machine has no OUTLET_ID configured, serve the signed-in user's own
+// outlet (menu cache, order entry) instead of nothing. A configured OUTLET_ID
+// always wins.
+function bindOutlet(outletId: string | null | undefined): void {
+  if (process.env.OUTLET_ID || !outletId || config.outletId === outletId) return;
+  setRuntimeOutletId(outletId);
+  void refreshMenuCache();
 }
 
 // Authenticates, then authorizes: the account must have a profile and be active.
 export async function signIn(email: string, password: string): Promise<AuthResult> {
   try {
-    const supabase = getAuthedClient();
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return { success: false, error: error.message };
+    const res = await db.auth.signIn(email, password);
+    if (!res.ok) return { success: false, error: res.error };
     
-    const user = data.user;
-    if (!user) return { success: false, error: 'Authentication failed.' };
-
-    const profile = await loadProfile(supabase, user.id);
+    const profile = await db.auth.loadProfile(res.user.id);
     if (!profile) {
-      await supabase.auth.signOut();
+      await db.auth.signOut();
       return { success: false, error: 'No profile is associated with this account.' };
     }
-    if (!profile.is_active) {
-      await supabase.auth.signOut();
+    if (!profile.isActive) {
+      await db.auth.signOut();
       return { success: false, error: 'This account has been disabled. Contact an administrator.' };
     }
-  return { success: true, user: await toAuthUser(supabase, user.id, user.email ?? email, profile) };
+
+    bindOutlet(profile.outletId);
+    return { success: true, user: await toAuthUser(res.user.id, res.user.email || email, profile) };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Sign in failed.' };
   }
 }
 
 export async function signOut(): Promise<void> {
-  if (!isConfigured()) return;
+  if (!db.isConfigured()) return;
   try {
-    await getAuthedClient().auth.signOut();
+    await db.auth.signOut();
   } catch (err) {
     console.error('Sign out error:', err);
+  }
+  if (!process.env.OUTLET_ID) {
+    setRuntimeOutletId('');
+    clearMenuCache();
   }
 }
 
 // Restores a persisted session on app start; re-validates authorization.
 export async function getCurrentUser(): Promise<AuthUser | null> {
-  if (!isConfigured()) return null;
+  if (!db.isConfigured()) return null;
   try {
-    const supabase = getAuthedClient();
-    const { data } = await supabase.auth.getSession();
-    const session = data.session;
-    if (!session?.user) return null;
+    const user = await db.auth.getSessionUser();
+    if (!user) return null;
 
-    const profile = await loadProfile(supabase, session.user.id);
-    if (!profile || !profile.is_active) {
-      await supabase.auth.signOut();
+    const profile = await db.auth.loadProfile(user.id);
+    if (!profile || !profile.isActive) {
+      await db.auth.signOut();
       return null;
     }
-    return await toAuthUser(supabase, session.user.id, session.user.email ?? '', profile);
+    bindOutlet(profile.outletId);
+    return await toAuthUser(user.id, user.email, profile);
   } catch {
     return null;
   }

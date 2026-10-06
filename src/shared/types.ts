@@ -5,8 +5,8 @@ export interface OrderItem {
   menuItemId?: string;
   name: string;
   quantity: number;
-  unit_price: number;
-  total_price: number
+  unitPrice: number;
+  totalPrice?: number
   //status: string;
   specialInstructions?: string;
   kotPrinted?: boolean;
@@ -89,10 +89,23 @@ export interface OrderWithStatus extends FoodOrder {
   retryCount: number;
 }
 
+// ---- Paired devices (phones that may call the local API) ----
+export interface ApiDevice {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
+/** Returned once at creation; the token is never stored or shown again. */
+export interface CreatedApiDevice extends ApiDevice {
+  token: string;
+}
+
 // ---- HTTP contract (Android app -> local server) ----
 export type PrintType = 'bill' | 'kot' | 'settle';
 
-export type SettleOrderType = 'dine-in' | 'takeaway';
+export type SettleOrderType = 'dine_in' | 'takeaway';
 
 // ---- HTTP contract (Android app -> local server) ----
 export interface PrintOrderRequest {
@@ -171,13 +184,48 @@ export type UserRole = 'staff' | 'manager' | 'owner' | 'admin' | 'editor';
 export interface ManagedUser {
   userId: string;
   email: string;
-  firstName: string;
+  fullName: string;
   phone?: string;
   role: UserRole;
   isActive: boolean;
   outletId?: string;
   outletName?: string;
   createdAt: string;
+}
+
+/** A permission that can be granted to a group. */
+export interface PermissionInfo {
+  code: string;
+  description: string;
+}
+
+/** A named bundle of permissions. Members inherit them on top of their role. */
+export interface UserGroup {
+  id: string;
+  name: string;
+  description: string;
+  memberCount: number;
+  permissions: string[];
+}
+
+export interface SaveGroupPayload {
+  id?: string; // absent = create
+  name: string;
+  description: string;
+  permissions: string[];
+}
+
+/** One (user, group) membership. */
+export interface GroupMembership {
+  userId: string;
+  groupId: string;
+}
+
+/** Why a user has a permission: 'role' and/or 'group: <name>'. */
+export interface UserAccessEntry {
+  permission: string;
+  description: string;
+  via: string[];
 }
 
 export interface OutletOption {
@@ -199,7 +247,7 @@ export interface OrderListRow {
   discountAmount: number;
   totalAmount: number;
   status: string;
-  hasEdits: boolean;
+  hasEdits?: boolean;
    /** Dine-in rows only — the table this order was placed at. Absent for takeaway/pickup rows. */
   tableId?: string;
   /** Dine-in rows only — the table's display number, e.g. "T4". Absent for takeaway/pickup rows. */
@@ -315,6 +363,34 @@ export interface OrderActivityLogEntry {
  * either if the item has no category assigned.
  */
 export type MenuItemRecord = Record<string, unknown>;
+
+export interface AccessMenu {
+  /** Route id the app knows about (e.g. 'orders-list'). */
+  code: string;
+  label: string;
+  /** Icon name from the app's bundled set; unknown names fall back to a default. */
+  icon: string;
+}
+
+/** The signed-in user's organization's presentation settings. */
+export interface OrgSettings {
+  id: string;
+  name: string;
+  currencyCode: string;
+  locale: string;
+  /** IANA timezone of the user's outlet (its override, else the organization's). */
+  timezone: string;
+  taxLabel: string;
+}
+
+export interface MyAccess {
+  role: string | null;
+  org: OrgSettings | null;
+  permissions: string[];
+  menus: AccessMenu[];
+  /** true when the database's get_my_access() isn't deployed and the built-in rules were used. */
+  fallback: boolean;
+}
 
 export interface MenuCategory {
   id: string;
@@ -446,15 +522,15 @@ export interface MenuCacheSnapshot {
 export interface CreateUserPayload {
   email: string;
   password: string;
-  firstName: string;
+  fullName: string;
   phone?: string;
   role: UserRole;
   outletId?: string;
 }
 
 export interface UpdateUserPayload {
+  fullName: string;
   userId: string;
-  firstName: string;
   phone?: string;
   role: UserRole;
   outletId?: string;
@@ -517,6 +593,14 @@ export const IpcChannels = {
   CREATE_USER: 'create-user',
   UPDATE_USER: 'update-user',
   SET_USER_ACTIVE: 'set-user-active',
+  LIST_GROUPS: 'list-groups',
+  LIST_PERMISSIONS: 'list-permissions',
+  LIST_GROUP_MEMBERSHIPS: 'list-group-memberships',
+  SAVE_GROUP: 'save-group',
+  DELETE_GROUP: 'delete-group',
+  SET_GROUP_MEMBERS: 'set-group-members',
+  SET_USER_GROUPS: 'set-user-groups',
+  GET_USER_ACCESS: 'get-user-access',
   LIST_ORDERS: 'list-orders',
   GET_INVOICE_ORDER_DETAIL: 'get-invoice-order-detail',
   GET_INVOICE_ACTIVITY_LOG: 'get-invoice-activity-log',
@@ -532,6 +616,7 @@ export const IpcChannels = {
   LIST_TABLES: 'list-tables',
   LIST_MANAGED_TABLES: 'list-managed-tables',
   GET_TAX_RATE: 'get-tax-rate',
+  GET_MY_ACCESS: 'get-my-access',
   LIST_MENU_CATEGORIES: 'list-menu-categories',
   SAVE_MENU_ITEM: 'save-menu-item',
   PLACE_ORDER: 'place-order',
@@ -550,6 +635,9 @@ export const IpcChannels = {
   RESET_INVOICE_SEQUENCE: 'reset-invoice-sequence',
   // server (renderer -> main, invoke)
   GET_SERVER_STATUS: 'get-server-status',
+  LIST_API_DEVICES: 'list-api-devices',
+  CREATE_API_DEVICE: 'create-api-device',
+  REVOKE_API_DEVICE: 'revoke-api-device',
   // main -> renderer (send)
   ORDER_RECEIVED: 'order-received',
   ORDER_STATUS_CHANGED: 'order-status-changed',
@@ -581,6 +669,14 @@ export interface ElectronApi {
   createUser(payload: CreateUserPayload): Promise<void>;
   updateUser(payload: UpdateUserPayload): Promise<void>;
   setUserActive(userId: string, isActive: boolean): Promise<void>;
+  listGroups(): Promise<UserGroup[]>;
+  listPermissions(): Promise<PermissionInfo[]>;
+  listGroupMemberships(): Promise<GroupMembership[]>;
+  saveGroup(payload: SaveGroupPayload): Promise<string>;
+  deleteGroup(groupId: string): Promise<void>;
+  setGroupMembers(groupId: string, userIds: string[]): Promise<void>;
+  setUserGroups(userId: string, groupIds: string[]): Promise<void>;
+  getUserAccess(userId: string): Promise<UserAccessEntry[]>;
   listOrders(filter: OrderListFilter): Promise<OrderListPage>;
   /** Orders List's invoice-grouped row detail — every order sharing that invoice_number, via get_orders_by_invoice(). */
   getInvoiceOrderDetail(invoiceNumber: string): Promise<TableOrderDetail>;
@@ -598,6 +694,7 @@ export interface ElectronApi {
   listTables(): Promise<TableCard[]>;
   listManagedTables(): Promise<ManagedTable[]>;
   getTaxRate(): Promise<TaxRate>;
+  getMyAccess(): Promise<MyAccess | null>;
   listMenuCategories(): Promise<MenuCategory[]>;
   saveMenuItem(payload: SaveMenuItemPayload): Promise<MenuCacheSnapshot>;
   placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrderResult>;
@@ -615,6 +712,10 @@ export interface ElectronApi {
   getInvoiceSequenceStatus(): Promise<InvoiceSequenceStatus | null>;
   resetInvoiceSequence(): Promise<void>;
   getServerStatus(): Promise<ServerStatus>;
+  listApiDevices(): Promise<ApiDevice[]>;
+  createApiDevice(name: string): Promise<CreatedApiDevice>;
+  revokeApiDevice(id: string): Promise<void>;
+  invoke(channel: string, ...args: unknown[]): Promise<unknown>;
   onOrderReceived(cb: (order: OrderWithStatus) => void): () => void;
   onOrderStatusChanged(cb: (order: OrderWithStatus) => void): () => void;
   onPrinterStatus(cb: (printers: PrinterInfo[]) => void): () => void;
