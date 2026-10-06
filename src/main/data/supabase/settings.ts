@@ -16,7 +16,7 @@ export const supabaseSettings = {
   },
   get table(): string {
     //return process.env.SUPABASE_TABLE || embeddedConfig.SUPABASE_TABLE || 'orders';
-    return process.env.SUPABASE_TABLE || '';
+    return process.env.SUPABASE_TABLE || 'orders';
   },
   // DANGER: bypasses Row Level Security entirely. Used only by the legacy
   // fallback in users.ts. Deliberately NEVER read from embeddedConfig:

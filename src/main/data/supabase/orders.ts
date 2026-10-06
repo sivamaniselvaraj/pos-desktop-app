@@ -157,7 +157,7 @@ async function fetchOrderById(orderId: string): Promise<FoodOrder | null> {
 async function isReachable(): Promise<boolean> {
   const supabase = getClient();
   if (!supabase) return false;
-  const { error } = await supabase.from(supabaseSettings.table).select('order_id').limit(1);
+  const { error } = await supabase.from(supabaseSettings.table).select('id').limit(1);
   return !error;
 }
 

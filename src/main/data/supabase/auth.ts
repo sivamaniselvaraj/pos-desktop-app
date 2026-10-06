@@ -23,15 +23,15 @@ export const auth: AuthRepository = {
   async loadProfile(userId): Promise<UserProfile | null> {
     const { data, error } = await getAuthedClient()
       .from('profiles')
-      .select('id, email, first_name, role, is_active, outlet_id')
-      .eq('id', userId)
+      .select('user_id, email, first_name, role, is_active, outlet_id')
+      .eq('user_id', userId)
       .single();
-    if (error || !data) return null;
+    if (error || !data) return null;  
     const r = data as Record<string, unknown>;
     return {
       id: String(r.id),
       email: (r.email as string | null) ?? null,
-      fullName: (r.firstName as string | null) ?? null,
+      fullName: (r.first_name as string | null) ?? null,
       role: (r.role as string | null) ?? null,
       isActive: (r.is_active as boolean | null) ?? null,
       outletId: (r.outlet_id as string | null) ?? null,

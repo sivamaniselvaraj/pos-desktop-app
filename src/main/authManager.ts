@@ -40,6 +40,7 @@ export async function signIn(email: string, password: string): Promise<AuthResul
   try {
     const res = await db.auth.signIn(email, password);
     if (!res.ok) return { success: false, error: res.error };
+    console.log("reserr" , res)
     
     const profile = await db.auth.loadProfile(res.user.id);
     if (!profile) {
