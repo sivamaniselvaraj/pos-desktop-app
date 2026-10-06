@@ -39,7 +39,7 @@ export const access: AccessRepository = {
     const supabase = getAuthedClient();
     const { data: session } = await supabase.auth.getUser();
     if (!session.user) return null;
-    const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
+    const { data: profile } = await supabase.from('profiles').select('role').eq('user_id', session.user.id).single();
     return String((profile as { role?: string } | null)?.role ?? 'staff');
   },
 };
