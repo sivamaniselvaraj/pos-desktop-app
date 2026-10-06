@@ -147,7 +147,7 @@ export const config = {
   // via the signed-in user's profile and can tolerate pausing while logged
   // out, a menu endpoint Android depends on all day cannot.
   get outletId(): string {
-    return process.env.OUTLET_ID || runtimeOutletId;
+    return process.env.OUTLET_ID || '';
   },
   // Each of these reads the ENV fallback fresh on every access (never
   // cached) and only falls back to it when settings.json has no value yet.

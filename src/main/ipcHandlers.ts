@@ -9,11 +9,11 @@ import { listDevices, createDevice, revokeDevice } from './api/apiSecurity';
 
 import { getAllPrinters, updatePrinter, removePrinter, getMaxPrinters } from './settingsManager';
 import { exportSalesReport } from './reportExport';
-import { 
-  listUsers, 
-  listOutlets, 
-  createUser, 
-  updateUser, 
+import {
+  listUsers,
+  listOutlets,
+  createUser,
+  updateUser,
   setUserActive,
   listGroups,
   listPermissions,
@@ -22,26 +22,26 @@ import {
   deleteGroup,
   setGroupMembers,
   setUserGroups,
-  getUserAccess, 
+  getUserAccess,
 } from './userAdmin';
 import { listMenuCategories, saveMenuItem } from './menuManager';
 import { getMyAccess } from './accessManager';
 import { getTaxRate, placeOrder } from './orderEntryManager';
 import {
   listOrders,
-    getInvoiceOrderDetail,
-    getInvoiceActivityLog,
-    editOrderItem,
-    deleteOrderItem,
-    cancelOrderWithReason,
-    cancelInvoiceWithReason,
-    completeOrder,
-    reprintOrder,
-    reprintTableBill,
+  getInvoiceOrderDetail,
+  getInvoiceActivityLog,
+  editOrderItem,
+  deleteOrderItem,
+  cancelOrderWithReason,
+  cancelInvoiceWithReason,
+  completeOrder,
+  reprintOrder,
+  reprintTableBill,
 } from './ordersListManager';
 import { getCachedMenuItems, refreshMenuCache, setMenuItemActive } from './menuCache';
-import { 
-  listTables, 
+import {
+  listTables,
   listManagedTables,
   saveManagedTable,
   deleteManagedTable,
@@ -154,20 +154,20 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   // Sales report (manager/owner/admin — enforced server-side by the RPC)
   ipcMain.handle(
     IpcChannels.GET_SALES_REPORT,
-    (_e, from: string, to: string, bucket: 'day' | 'month') => 
-    db.reports.salesReport(from, to, bucket),
+    (_e, from: string, to: string, bucket: 'day' | 'month') =>
+      db.reports.salesReport(from, to, bucket),
   );
   ipcMain.handle(IpcChannels.GET_TOP_ITEMS, (_e, from: string, to: string) =>
     db.reports.topItems(from, to, 10),
   );
-    ipcMain.handle(IpcChannels.GET_SALES_BY_ORDER_TYPE, (_e, from: string, to: string) =>
+  ipcMain.handle(IpcChannels.GET_SALES_BY_ORDER_TYPE, (_e, from: string, to: string) =>
     db.reports.salesByOrderType(from, to),
-    );
-    ipcMain.handle(
-      IpcChannels.GET_SALES_BY_TYPE_BUCKETED,
-      (_e, from: string, to: string, bucket: ReportBucket) =>
+  );
+  ipcMain.handle(
+    IpcChannels.GET_SALES_BY_TYPE_BUCKETED,
+    (_e, from: string, to: string, bucket: ReportBucket) =>
       db.reports.salesByTypeBucketed(from, to, bucket),
-    );
+  );
   ipcMain.handle(IpcChannels.EXPORT_SALES_REPORT, (_e, payload: SalesReportExportPayload) =>
     exportSalesReport(getWindow(), payload),
   );
@@ -225,19 +225,20 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.REPRINT_ORDER, (_e, orderId: string) => reprintOrder(orderId));
 
   // Menu cache: getCachedMenuItems() is synchronous (no DB call) — wrapped
-    // in Promise.resolve() only so it matches the async invoke() contract.
-    ipcMain.handle(IpcChannels.GET_MENU_ITEMS, () => Promise.resolve(getCachedMenuItems()));
-    ipcMain.handle(IpcChannels.REFRESH_MENU_CACHE, () => refreshMenuCache());
-  ipcMain.handle(
-    IpcChannels.SET_MENU_ITEM_ACTIVE,
-    (_e, menuItemId: string, isActive: boolean) => setMenuItemActive(menuItemId, isActive),
+  // in Promise.resolve() only so it matches the async invoke() contract.
+  ipcMain.handle(IpcChannels.GET_MENU_ITEMS, () => Promise.resolve(getCachedMenuItems()));
+  ipcMain.handle(IpcChannels.REFRESH_MENU_CACHE, () => refreshMenuCache());
+  ipcMain.handle(IpcChannels.SET_MENU_ITEM_ACTIVE, (_e, menuItemId: string, isActive: boolean) =>
+    setMenuItemActive(menuItemId, isActive),
   );
 
   // Dashboard table cards
   ipcMain.handle(IpcChannels.LIST_TABLES, () => listTables());
   ipcMain.handle(IpcChannels.LIST_MANAGED_TABLES, () => listManagedTables());
   ipcMain.handle(IpcChannels.LIST_MENU_CATEGORIES, () => listMenuCategories());
-  ipcMain.handle(IpcChannels.SAVE_MENU_ITEM, (_e, payload: SaveMenuItemPayload) => saveMenuItem(payload));
+  ipcMain.handle(IpcChannels.SAVE_MENU_ITEM, (_e, payload: SaveMenuItemPayload) =>
+    saveMenuItem(payload),
+  );
   ipcMain.handle(IpcChannels.GET_MY_ACCESS, () => getMyAccess());
   ipcMain.handle(IpcChannels.GET_TAX_RATE, () => getTaxRate());
   ipcMain.handle(IpcChannels.PLACE_ORDER, (_e, payload: PlaceOrderPayload) => placeOrder(payload));
@@ -254,7 +255,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   // ipcMain.handle(IpcChannels.SAVE_ORDER_PAYMENT, (_e, payload: SavePaymentPayload) =>
   //   savePayment(payload),
   // );
-  ipcMain.handle(IpcChannels.REPRINT_TABLE_BILL, (_e, orderId: string) => reprintTableBill(orderId));
+  ipcMain.handle(IpcChannels.REPRINT_TABLE_BILL, (_e, orderId: string) =>
+    reprintTableBill(orderId),
+  );
 
   // main -> renderer (forward manager events to the active window)
   const send = (channel: string, payload: unknown) => {

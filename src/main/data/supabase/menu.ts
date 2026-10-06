@@ -24,11 +24,11 @@ export const menu: MenuRepository = {
   // embedded join): the item's columns plus category_id / category_name.
   // Anon client: has to work all day whether or not anyone is signed in.
   async fetchMenu(outletId) {
-    const supabase = getAnonClient();
+    const supabase = getAuthedClient();
     if (!supabase) throw new Error('Database client unavailable.');
     const [menuRes, catRes] = await Promise.all([
       supabase.from('menu_items').select('*').eq('outlet_id', outletId).order('name'),
-      supabase.from('categories').select('id, name'),
+      supabase.from('categories').select('id, name').eq('outlet_id', outletId),
     ]);
     if (menuRes.error) throw new Error(menuRes.error.message);
     if (catRes.error) throw new Error(catRes.error.message);

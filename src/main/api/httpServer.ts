@@ -75,7 +75,7 @@ export function startHttpServer(): Promise<void> {
 
   // Everything below needs a paired device's token.
   app.use('/api', authenticate);
-  app.use('/api', express.json({ limit: '16kb' }));
+  app.use('/api', express.json({ limit: '24kb' }));
 
   // ---------------------------------------------------------------------------
   // POST /api/print-order

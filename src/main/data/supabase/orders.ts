@@ -497,7 +497,8 @@ async function findOrdersWithPendingKot(): Promise<{ orderId: string; orderType:
   const orderIds = [...new Set(((pending.data ?? []) as { order_id: string }[]).map((r) => String(r.order_id)))];
   if (orderIds.length === 0) return [];
 
-  const { data, error } = await supabase.from('orders').select('id, order_type').in('id', orderIds).eq('status', 'open');
+  const { data, error } = await supabase.from('orders').select('id, order_type').in('id', orderIds)
+  .eq('status', 'preparing');
   if (error) throw new Error(error.message);
   return ((data ?? []) as { id: string; order_type: string }[]).map((r) => ({
     orderId: String(r.id),
