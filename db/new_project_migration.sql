@@ -329,6 +329,8 @@ create table if not exists public.app_activity_log (
   constraint log_table_order_item_id_fkey foreign KEY (order_item_id) references order_items (id)
 );
 
+create policy "authenticated read app_activity_log" on app_activity_log for select to authenticated using (true);
+
 
 create table if not exists public.categories (
   id uuid not null default gen_random_uuid (),
@@ -342,6 +344,8 @@ create table if not exists public.categories (
   constraint categories_pkey primary key (id),
   constraint categories_outlet_id_fkey foreign KEY (outlet_id) references outlets (id) on delete CASCADE
 );
+
+create policy "authenticated read categories" on categories for select to authenticated using (true);
 
 create trigger update_categories_updated_at BEFORE
 update on categories for EACH row
@@ -394,6 +398,8 @@ create table public.menu_items (
   constraint menu_items_category_id_fkey foreign KEY (category_id) references categories (id) on delete CASCADE,
   constraint menu_items_outlet_id_fkey foreign KEY (outlet_id) references outlets (id) on delete CASCADE
 );
+
+create policy "authenticated read menu_items" on menu_items for select to authenticated using (true);
 
 create trigger update_menu_items_updated_at BEFORE
 update on menu_items for EACH row
