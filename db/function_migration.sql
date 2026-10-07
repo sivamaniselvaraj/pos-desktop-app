@@ -285,3 +285,158 @@ as $$
 $$;
 
 grant execute on function live_order_table_ids(uuid) to authenticated;
+
+
+-- ============================================================================
+-- ORDERS LIST RPCs
+-- ============================================================================
+create or replace function list_orders(
+  p_outlet_id uuid,
+  p_status text default null, -- 'active' | 'completed' | 'cancelled' | null (all)
+  p_search text default null, -- substring match against the order id (case-insensitive)
+  p_from date default null,
+  p_to date default null,
+  p_page integer default 1,
+  p_page_size integer default 25
+)
+returns table (
+  order_id uuid,
+  order_type text,
+  created_at timestamptz,
+  item_count bigint,
+  subtotal_amount numeric,
+  tax_amount numeric,
+  container_charge_amount numeric,
+  discount_amount numeric,
+  total_amount numeric,
+  status text,
+  table_id uuid,
+  table_number text,
+  invoice_number text,
+  order_number text,
+  order_count integer,
+  cancelled_count integer,
+  total_rows bigint
+)
+language sql
+stable
+security definer
+set search_path = public
+-- jit = off is REQUIRED, not a micro-optimisation: with parameters the planner
+-- estimates a huge cost for this query (it cannot see that LIMIT stops the
+-- walk after ~a page), which trips JIT compilation — measured ~1.1s of pure
+-- JIT startup on a call whose real execution is ~15ms.
+set jit = off
+as $$
+  with caller as (
+    select p.outlet_id
+    from profiles p
+    where p.user_id = auth.uid()
+      --and p.role in ('manager', 'owner', 'admin')
+      and has_permission('orders.view')
+      and p.outlet_id = p_outlet_id
+  ),
+  cand as (
+    select o.id as order_id, o.order_type, o.created_at, o.table_id, o.invoice_number, o.order_number,
+           o.outlet_id, g.order_count, g.cancelled_count, g.status
+    from caller c
+    join orders o on o.outlet_id = c.outlet_id
+    cross join lateral (
+      select count(*)::integer as order_count,
+            (count(*) filter (where m.status = 'cancelled'))::integer as cancelled_count,
+             case when bool_or(m.status not in ('cancelled', 'completed')) then 'open'
+                  else (array_agg(m.status order by m.order_number desc))[1] end as status
+      from orders m
+      where m.id = o.id
+         or (o.invoice_number is not null
+             and m.outlet_id = o.outlet_id
+             and m.invoice_number = o.invoice_number)
+    ) g
+    where
+      -- default window when nothing else narrows the walk
+      (p_from is not null or p_to is not null
+         or (p_search is not null and p_search <> '')
+         or o.created_at >= now() - interval '20 days')
+      and (p_from is null or o.created_at >= p_from::timestamptz)
+      and (p_to is null or o.created_at < (p_to + 1)::timestamptz)
+      -- anchor only: no earlier round on the same invoice
+      and (o.invoice_number is null
+           or not exists (
+             select 1 from orders e
+             where e.outlet_id = o.outlet_id
+               and e.invoice_number = o.invoice_number
+               and e.order_number < o.order_number))
+      and (p_search is null or p_search = ''
+           or o.order_number in (
+                select s.order_number from orders s
+                where s.outlet_id = p_outlet_id
+                  and s.order_number::text ilike '%' || p_search || '%')
+           or o.invoice_number in (
+                select s.invoice_number from orders s
+                where s.outlet_id = p_outlet_id
+                  and s.id::text ilike '%' || p_search || '%'))
+      and (p_status is null
+           or (p_status = 'active' and g.status not in ('cancelled', 'completed'))
+           or (p_status = 'completed' and g.status = 'completed')
+            or (p_status = 'cancelled' and g.cancelled_count > 0))
+    order by o.created_at desc
+    limit (greatest(p_page - 1, 0) * greatest(p_page_size, 1)) + greatest(p_page_size, 1) + 100
+  ),
+  numbered as (
+    select c.*, row_number() over (order by c.created_at desc) as rn,
+           count(*) over () as fetched
+    from cand c
+  ),
+  paged as (
+    select n.*
+    from numbered n
+    where n.rn > greatest(p_page - 1, 0) * greatest(p_page_size, 1)
+      and n.rn <= greatest(p_page, 1) * greatest(p_page_size, 1)
+  ),
+  totals as (
+    select
+      p.order_id as anchor_id,
+      coalesce(sum(m.total_amount) filter (where m.status <> 'cancelled'), 0) as total_amount,
+      coalesce(sum(m.subtotal) filter (where m.status <> 'cancelled'), 0) as subtotal_amount,
+      coalesce(sum(m.tax_amount) filter (where m.status <> 'cancelled'), 0) as tax_amount,
+      coalesce(sum(m.container_amount) filter (where m.status <> 'cancelled'), 0) as container_charge_amount,
+      coalesce(sum(m.discount_amount) filter (where m.status <> 'cancelled'), 0) as discount_amount,
+      coalesce(sum(items.qty) filter (where m.status <> 'cancelled'), 0) as item_count
+    from paged p
+    join orders m
+      on m.id = p.order_id
+      or (p.invoice_number is not null
+          and m.outlet_id = p.outlet_id
+          and m.invoice_number = p.invoice_number)
+    left join lateral (
+      select sum(oi.quantity) filter (where not oi.is_deleted) as qty
+      from order_items oi
+      where oi.order_id = m.id
+    ) items on true
+    group by p.order_id
+  )
+  select
+    p.order_id,
+    p.order_type,
+    p.created_at,
+    coalesce(t.item_count, 0)::bigint as item_count,
+    coalesce(t.subtotal_amount, 0) as subtotal_amount,
+    coalesce(t.tax_amount, 0) as tax_amount,
+    coalesce(t.container_charge_amount, 0) as container_charge_amount,
+    coalesce(t.discount_amount, 0) as discount_amount,
+    coalesce(t.total_amount, 0) as total_amount,
+    p.status,
+    p.table_id,
+    tb.table_number,
+    p.invoice_number,
+    p.order_number,
+    p.order_count,
+    p.cancelled_count,
+    p.fetched::bigint as total_rows
+  from paged p
+  left join totals t on t.anchor_id = p.order_id
+  left join tables tb on tb.id = p.table_id
+  order by p.created_at desc;
+$$;
+
+grant execute on function list_orders(uuid, text, text, date, date, integer, integer) to authenticated;
