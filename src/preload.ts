@@ -27,7 +27,7 @@ import type {
   MyAccess,
   MenuCategory,
   PlaceOrderResult,
-  ServerStatus,  
+  ServerStatus,
   ApiDevice,
   CreatedApiDevice,
   SavePaymentPayload,
@@ -74,7 +74,8 @@ const api: ElectronApi = {
   setUserActive: (userId, isActive) =>
     ipcRenderer.invoke(IpcChannels.SET_USER_ACTIVE, userId, isActive) as Promise<void>,
   listGroups: () => ipcRenderer.invoke(IpcChannels.LIST_GROUPS) as Promise<UserGroup[]>,
-  listPermissions: () => ipcRenderer.invoke(IpcChannels.LIST_PERMISSIONS) as Promise<PermissionInfo[]>,
+  listPermissions: () =>
+    ipcRenderer.invoke(IpcChannels.LIST_PERMISSIONS) as Promise<PermissionInfo[]>,
   listGroupMemberships: () =>
     ipcRenderer.invoke(IpcChannels.LIST_GROUP_MEMBERSHIPS) as Promise<GroupMembership[]>,
   saveGroup: (payload) => ipcRenderer.invoke(IpcChannels.SAVE_GROUP, payload) as Promise<string>,
@@ -86,19 +87,25 @@ const api: ElectronApi = {
   getUserAccess: (userId) =>
     ipcRenderer.invoke(IpcChannels.GET_USER_ACCESS, userId) as Promise<UserAccessEntry[]>,
   listOrders: (filter) =>
-      ipcRenderer.invoke(IpcChannels.LIST_ORDERS, filter) as Promise<OrderListPage>,
-      getInvoiceOrderDetail: (invoiceNumber) =>
-        ipcRenderer.invoke(IpcChannels.GET_INVOICE_ORDER_DETAIL, invoiceNumber) as Promise<
-          TableOrderDetail
-        >,
-      getInvoiceActivityLog: (invoiceNumber) =>
-        ipcRenderer.invoke(IpcChannels.GET_INVOICE_ACTIVITY_LOG, invoiceNumber) as Promise<
-          OrderActivityLogEntry[]
-        >,
-    editOrderItem: (payload) =>
-      ipcRenderer.invoke(IpcChannels.EDIT_ORDER_ITEM, payload) as Promise<void>,
+    ipcRenderer.invoke(IpcChannels.LIST_ORDERS, filter) as Promise<OrderListPage>,
+  getInvoiceOrderDetail: (invoiceNumber) =>
+    ipcRenderer.invoke(
+      IpcChannels.GET_INVOICE_ORDER_DETAIL,
+      invoiceNumber,
+    ) as Promise<TableOrderDetail>,
+  getInvoiceActivityLog: (invoiceNumber) =>
+    ipcRenderer.invoke(IpcChannels.GET_INVOICE_ACTIVITY_LOG, invoiceNumber) as Promise<
+      OrderActivityLogEntry[]
+    >,
+  editOrderItem: (payload) =>
+    ipcRenderer.invoke(IpcChannels.EDIT_ORDER_ITEM, payload) as Promise<void>,
   deleteOrderItem: (orderItemId, reason, approval) =>
-    ipcRenderer.invoke(IpcChannels.DELETE_ORDER_ITEM, orderItemId, reason, approval) as Promise<void>,
+    ipcRenderer.invoke(
+      IpcChannels.DELETE_ORDER_ITEM,
+      orderItemId,
+      reason,
+      approval,
+    ) as Promise<void>,
   cancelOrderWithReason: (orderId, reason, approval) =>
     ipcRenderer.invoke(
       IpcChannels.CANCEL_ORDER_WITH_REASON,
@@ -113,18 +120,19 @@ const api: ElectronApi = {
       reason,
       approval,
     ) as Promise<void>,
-    completeOrder: (orderId) =>
-      ipcRenderer.invoke(IpcChannels.COMPLETE_ORDER, orderId) as Promise<void>,
-    reprintOrder: (orderId) =>
-      ipcRenderer.invoke(IpcChannels.REPRINT_ORDER, orderId) as Promise<void>,
-      getMenuItems: () =>
-          ipcRenderer.invoke(IpcChannels.GET_MENU_ITEMS) as Promise<MenuCacheSnapshot>,
-        refreshMenuCache: () =>
-          ipcRenderer.invoke(IpcChannels.REFRESH_MENU_CACHE) as Promise<MenuCacheSnapshot>,
+  completeOrder: (orderId) =>
+    ipcRenderer.invoke(IpcChannels.COMPLETE_ORDER, orderId) as Promise<void>,
+  reprintOrder: (orderId) =>
+    ipcRenderer.invoke(IpcChannels.REPRINT_ORDER, orderId) as Promise<void>,
+  getMenuItems: () => ipcRenderer.invoke(IpcChannels.GET_MENU_ITEMS) as Promise<MenuCacheSnapshot>,
+  refreshMenuCache: () =>
+    ipcRenderer.invoke(IpcChannels.REFRESH_MENU_CACHE) as Promise<MenuCacheSnapshot>,
   setMenuItemActive: (menuItemId, isActive) =>
-    ipcRenderer.invoke(IpcChannels.SET_MENU_ITEM_ACTIVE, menuItemId, isActive) as Promise<
-      MenuCacheSnapshot
-    >,
+    ipcRenderer.invoke(
+      IpcChannels.SET_MENU_ITEM_ACTIVE,
+      menuItemId,
+      isActive,
+    ) as Promise<MenuCacheSnapshot>,
   listTables: () => ipcRenderer.invoke(IpcChannels.LIST_TABLES) as Promise<TableCard[]>,
   listManagedTables: () =>
     ipcRenderer.invoke(IpcChannels.LIST_MANAGED_TABLES) as Promise<ManagedTable[]>,
@@ -155,11 +163,12 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.REMOVE_PRINTER, printerType) as Promise<void>,
   getMaxPrinters: () => ipcRenderer.invoke(IpcChannels.GET_MAX_PRINTERS) as Promise<number>,
   getInvoiceSequenceStatus: () =>
-    ipcRenderer.invoke(IpcChannels.GET_INVOICE_SEQUENCE_STATUS) as Promise<InvoiceSequenceStatus | null>,
+    ipcRenderer.invoke(
+      IpcChannels.GET_INVOICE_SEQUENCE_STATUS,
+    ) as Promise<InvoiceSequenceStatus | null>,
   resetInvoiceSequence: () =>
     ipcRenderer.invoke(IpcChannels.RESET_INVOICE_SEQUENCE) as Promise<void>,
-  getServerStatus: () => 
-    ipcRenderer.invoke(IpcChannels.GET_SERVER_STATUS) as Promise<ServerStatus>,
+  getServerStatus: () => ipcRenderer.invoke(IpcChannels.GET_SERVER_STATUS) as Promise<ServerStatus>,
   listApiDevices: () => ipcRenderer.invoke(IpcChannels.LIST_API_DEVICES) as Promise<ApiDevice[]>,
   createApiDevice: (name) =>
     ipcRenderer.invoke(IpcChannels.CREATE_API_DEVICE, name) as Promise<CreatedApiDevice>,

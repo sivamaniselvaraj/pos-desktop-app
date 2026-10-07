@@ -6,7 +6,7 @@ export interface OrderItem {
   name: string;
   quantity: number;
   unitPrice: number;
-  totalPrice?: number
+  totalPrice?: number;
   //status: string;
   specialInstructions?: string;
   kotPrinted?: boolean;
@@ -70,7 +70,7 @@ export interface FoodOrder {
    */
   orderNumbers?: number[];
   placedBy?: string;
-   /**
+  /**
    * Format YYYY-MM-DD-NNNNN (assign_invoice_number() trigger, db/schema.sql).
    * Assigned once per dine-in table batch (every round on that table shares
    * it until the table is settled + paid) or once per takeaway/pickup order.
@@ -248,7 +248,7 @@ export interface OrderListRow {
   totalAmount: number;
   status: string;
   hasEdits?: boolean;
-   /** Dine-in rows only — the table this order was placed at. Absent for takeaway/pickup rows. */
+  /** Dine-in rows only — the table this order was placed at. Absent for takeaway/pickup rows. */
   tableId?: string;
   /** Dine-in rows only — the table's display number, e.g. "T4". Absent for takeaway/pickup rows. */
   tableNumber?: string;
@@ -304,7 +304,7 @@ export interface OrderDetailItem {
   totalPrice: number;
   isDeleted: boolean;
   editedAt?: string;
-    /** Set only when fetched via getTableOrderDetail — which order (round) this item belongs to, for grouping in a multi-order table view. Absent for a single-order fetch. */
+  /** Set only when fetched via getTableOrderDetail — which order (round) this item belongs to, for grouping in a multi-order table view. Absent for a single-order fetch. */
   orderId?: string;
   orderNumber?: number;
 }
@@ -346,7 +346,7 @@ export interface OrderActivityLogEntry {
   oldUnitPrice?: number;
   newUnitPrice?: number;
   reason?: string;
-    /** Set only when fetched via getTableActivityLog — which order (round) this entry belongs to. Absent for a single-order fetch. */
+  /** Set only when fetched via getTableActivityLog — which order (round) this entry belongs to. Absent for a single-order fetch. */
   orderNumber?: number;
 }
 
@@ -388,8 +388,8 @@ export interface MyAccess {
   org: OrgSettings | null;
   permissions: string[];
   menus: AccessMenu[];
-  /** true when the database's get_my_access() isn't deployed and the built-in rules were used. */
-  fallback: boolean;
+  /** Names of the groups the user belongs to. */
+  groups?: string[];
 }
 
 export interface MenuCategory {
@@ -482,7 +482,7 @@ export interface TableCard {
   tableState: string;
   /** Invoice shared by every order in the table's current sitting; used to fetch the detail. */
   invoiceNumber?: string;
-    /**
+  /**
    * Every order in the table's current batch — every dine-in round that
    * isn't cancelled and isn't both completed AND paid yet (see
    * list_tables_for_outlet() in db/functions.sql). Empty/undefined when the
@@ -499,7 +499,7 @@ export interface TableCard {
   orderTotalAmount?: number;
   /** Derived client-side from orderStatus — 'available' when there's no recent order at all. */
   cardStatus: TableCardStatus;
-    /** True once every order in the batch has payment_details set (transient — a fully-paid batch drops out of the next list). */
+  /** True once every order in the batch has payment_details set (transient — a fully-paid batch drops out of the next list). */
   paymentRecorded?: boolean;
 }
 export type PaymentMethod = 'card' | 'cash' | 'upi' | 'part-payment';
@@ -526,6 +526,8 @@ export interface CreateUserPayload {
   phone?: string;
   role: UserRole;
   outletId?: string;
+  /** Groups to put the new user in. Access comes only from groups. */
+  groupIds?: string[];
 }
 
 export interface UpdateUserPayload {
@@ -547,7 +549,7 @@ export interface ServerStatus {
   port: number;
   host: string;
   database: 'connected' | 'disconnected';
-   /** This machine's LAN IPv4 address (first non-internal interface) — what Android should actually point at, as opposed to `host` (the bind address, often 0.0.0.0). Null if none could be found (no active network interface). */
+  /** This machine's LAN IPv4 address (first non-internal interface) — what Android should actually point at, as opposed to `host` (the bind address, often 0.0.0.0). Null if none could be found (no active network interface). */
   ipAddress: string | null;
 }
 
@@ -685,7 +687,11 @@ export interface ElectronApi {
   deleteOrderItem(orderItemId: string, reason: string, approval: EditorApproval): Promise<void>;
   cancelOrderWithReason(orderId: string, reason: string, approval: EditorApproval): Promise<void>;
   /** Cancel every round of a dine-in invoice at once (one editor approval). */
-  cancelInvoiceWithReason(invoiceNumber: string, reason: string, approval: EditorApproval): Promise<void>;
+  cancelInvoiceWithReason(
+    invoiceNumber: string,
+    reason: string,
+    approval: EditorApproval,
+  ): Promise<void>;
   completeOrder(orderId: string): Promise<void>;
   reprintOrder(orderId: string): Promise<void>;
   getMenuItems(): Promise<MenuCacheSnapshot>;
