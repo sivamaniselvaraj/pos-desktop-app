@@ -10,8 +10,11 @@ import type {
   OrderActivityLogEntry,
   EditorApproval,
 } from '@shared/types';
+import { DINE_IN_ORDER_TYPE } from '../../shared/types';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/OrdersList.module.css';
+import { formatMoney as formatCurrency, formatDateTime } from '../lib/format';
+import { useAuth } from '../context/AuthContext';
 
 const PAGE_SIZE = 25;
 // list_orders() no longer counts the outlet's whole history (that count was
@@ -20,13 +23,8 @@ const PAGE_SIZE = 25;
 // in db/functions.sql.
 const COUNT_LOOKAHEAD = 100;
 
-const DINE_IN_ORDER_TYPE = 'dine_in';
-
 type StatusFilter = OrderListStatus | 'all';
 
-function formatCurrency(n: number): string {
-  return `₹ ${n.toFixed(2)}`;
-}
 
 function statusLabel(status: string): string {
   if (status === 'open') return 'Active';
@@ -43,6 +41,8 @@ function statusClass(status: string): string {
 }
 
 export function OrdersList() {
+  const { can } = useAuth();
+  const canEditItems = can('orders.edit');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -59,13 +59,16 @@ export function OrdersList() {
   );
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
 
-  // Item view/edit modal — also carries the activity log, shown below the items table
+  // Item view/edit modal — also carries the activity log, shown below the items table.
+  // A dine-in row shows the WHOLE table's current batch (every order still on
+  // that table), same grouping the Table Dashboard's "View Items" uses; a
+  // takeaway/pickup row keeps showing just its own single order.
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [detailIsDineIn, setDetailIsDineIn] = useState(false);
   // Set only for a dine-in row whose invoice_number is known — the grid's
   // rows are already grouped by invoice (see list_orders() in
   // db/functions.sql), so opening one fetches the WHOLE invoice group via
-  // get_orders_by_invoice() rather than re-deriving the table's live batch
+  // a plain query rather than re-deriving the table's live batch
   // from a single anchor order id. Falls back to the older table-batch fetch
   // (getTableOrderDetail/getTableActivityLog) only for a legacy dine-in
   // order that predates the invoice_number column.
@@ -173,7 +176,7 @@ export function OrdersList() {
   }
 
   async function handleComplete(row: OrderListRow) {
-    if (!confirm('Mark this order# ' +row.orderNumber+' as completed?')) return;
+    if (!confirm('Mark this order# ' +row.orderNumber + ' as completed?')) return;
     try {
       setBusyOrderId(row.orderId);
       await window.api.completeOrder(row.orderId);
@@ -476,14 +479,15 @@ try {
                         </button>
                         <button
                           className={styles.iconBtn}
-                          title="View / Edit Items"
+                            title={canEditItems && r.status === 'preparing' ? 'View / Edit Items' : 'View Items'}
                           onClick={() => openDetail(r)}
                           disabled={busyOrderId === r.orderId}
                         >
-                          <Icon name="edit" size={16} />
+                            <Icon name={canEditItems && r.status === 'preparing' ? 'edit' : 'view'} size={16} />
                         </button>
                         {r.status === 'open' && (
                           <>
+                              {can('orders.complete') && (
                             <button
                               className={styles.iconBtn}
                                 title={
@@ -496,6 +500,8 @@ try {
                             >
                               <Icon name="check" size={16} />
                             </button>
+                              )}
+                              {can('orders.cancel') && (
                             <button
                               className={styles.iconBtn}
                                 title={grouped ? `Cancel all ${r.orderCount} orders` : 'Cancel'}
@@ -504,6 +510,7 @@ try {
                             >
                               <Icon name="cancel" size={16} />
                             </button>
+                              )}
                           </>
                         )}
                       </div>

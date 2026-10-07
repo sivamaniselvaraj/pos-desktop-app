@@ -12,7 +12,8 @@ import type {
   SaveManagedTablePayload,
 } from '@shared/types';
 import styles from '../styles/TableDashboard.module.css';
-
+import { formatMoney as formatCurrency } from '../lib/format';
+import { useAuth } from '../context/AuthContext';
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'card', label: 'Card' },
@@ -21,9 +22,6 @@ const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'part-payment', label: 'Part Payment' },
 ];
 
-function formatCurrency(n: number): string {
-  return `₹ ${n.toFixed(2)}`;
-}
 
 function elapsedMinutes(createdAt: string | undefined, now: number): number | null {
   if (!createdAt) return null;
@@ -33,6 +31,7 @@ function elapsedMinutes(createdAt: string | undefined, now: number): number | nu
 }
 
 export function Dashboard() {
+  const { can } = useAuth();
   const [tables, setTables] = useState<TableCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -269,17 +268,19 @@ export function Dashboard() {
   return (
     <div className={styles.page}>
       <div className={styles.header}>
-        <h2>Dining</h2>
+        <h2>Dashboard</h2>
         </div>
         <div className={styles.actionButtons}>
           <button className={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing}>
           <Icon name="refresh" size={16} />
           {refreshing ? 'Refreshing…' : 'Refresh Tables'}
         </button>
+         {can('tables.manage') && (
         <button className={styles.addBtn} onClick={openAddTable}>
           <Icon name="plus" size={16} />
           Add Table
         </button>
+        )}
         </div>
 
       <Toast message={message} />
@@ -335,7 +336,7 @@ export function Dashboard() {
                         <Icon name="view" size={18} />
                       </button>
                     )}
-                    {table.cardStatus === 'settled' && !table.paymentRecorded && (
+                    {table.cardStatus === 'settled' && !table.paymentRecorded && can('orders.complete') && (
                       <button
                         className={styles.iconBtn}
                         title="Record Payment (required to release this table)"

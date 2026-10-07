@@ -10,33 +10,14 @@ interface NavItem {
   icon: IconName;
 }
 
-const NAV: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-  { id: 'history', label: 'History', icon: 'history' },
-  { id: 'settings', label: 'Settings', icon: 'settings' },
-  { id: 'about', label: 'About', icon: 'info' },
-];
-
-// Roles allowed to see the Sales Report nav item. This is convenience/UX
-// only — the real access boundary is enforced server-side by the report
-// RPCs (get_sales_report / get_top_items check the caller's role via
-// auth.uid()), so hiding the link here doesn't substitute for that.
-const REPORT_ROLES = ['manager', 'owner', 'admin'];
-
-// User Management is admin-only (narrower than the report page). Same
-// caveat: real enforcement is server-side (is_admin() / the user-management
-// RPCs), this only controls whether the link is shown.
-const USER_MANAGEMENT_ROLES = ['admin'];
-
-// Orders List: view/edit/cancel/complete orders — same role set as Sales
-// Report, matching Cancel's mandatory manager/owner/admin requirement.
-const ORDERS_LIST_ROLES = ['manager', 'owner', 'admin'];
-
-// Tables page: managers+ manage tables; staff/waiters see them and can only
-// toggle available <-> occupied (enforced server-side by RLS + a trigger).
-// New Order: anyone who can place orders.
-const NEW_ORDER_ROLES = ['staff', 'manager', 'owner', 'admin'];
-const TABLES_ROLES = ['staff', 'manager', 'owner', 'admin'];
+// Sidebar entries come from the database (app_menus filtered by the user's
+// permissions, via get_my_access). Hiding a link is a UX nicety only — the
+// real access boundary is enforced server-side by RLS and the RPCs. Icon
+// names from the database are checked against the icons bundled in the app.
+const KNOWN_ICONS = new Set<string>([
+  'printer', 'dashboard', 'history', 'reports', 'settings', 'info', 'menu', 'print', 'table', 'foodMenu', 'orders', 
+  'refresh', 'plus', 'check', 'trash', 'lock', 'logout', 'user', 'users', 'edit', 'view', 'save',
+]);
 
 interface SidebarProps {
   active: string;
@@ -45,7 +26,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ active, onNavigate, printers }: SidebarProps) {
-  const { user } = useAuth();
+  const { access } = useAuth();
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('sidebarCollapsed') === 'true',
   );
@@ -58,35 +39,11 @@ export function Sidebar({ active, onNavigate, printers }: SidebarProps) {
     });
   };
 
-  const role = user?.role.toLowerCase();
-  const canViewReports = !!role && REPORT_ROLES.includes(role);
-  const canManageUsers = !!role && USER_MANAGEMENT_ROLES.includes(role);
-  // Dashboard, History, [Sales Report], [Users], Settings, About — the
-  // conditional items are inserted between History and Settings in that order.
-  const canViewOrdersList = !!role && ORDERS_LIST_ROLES.includes(role);
-  const canPlaceOrders = !!role && NEW_ORDER_ROLES.includes(role);
-  const canViewTables = !!role && TABLES_ROLES.includes(role);
-
-  // Dashboard, History, [Orders], Menu Items, [Sales Report], [Users],
-  // Settings, About — the conditional items are inserted between History
-  // and Settings in order. Menu Items has no role gate (unlike the others
-  // here) — it's read-only-plus-refresh, not a financial or account action.
-  const navItems: NavItem[] = [
-    ...NAV.slice(0, 1),
-    ...(canPlaceOrders ? [{ id: 'new-order', label: 'New Order', icon: 'plus' as IconName }] : []),
-    ...(canViewOrdersList
-      ? [{ id: 'orders-list', label: 'Orders', icon: 'orders' as IconName }]
-      : []),
-      ...(canManageUsers ? [{ id: 'users', label: 'Users', icon: 'users' as IconName }] : []),
-       ...(canViewOrdersList
-      ? [{ id: 'tables', label: 'Tables', icon: 'table' as IconName }]
-      : []),
-       { id: 'menu-items', label: 'Menu Items', icon: 'foodMenu' as IconName },
-    ...(canViewReports
-      ? [{ id: 'sales-report', label: 'Sales Report', icon: 'reports' as IconName }]
-      : []),
-    ...NAV.slice(1),
-  ];
+  const navItems: NavItem[] = (access?.menus ?? []).map((m) => ({
+    id: m.code,
+    label: m.label,
+    icon: (KNOWN_ICONS.has(m.icon) ? m.icon : 'info') as IconName,
+  }));
 
   return (
     <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''}`}>

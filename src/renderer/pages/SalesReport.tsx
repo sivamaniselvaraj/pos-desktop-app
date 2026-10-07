@@ -18,23 +18,25 @@ import type {
   SalesByOrderTypeRow,
   SalesByTypeBucketRow,
 } from '@shared/types';
+import { DINE_IN_ORDER_TYPE } from '../../shared/types';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/SalesReport.module.css';
+import { formatMoney as formatCurrency, dateInOrgZone, currencySymbol, formatNumber } from '../lib/format';
 
 type Mode = 'daily' | 'monthly' | 'custom';
 
 function toIsoDate(d: Date): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d);
+  return dateInOrgZone(d);
 }
 
-function formatCurrency(n: number): string {
+function formatCurrency1(n: number): string {
   return `₹ ${n.toFixed(2)}`;
 }
 
 // 'pickup' displays as "Takeaway" to match how the business refers to it,
 // even though the stored order_type value is 'pickup'.
 function orderTypeLabel(orderType: string): string {
-  if (orderType === 'dine_in') return 'Dine-in';
+  if (orderType === DINE_IN_ORDER_TYPE) return 'Dine-in';
   if (orderType === 'takeway') return 'Takeaway';
   if (orderType === 'delivery') return 'Delivery';
   return orderType;
@@ -386,7 +388,7 @@ export function SalesReport() {
                   <XAxis dataKey="date" />
                   <YAxis
                     label={{ value: 'Amount (₹)', angle: -90, position: 'insideLeft' }}
-                    tickFormatter={(v: number) => v.toLocaleString('en-IN')}
+                    tickFormatter={(v: number) => formatNumber(v)}
                   />
                   <Tooltip content={<ChartTooltip />} />
                   <Bar dataKey="amount" fill="#4CAF50" radius={[4, 4, 0, 0]} />

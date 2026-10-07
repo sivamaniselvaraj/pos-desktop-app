@@ -30,9 +30,9 @@ export function Login() {
       <form className={styles.card} onSubmit={handleSubmit}>
         <div className={styles.brand}>
           <span className={styles.brandIcon}>
-            <Icon name="printer" size={22} />
+            <Icon name="orders" size={22} />
           </span>
-          <span className={styles.brandText}>PrintPro</span>
+          <span className={styles.brandText}>Virunthagam</span>
         </div>
 
         <h1 className={styles.heading}>Sign in</h1>

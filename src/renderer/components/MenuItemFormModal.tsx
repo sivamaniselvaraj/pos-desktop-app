@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { MenuCategory, MenuItemRecord, SaveMenuItemPayload } from '@shared/types';
 import styles from '../styles/MenuItemFormModal.module.css';
+import { currencySymbol } from '../lib/format';
 
 export interface MenuItemFormModalProps {
   /** Menu cache row being edited; omit to add a new item. */

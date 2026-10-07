@@ -1,9 +1,12 @@
 import { Fragment, useState } from 'react';
 import type { OrderDetailItem, OrderActivityLogEntry, EditorApproval } from '@shared/types';
+import { DINE_IN_ORDER_TYPE } from '../../shared/types';
 import { ApprovalModal } from './ApprovalModal';
 import styles from '../styles/OrderDetailModal.module.css';
 
-function formatCurrency(n: number): string {
+import { formatMoney as formatCurrency, formatDateTime, taxLabel } from '../lib/format';
+
+function formatCurrencyRupee(n: number): string {
   return `₹ ${n.toFixed(2)}`;
 }
 
@@ -45,7 +48,7 @@ export interface OrderDetailModalProps {
   /** Shown after " · " next to the title, e.g. the order/batch grand total. */
   headerAmount?: number;
   /** Every order (round) in this batch. Length > 1 shows the "Orders: #, #, …" line and Order # group headers/columns; length <= 1 hides all of that grouping UI. */
-  orders: { id: string; orderNumber: number; status?: string}[];
+  orders: { id: string; orderNumber: number; status?: string }[];
   meta?: OrderDetailModalMeta;
   totals?: OrderDetailModalTotals;
   items: OrderDetailItem[];
@@ -169,7 +172,7 @@ export function OrderDetailModal({
 
         {meta && (
           <div className={styles.modalSubheader}>
-            <span>Type: {meta.orderType === 'dine_in' ? 'Dine In' : 'Takeaway'}</span>
+            <span>Type: {meta.orderType === DINE_IN_ORDER_TYPE ? 'Dine In' : 'Takeaway'}</span>
             {meta.invoiceNumber && <span>Invoice No.: {meta.invoiceNumber}</span>}
             <span className={`${styles.statusBadge} ${statusClass(meta.status)}`}>
               {statusLabel(meta.status)}
@@ -318,14 +321,14 @@ export function OrderDetailModal({
                   <span>{formatCurrency(totals.containerChargeAmount)}</span>
                 </div>
                 <div className={styles.breakdownRow}>
-                  <span>GST</span>
+                  <span>{taxLabel()}</span>
                   <span>{formatCurrency(totals.taxAmount)}</span>
                 </div>
               </>
             ) : (
               <>
                 <div className={styles.breakdownRow}>
-                  <span>GST</span>
+                  <span>{taxLabel()}</span>
                   <span>{formatCurrency(totals.taxAmount)}</span>
                 </div>
                 {totals.discountAmount > 0 && (
@@ -386,7 +389,7 @@ export function OrderDetailModal({
                         </td>
                         <td>{entry.reason || '—'}</td>
                         <td>{entry.changedByName}</td>
-                        <td>{new Date(entry.changedAt).toLocaleString('en-IN')}</td>
+                        <td>{formatDateTime(entry.changedAt)}</td>
                       </tr>
                     ))}
                 </tbody>

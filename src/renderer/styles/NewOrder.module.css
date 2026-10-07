@@ -28,10 +28,19 @@
 .searchOn { border: 2px solid #4CAF50; padding: 0 11px; }
 .search input { flex: 1; border: 0; outline: 0; font-size: 14px; background: transparent; color: #222; }
 .search button { border: 0; background: transparent; color: #777; cursor: pointer; display: flex; }
-.chips { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
-.chip { padding: 7px 14px; border: 1px solid #d9dce1; border-radius: 18px; background: #fff; font-size: 13px; font-weight: 600; color: #444; cursor: pointer; white-space: nowrap; }
-.chip small { font-weight: 700; opacity: .65; margin-left: 5px; }
-.chipOn { background: #4CAF50; border-color: #4CAF50; color: #fff; }
+/* Category rail: browse area = rail on the left, search + items on the right. */
+.browse { flex: 1; display: flex; gap: 16px; min-height: 0; }
+.browseMain { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.rail { width: 196px; flex: none; align-self: stretch; margin-bottom: 24px; padding: 8px; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; gap: 6px; }
+/* "All" stays put at the top; only the categories below it scroll. */
+.railList { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; padding-top: 6px; border-top: 1px solid #eef0f2; }
+.railIdle { opacity: .6; }
+.cat { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-size: 13px; font-weight: 600; color: #444; text-align: left; cursor: pointer; }
+.cat span { overflow-wrap: anywhere; }
+.cat small { flex: none; font-size: 11px; font-weight: 700; color: #777; background: #f0f1f3; border-radius: 10px; padding: 1px 7px; }
+.cat:hover { background: #f4f5f7; }
+.catOn, .catOn:hover { background: #4CAF50; color: #fff; }
+.catOn small { background: rgba(255,255,255,.25); color: #fff; }
 .scroll { flex: 1; overflow-y: auto; padding-bottom: 24px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
 .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-height: 96px; }

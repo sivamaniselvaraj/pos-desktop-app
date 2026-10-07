@@ -16,13 +16,12 @@ const STATUS_CLASS: Record<ManagedTableStatus, string> = {
   cleaning: styles.statusCleaning,
 };
 
-const MANAGER_ROLES = ['manager', 'owner', 'admin'];
-
 export function TablesManagement() {
-  const { user } = useAuth();
+  const { can } = useAuth();
   // Managers add/edit/delete; staff/waiters only see the list and use the
   // available <-> occupied toggle. The database enforces this too.
-  const canManage = MANAGER_ROLES.includes((user?.role ?? '').toLowerCase());
+  const canManage = can('tables.manage');
+  const canToggle = can('tables.toggle');
   const [tables, setTables] = useState<ManagedTable[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -229,6 +228,11 @@ export function TablesManagement() {
                     )}
                   </td>
                   <td>
+                    {!canToggle ? (
+                      <span className={styles.hintInline}>
+                        {t.effectiveStatus === 'available' ? 'Available' : t.effectiveStatus}
+                      </span>
+                    ) : (
                     <button
                       type="button"
                       role="switch"
@@ -255,6 +259,7 @@ export function TablesManagement() {
                     >
                       <span className={styles.knob} />
                     </button>
+                    )}
                   </td>
                   {canManage && (
                   <td>

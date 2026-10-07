@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import type { MenuCacheSnapshot, MenuCategory, MenuItemRecord, SaveMenuItemPayload  } from '@shared/types';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/MenuItems.module.css';
+import { formatDateTime } from '../lib/format';
 
 // Not shown even if present — redundant (every row is this machine's own
 // outlet) or just DB bookkeeping rather than something an operator needs to
@@ -44,12 +45,10 @@ function columnLabel(key: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-const MANAGER_ROLES = ['manager', 'owner', 'admin'];
-
 export function MenuItemsPage() {
-  const { user } = useAuth();
+  const { can } = useAuth();
   // Only managers+ add/edit. The database enforces this too (RLS on menu_items).
-  const canManage = MANAGER_ROLES.includes(user?.role.toLowerCase() ?? '');
+  const canManage = can('menu.edit');
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   // undefined = closed, null = adding, MenuItemRecord = editing
   const [formItem, setFormItem] = useState<MenuItemRecord | null | undefined>(undefined);
@@ -191,7 +190,7 @@ export function MenuItemsPage() {
 
       <p className={pageStyles.muted}>
         {snapshot.lastRefreshedAt
-          ? `Last refreshed: ${new Date(snapshot.lastRefreshedAt).toLocaleString('en-IN')}`
+          ? `Last refreshed: ${formatDateTime(snapshot.lastRefreshedAt)}`
           : 'Not yet refreshed.'}
         {' · '}
         Served to Android from this cache — refreshing here is the only way new items or price
@@ -237,6 +236,11 @@ export function MenuItemsPage() {
                     <td key={col}>{formatCell(item[col])} {col === 'name' ? <span className={`${styles.dot} ${item['is_veg'] ? '' : styles.dotNv}`} /> : ''}</td>
                   ))}
                   <td>
+                    {!canManage ? (
+                      <span className={`${styles.statusToggle} ${isActive ? styles.statusOn : styles.statusOff}`}>
+                        {isActive ? 'On' : 'Off'}
+                      </span>
+                    ) : (
                     <button
                       className={`${styles.statusToggle} ${isActive ? styles.statusOn : styles.statusOff}`}
                       onClick={() => handleToggleActive(item)}
@@ -245,6 +249,7 @@ export function MenuItemsPage() {
                     >
                       {togglingId === id ? '…' : isActive ? 'On' : 'Off'}
                     </button>
+                    )}
                   </td>
                   {canManage && (
                     <td>

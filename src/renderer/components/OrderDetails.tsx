@@ -36,7 +36,7 @@ export function OrderDetails({ order }: OrderDetailsProps) {
           <Row
             key={item.id}
             label={`${item.quantity} × ${item.name}`}
-            value={`₹${(item.unit_price * item.quantity).toFixed(2)}`}
+            value={`₹${(item.unitPrice * item.quantity).toFixed(2)}`}
           />
         ))}
         <div className={styles.divider} />

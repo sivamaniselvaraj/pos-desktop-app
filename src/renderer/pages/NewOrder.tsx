@@ -15,6 +15,7 @@ import {
 }from '../../shared/types';
 
 import styles from '../styles/NewOrder.module.css';
+import { formatMoney as money } from '../lib/format';
 
 //type OrderType = 'dine_in' | 'pickup' | 'takeaway';
 type VegFilter = 'all' | 'veg' | 'nonveg';
@@ -31,7 +32,7 @@ interface MenuEntry {
   containerPercent: number;
 }
 
-const money = (n: number): string => `₹ ${n.toFixed(2)}`;
+//const money = (n: number): string => `₹ ${n.toFixed(2)}`;
 
 function toEntry(raw: Record<string, unknown>): MenuEntry | null {
   if (raw.is_active === false || raw.is_available === false) return null;
@@ -156,10 +157,13 @@ export function NewOrder() {
     ];
   }, [vegFiltered]);
 
-  // Searching looks across every category; browsing respects the category chip.
+  // A selected category that no longer has items (e.g. after the Veg filter) falls back to All.
+  const activeCategory = categories.some(([name]) => name === category) ? category : 'All';
+
+  // Searching looks across every category; browsing respects the selected category.
   const { nameMatches, keywordMatches } = useMemo(() => {
     if (!q) {
-      const list = category === 'All' ? vegFiltered : vegFiltered.filter((m) => m.category === category);
+      const list = activeCategory === 'All' ? vegFiltered : vegFiltered.filter((m) => m.category === activeCategory);
       return { nameMatches: list, keywordMatches: [] as MenuEntry[] };
     }
     const nm: MenuEntry[] = [];
@@ -169,7 +173,24 @@ export function NewOrder() {
       else if (m.searchKey.includes(q)) km.push(m);
     }
     return { nameMatches: nm, keywordMatches: km };
-  }, [vegFiltered, q, category]);
+  }, [vegFiltered, q, activeCategory]);
+
+  // "All" is always first in `categories`; the rail pins it above the scrolling list.
+  const renderCategory = (name: string, count: number) => (
+    <button
+      key={name}
+      type="button"
+      className={`${styles.cat} ${!q && activeCategory === name ? styles.catOn : ''}`}
+      onClick={() => {
+        setQuery('');
+        setCategory(name);
+      }}
+      title={name}
+    >
+      <span>{name}</span>
+      <small>{count}</small>
+    </button>
+  );
 
   const cartLines = useMemo(
     () =>
@@ -344,6 +365,14 @@ export function NewOrder() {
           </div>
         )}
 
+        <div className={styles.browse}>
+          <nav className={`${styles.rail} ${q ? styles.railIdle : ''}`} aria-label="Menu categories">
+            {categories.slice(0, 1).map(([name, count]) => renderCategory(name, count))}
+            <div className={styles.railList}>
+              {categories.slice(1).map(([name, count]) => renderCategory(name, count))}
+            </div>
+          </nav>
+          <div className={styles.browseMain}>
         <div className={styles.searchRow}>
           <div className={`${styles.search} ${q ? styles.searchOn : ''}`}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -373,21 +402,6 @@ export function NewOrder() {
           </div>
         </div>
 
-        {!q && (
-          <div className={styles.chips}>
-            {categories.map(([name, count]) => (
-              <button
-                key={name}
-                type="button"
-                className={`${styles.chip} ${category === name ? styles.chipOn : ''}`}
-                onClick={() => setCategory(name)}
-              >
-                {name}
-                <small>{count}</small>
-              </button>
-            ))}
-          </div>
-        )}
         {q && (
           <div className={styles.muted} style={{ marginBottom: 10 }}>
             {total} result{total === 1 ? '' : 's'} · name matches first, then keywords
@@ -408,6 +422,8 @@ export function NewOrder() {
               <div className={styles.grid}>{keywordMatches.map((m) => renderCard(m, true))}</div>
             </>
           )}
+            </div>
+          </div>
         </div>
       </div>
 
