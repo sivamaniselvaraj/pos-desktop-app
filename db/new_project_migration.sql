@@ -125,6 +125,8 @@ create table public.tables (
   )
 );
 
+create policy "authenticated read tables" on tables for select to authenticated using (true);
+
 create trigger update_tables_updated_at BEFORE
 update on tables for EACH row
 execute FUNCTION update_updated_at_column ();
