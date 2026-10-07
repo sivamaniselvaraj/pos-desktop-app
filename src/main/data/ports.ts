@@ -83,10 +83,8 @@ export interface AuthRepository {
 }
 
 export interface AccessRepository {
-  /** Permissions + menus + organization settings. null when the backend can't provide it (older database). */
+  /** Permissions + menus + organization settings, all derived from the user's groups. null when the backend can't provide it. */
   fetchMyAccess(): Promise<MyAccess | null>;
-  /** The signed-in user's role, used for the built-in fallback rules. null when not signed in. */
-  fetchSessionRole(): Promise<string | null>;
 }
 
 // ---------------------------------------------------------------------------

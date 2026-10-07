@@ -481,27 +481,15 @@ async function markOrdersCompleted(orderIds: string[]): Promise<void> {
 
 
 /**
- * Orders of the signed-in user's outlet that are open and still have unprinted
- * kitchen items. Unprinted items first (usually none, so the common 30s tick
- * is one cheap query), then which of their orders are still open. Both reads
- * are limited by RLS to the caller's own outlet (orders.view).
+ * Open orders of the caller's outlet that still have items not sent to the
+ * kitchen. One RPC (find_orders_with_pending_kot); the function applies the
+ * orders.view permission and the outlet scope itself.
  */
 async function findOrdersWithPendingKot(): Promise<{ orderId: string; orderType: string }[]> {
-  const supabase = getAuthedClient();
-  const pending = await supabase
-    .from('order_items')
-    .select('order_id')
-    .eq('is_deleted', false)
-    .eq('kot_printed', false);
-  if (pending.error) throw new Error(pending.error.message);
-  const orderIds = [...new Set(((pending.data ?? []) as { order_id: string }[]).map((r) => String(r.order_id)))];
-  if (orderIds.length === 0) return [];
-
-  const { data, error } = await supabase.from('orders').select('id, order_type').in('id', orderIds)
-  .eq('status', 'preparing');
+  const { data, error } = await getAuthedClient().rpc('find_orders_with_pending_kot');
   if (error) throw new Error(error.message);
-  return ((data ?? []) as { id: string; order_type: string }[]).map((r) => ({
-    orderId: String(r.id),
+  return ((data ?? []) as { order_id: string; order_type: string }[]).map((r) => ({
+    orderId: String(r.order_id),
     orderType: r.order_type,
   }));
 }

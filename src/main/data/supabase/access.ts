@@ -10,6 +10,7 @@ export const access: AccessRepository = {
       role: string | null;
       permissions?: string[];
       menus?: AccessMenu[];
+      groups?: string[];
       org?: {
         id: string;
         name: string;
@@ -30,16 +31,8 @@ export const access: AccessRepository = {
         }
       : null;
     if (d.role) {
-      return { role: d.role, org, permissions: d.permissions ?? [], menus: d.menus ?? [], fallback: false };
+      return { role: d.role, org, permissions: d.permissions ?? [], menus: d.menus ?? [], groups: d.groups ?? [] };
     }
-    return { role: null, org: null, permissions: [], menus: [], fallback: false };
-  },
-
-  async fetchSessionRole() {
-    const supabase = getAuthedClient();
-    const { data: session } = await supabase.auth.getUser();
-    if (!session.user) return null;
-    const { data: profile } = await supabase.from('profiles').select('role').eq('user_id', session.user.id).single();
-    return String((profile as { role?: string } | null)?.role ?? 'staff');
+    return { role: null, org: null, permissions: [], menus: [] };
   },
 };
