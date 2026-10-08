@@ -6,10 +6,6 @@ import styles from '../styles/OrderDetailModal.module.css';
 
 import { formatMoney as formatCurrency, formatDateTime, taxLabel } from '../lib/format';
 
-function formatCurrencyRupee(n: number): string {
-  return `₹ ${n.toFixed(2)}`;
-}
-
 function statusLabel(status: string): string {
   if (status === 'open') return 'Active';
   if (status === 'completed') return 'Completed';
