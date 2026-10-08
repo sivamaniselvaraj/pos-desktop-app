@@ -45,7 +45,9 @@ import type {
   ManagedTableStatus,
   SavePaymentPayload,
   MenuCategory,
-  TaxRate,
+  TaxRates,
+  TaxRateRow,
+  AddTaxRatePayload,
   MyAccess,
   ManagedUser,
   OutletOption,
@@ -170,7 +172,8 @@ export interface NewOrderLine {
 }
 
 export interface OrderEntryRepository {
-  getTaxRate(outletId: string): Promise<TaxRate>;
+  /** Rates in force now for the signed-in user's outlet. */
+  getTaxRates(): Promise<TaxRates>;
   placeDineInOrder(args: {
     outletId: string;
     tableId: string;
@@ -257,6 +260,16 @@ export interface MenuRepository {
 }
 
 // ---------------------------------------------------------------------------
+// Tax rates (Tax rates screen). Authorized server-side (tax.manage).
+// ---------------------------------------------------------------------------
+export interface TaxRepository {
+  list(): Promise<TaxRateRow[]>;
+  add(payload: AddTaxRatePayload): Promise<void>;
+  /** Only a scheduled rate that has not started yet can be removed. */
+  remove(id: string): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
 // Users, invoicing, reports
 // ---------------------------------------------------------------------------
 export interface UserRepository {
@@ -305,6 +318,7 @@ export interface DataProvider {
   orders: OrderRepository;
   orderAdmin: OrderAdminRepository;
   orderEntry: OrderEntryRepository;
+  tax: TaxRepository;
   tables: TableRepository;
   menu: MenuRepository;
   users: UserRepository;

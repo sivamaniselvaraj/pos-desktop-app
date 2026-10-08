@@ -2,7 +2,7 @@ import { db, type NewOrderLine } from './data';
 import { getCachedMenuItems } from './menuCache';
 import { config } from './config';
 import { computeTotals, type PricedLine } from '../shared/orderTotals';
-import type { PlaceOrderPayload, PlaceOrderResult, TaxRate } from '../shared/types';
+import type { PlaceOrderPayload, PlaceOrderResult, TaxRates } from '../shared/types';
 import {
   DINE_IN_ORDER_TYPE,
 }from '../shared/types';
@@ -17,8 +17,8 @@ import {
  * ---------------------------------------------------------------------------
  */
 
-export function getTaxRate(): Promise<TaxRate> {
-  return db.orderEntry.getTaxRate(config.outletId);
+export function getTaxRate(): Promise<TaxRates> {
+  return db.orderEntry.getTaxRates();
 }
 
 export async function placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrderResult> {
@@ -30,6 +30,7 @@ export async function placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrder
   const menu = new Map<string, Record<string, unknown>>();
   for (const it of getCachedMenuItems().items) menu.set(String(it.id), it);
 
+  const rates = await getTaxRate();
   const lines: PricedLine[] = [];
   const newLines: NewOrderLine[] = [];
   for (const l of payload.items) {
@@ -41,7 +42,14 @@ export async function placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrder
     const qty = Math.floor(Number(l.quantity));
     if (!Number.isFinite(qty) || qty < 1 || qty > 99) throw new Error(`Invalid quantity for "${String(m.name)}".`);
     const unit = Number(m.price);
-    lines.push({ unitPrice: unit, quantity: qty, containerPercent: Number(m.container_charge ?? 0) || 0 });
+    const rate = (m.category_id ? rates.byCategory[String(m.category_id)] : undefined) ?? rates.defaultRate;
+    lines.push({
+      unitPrice: unit,
+      quantity: qty,
+      containerPercent: Number(m.container_charge ?? 0) || 0,
+      taxName: rate.name,
+      taxPercent: rate.ratePercent,
+    });
     newLines.push({
       menuItemId: l.menuItemId,
       unitPrice: unit,
@@ -50,8 +58,8 @@ export async function placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrder
     });
   }
 
-  const tax = await getTaxRate();
-  const totals = computeTotals(lines, tax.ratePercent, !isDineIn);
+  // Estimate only: the database recalculates tax and total when it saves the order.
+  const totals = computeTotals(lines, !isDineIn);
 
   let orderId: string;
   if (isDineIn) {

@@ -27,6 +27,7 @@ import {
 import { listMenuCategories, saveMenuItem } from './menuManager';
 import { getMyAccess } from './accessManager';
 import { getTaxRate, placeOrder } from './orderEntryManager';
+import { addTaxRate, deleteTaxRate, listTaxRates } from './taxManager';
 import {
   listOrders,
   getInvoiceOrderDetail,
@@ -65,6 +66,7 @@ import type {
   PlaceOrderPayload,
   SaveMenuItemPayload,
   ManagedTableStatus,
+  AddTaxRatePayload,
 } from '../shared/types';
 
 /**
@@ -241,6 +243,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   );
   ipcMain.handle(IpcChannels.GET_MY_ACCESS, () => getMyAccess());
   ipcMain.handle(IpcChannels.GET_TAX_RATE, () => getTaxRate());
+  ipcMain.handle(IpcChannels.LIST_TAX_RATES, () => listTaxRates());
+  ipcMain.handle(IpcChannels.ADD_TAX_RATE, (_e, payload: AddTaxRatePayload) => addTaxRate(payload));
+  ipcMain.handle(IpcChannels.DELETE_TAX_RATE, (_e, id: string) => deleteTaxRate(id));
   ipcMain.handle(IpcChannels.PLACE_ORDER, (_e, payload: PlaceOrderPayload) => placeOrder(payload));
   ipcMain.handle(IpcChannels.SAVE_MANAGED_TABLE, (_e, payload: SaveManagedTablePayload) =>
     saveManagedTable(payload),

@@ -9,6 +9,7 @@ import { access } from './access';
 import { orders } from './orders';
 import { orderAdmin } from './orderAdmin';
 import { orderEntry } from './orderEntry';
+import { tax } from './tax';
 import { tables } from './tables';
 import { menu } from './menu';
 import { users } from './users';
@@ -25,6 +26,7 @@ export function createSupabaseProvider(): DataProvider {
     orders,
     orderAdmin,
     orderEntry,
+    tax,
     tables,
     menu,
     users,

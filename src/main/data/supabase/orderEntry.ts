@@ -1,5 +1,6 @@
 import { getAuthedClient } from './sessionClient';
 import type { NewOrderLine, OrderEntryRepository } from '../ports';
+import type { TaxRates } from '../../../shared/types';
 
 function toJsonItems(items: NewOrderLine[]) {
   return items.map((i) => ({
@@ -11,18 +12,16 @@ function toJsonItems(items: NewOrderLine[]) {
 }
 
 export const orderEntry: OrderEntryRepository = {
-  async getTaxRate(outletId) {
-    const { data, error } = await getAuthedClient()
-      .from('tax_settings')
-      .select('name, rate_percent')
-      .eq('outlet_id', outletId)
-      .eq('is_active', true)
-      .order('updated_at', { ascending: false })
-      .limit(1);
+  async getTaxRates() {
+    const { data, error } = await getAuthedClient().rpc('effective_tax_rates');
     if (error) throw new Error(error.message);
-    const row = (data ?? [])[0] as { name?: string; rate_percent?: number | string } | undefined;
-    if (!row) return { name: 'GST', ratePercent: 0, configured: false };
-    return { name: row.name || 'GST', ratePercent: Number(row.rate_percent ?? 0), configured: true };
+    const out: TaxRates = { defaultRate: { name: 'GST', ratePercent: 0, configured: false }, byCategory: {} };
+    for (const r of (data ?? []) as Record<string, unknown>[]) {
+      const rate = { name: String(r.tax_name || 'GST'), ratePercent: Number(r.rate ?? 0) };
+      if (r.category_id) out.byCategory[String(r.category_id)] = rate;
+      else out.defaultRate = { ...rate, configured: r.configured === true };
+    }
+    return out;
   },
 
   async placeDineInOrder(a) {
