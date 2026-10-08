@@ -115,7 +115,7 @@ export const orderAdmin: OrderAdminRepository = {
       auditId: String(row.audit_id ?? ''),
       orderItemId: String(row.order_item_id ?? ''),
       itemName: String(row.item_name ?? 'Item'),
-      action: row.action === 'delete' ? 'delete' : ('edit' as 'edit' | 'delete'),
+      action: String(row.action),
       changedAt: String(row.changed_at ?? ''),
       changedByName: String(row.changed_by_name ?? 'Unknown'),
       oldQuantity: row.old_quantity != null ? Number(row.old_quantity) : undefined,
