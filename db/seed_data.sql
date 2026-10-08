@@ -30,5 +30,7 @@ insert into app_menus (code, label, icon, sort_order, required_permission) value
   ('sales-report', 'Sales Report', 'reports',   70, 'reports.view'),
   ('users',        'Users',        'users',     80, 'users.manage'),
   ('settings',     'Settings',     'settings',  90, 'settings.view'),
-  ('about',        'About',        'info',     100, 'about.view')
+  ('about',        'About',        'info',     100, 'about.view'),
+  ('tax-rates', 'Tax', 'reports', 85, 'tax.manage')
+on conflict (code) do nothing;
 on conflict (code) do nothing;

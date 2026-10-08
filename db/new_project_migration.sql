@@ -79,7 +79,13 @@ alter table app_menus        enable row level security;
 drop policy if exists "authenticated read menus" on app_menus;
 create policy "authenticated read menus" on app_menus for select to authenticated using (true);
 
-create table public.outlets (
+-- ============================================================================
+-- OUTLETS: Store/Restaurant information
+-- ============================================================================
+-- Each order belongs to one outlet/store. The outlet contains branding, 
+-- contact info, and location data for the receipt.
+
+create table if not exists outlets (
   id uuid not null default gen_random_uuid (),
   name text not null,
   address text null,
@@ -88,6 +94,7 @@ create table public.outlets (
   created_at timestamp with time zone not null default now(),
   updated_at timestamp with time zone not null default now(),
   gst_number text null,
+  is_active boolean not null default true,
   constraint outlets_pkey primary key (id)
 );
 create policy "authenticated read outlets" on outlets for select to authenticated using (true);
@@ -97,7 +104,7 @@ update on outlets for EACH row
 execute FUNCTION update_updated_at_column ();
 
 
-create table public.tables (
+create table if not exists public.tables (
   id uuid not null default gen_random_uuid (),
   outlet_id uuid not null,
   table_number text not null,
@@ -131,7 +138,13 @@ create trigger update_tables_updated_at BEFORE
 update on tables for EACH row
 execute FUNCTION update_updated_at_column ();
 
-create table public.profiles (
+-- ============================================================================
+-- AUTH: profiles + authorization
+-- ============================================================================
+-- The app authenticates operators with Supabase Auth and authorizes them via
+-- this profiles table: an account must have a profile row and is_active = true.
+
+create table if not exists public.profiles (
   id uuid not null default gen_random_uuid (),
   user_id uuid not null,
   outlet_id uuid null,
@@ -170,6 +183,15 @@ create index IF not exists idx_profiles_org on public.profiles using btree (org_
 create trigger update_profiles_updated_at BEFORE
 update on profiles for EACH row
 execute FUNCTION update_updated_at_column ();
+
+-- A signed-in user may read and update only their own profile.
+drop policy if exists "read own profile" on profiles;
+create policy "read own profile" on profiles
+  for select using (auth.uid() = id);
+
+drop policy if exists "update own profile" on profiles;
+create policy "update own profile" on profiles
+  for update using (auth.uid() = id);
 
 -- GST rate per outlet. The New Order page reads the newest active row for the
 -- signed-in user's outlet. Only manager/owner/admin may change it.
@@ -374,9 +396,9 @@ alter table editor_approval_attempts enable row level security;
 -- get_invoice_sequence_status()/reset_invoice_sequence()), which run with
 -- elevated privileges and so aren't blocked by RLS having zero policies —
 -- direct client access (anon or authenticated) is not needed anywhere and
--- is fully denied.
+--e is fully denied.
 
-create table public.menu_items (
+create table if not exists public.menu_items (
   id uuid not null default gen_random_uuid (),
   outlet_id uuid not null,
   category_id uuid not null,
@@ -405,8 +427,36 @@ create trigger update_menu_items_updated_at BEFORE
 update on menu_items for EACH row
 execute FUNCTION update_updated_at_column ();
 
+create policy "insert own menu items rows"
+on "public"."menu_items"
+as PERMISSIVE
+for INSERT
+to authenticated
+using (
+  exists (
+    select 1 from profiles p       
+    where p.user_id = auth.uid() 
+    and has_permission('menu.edit')    
+  )
+);
 
-create table public.orders (
+create policy "update own menu items rows"
+on "public"."menu_items"
+as PERMISSIVE
+for UPDATE
+to authenticated
+using (
+  exists (
+    select 1 from profiles p       
+    where p.user_id = auth.uid() 
+    and has_permission('menu.edit')    
+  )
+);
+
+
+-- create the orders table.
+
+create table if not exists public.orders (
   id uuid not null default gen_random_uuid (),
   outlet_id uuid not null,
   table_id uuid null,
@@ -415,6 +465,7 @@ create table public.orders (
   status text null default 'pending'::text,
   subtotal numeric(10, 2) null default 0,
   tax_amount numeric(10, 2) null default 0,
+  tax_rate numeric(10,2) not null default 0,
   discount_amount numeric(10, 2) null default 0,
   total_amount numeric(10, 2) null default 0,
   payment_status text null default 'pending'::text,
@@ -580,3 +631,60 @@ create table public.order_sequences (
   constraint order_sequences_outlet_id_key unique (outlet_id),
   constraint order_sequences_outlet_id_fkey foreign KEY (outlet_id) references outlets (id) on delete CASCADE
 );
+
+-- ============================================================================
+-- TAX RATES: per category, effective-dated, fixed on each order line
+-- ============================================================================
+-- See docs/TAX_PLAN.md. Prices are tax-exclusive.
+--
+-- tax_rates is APPEND-ONLY. To change a rate you add a row with a later
+-- effective_from; the newest row that has taken effect wins. A row with a
+-- category_id applies to that category; category_id null is the outlet's
+-- DEFAULT rate, used by every category without a rate of its own. A category
+-- row with a null rate means "use the default from this date" (it undoes an
+-- override). An explicit 0 means exempt. Rows are written only through
+-- add_tax_rate() / delete_tax_rate() (tax.manage, own outlet); a row can be
+-- deleted only while it is still scheduled for the future.
+--
+-- Every order line keeps the rate it was created with (order_items
+-- .tax_rate_percent / .tax_name), so a later rate change never touches an
+-- existing order. orders.tax_breakdown stores the per-rate split for the bill.
+create table if not exists tax_rates (
+  id             uuid primary key default gen_random_uuid(),
+  outlet_id      uuid not null references outlets(id) on delete cascade,
+  category_id    uuid,
+  name           text not null default 'GST' check (char_length(btrim(name)) between 1 and 30),
+  rate_percent   numeric(5,2) check (rate_percent is null or (rate_percent >= 0 and rate_percent <= 100)),
+  effective_from timestamptz not null,
+  created_by     uuid,
+  created_at     timestamptz not null default now(),
+  check (category_id is not null or rate_percent is not null)
+);
+create unique index if not exists tax_rates_scope_time_uq
+  on tax_rates (outlet_id, coalesce(category_id, '00000000-0000-0000-0000-000000000000'::uuid), effective_from);
+create index if not exists tax_rates_lookup_idx on tax_rates (outlet_id, category_id, effective_from desc);
+
+do $$
+begin
+  if to_regclass('public.categories') is not null
+     and not exists (select 1 from pg_constraint where conname = 'tax_rates_category_fk') then
+    alter table tax_rates
+      add constraint tax_rates_category_fk foreign key (category_id) references categories(id) on delete cascade;
+  end if;
+end $$;
+
+alter table tax_rates enable row level security;
+
+-- Reading the table is for the Tax screen (tax.manage). Everyone who places
+-- orders gets the current rates through effective_tax_rates() instead.
+drop policy if exists "tax managers read own outlet rates" on tax_rates;
+create policy "tax managers read own outlet rates" on tax_rates
+  for select to authenticated
+  using (has_permission('tax.manage')
+         and exists (select 1 from profiles p
+                      where p.user_id = auth.uid() and p.outlet_id = tax_rates.outlet_id));
+
+-- What each order line was taxed at, and the per-rate split of each order.
+alter table order_items add column if not exists tax_rate_percent numeric(5,2);
+alter table order_items add column if not exists tax_name text;
+alter table orders      add column if not exists tax_breakdown jsonb;

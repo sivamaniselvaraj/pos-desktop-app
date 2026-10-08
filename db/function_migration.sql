@@ -279,7 +279,7 @@ as $$
    and has_permission('tables.view')
   where o.outlet_id = p_outlet_id
     and o.table_id is not null
-    and o.status <> 'cancelled'
+    and o.status not in ('cancelled', 'completed')
     and o.payment_details is null
   group by o.table_id;
 $$;
@@ -440,3 +440,131 @@ as $$
 $$;
 
 grant execute on function list_orders(uuid, text, text, date, date, integer, integer) to authenticated;
+
+-- ============================================================================
+-- TAX RATES: functions used by the app (see docs/TAX_PLAN.md)
+-- ============================================================================
+
+-- effective_tax_rates(): the rates in force NOW for the caller's outlet: one
+-- row for the default (category_id null) and one per category that has ever
+-- had its own rate. The New Order page uses it for the live cart; the
+-- database recalculates authoritatively when the order is placed.
+drop function if exists effective_tax_rates();
+create or replace function effective_tax_rates()
+returns table (category_id uuid, tax_name text, rate numeric, configured boolean)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not (has_permission('orders.place') or has_permission('tax.manage')) then
+    return;
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    return;
+  end if;
+
+  return query
+    select null::uuid, d.tax_name, d.rate,
+           exists (select 1 from tax_rates r
+                    where r.outlet_id = v_outlet and r.category_id is null
+                      and r.effective_from <= now())
+      from tax_rate_for(v_outlet, null, now()) d
+    union all
+    select c.category_id, t.tax_name, t.rate, true
+      from (select distinct r.category_id from tax_rates r
+             where r.outlet_id = v_outlet and r.category_id is not null) c
+     cross join lateral tax_rate_for(v_outlet, c.category_id, now()) t;
+end;
+$$;
+grant execute on function effective_tax_rates() to authenticated;
+
+-- list_tax_rates(): every row of the caller's outlet for the Tax screen, with
+-- its state: 'scheduled' (not yet in force), 'current' (the one in force for
+-- its scope now) or 'past'. tax.manage only.
+create or replace function list_tax_rates()
+returns table (
+  id uuid, category_id uuid, tax_name text, rate_percent numeric,
+  effective_from timestamptz, created_at timestamptz, created_by_name text, state text
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not has_permission('tax.manage') then
+    raise exception 'Only users with tax access can view tax rates';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+
+  return query
+    select r.id, r.category_id, r.name, r.rate_percent, r.effective_from, r.created_at,
+           coalesce(nullif(btrim(pr.full_name), ''), pr.email),
+           case
+             when r.effective_from > now() then 'scheduled'
+             when r.effective_from = (select max(x.effective_from) from tax_rates x
+                                       where x.outlet_id = r.outlet_id
+                                         and x.category_id is not distinct from r.category_id
+                                         and x.effective_from <= now())
+               then 'current'
+             else 'past'
+           end
+      from tax_rates r
+      left join profiles pr on pr.user_id = r.created_by
+     where r.outlet_id = v_outlet
+     order by r.category_id nulls first, r.effective_from desc;
+end;
+$$;
+grant execute on function list_tax_rates() to authenticated;
+
+-- tax_rate_for(outlet, category, at): the rate in force at `at`. A category
+-- with no usable rate of its own gets the outlet default. With no default at
+-- all the rate is 0 (the Tax screen warns). Always returns exactly one row.
+-- Internal helper: not callable by app users.
+create or replace function tax_rate_for(p_outlet uuid, p_category uuid, p_at timestamptz)
+returns table (tax_name text, rate numeric)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_name text;
+  v_rate numeric;
+begin
+  if p_category is not null then
+    select r.name, r.rate_percent into v_name, v_rate
+      from tax_rates r
+     where r.outlet_id = p_outlet and r.category_id = p_category and r.effective_from <= p_at
+     order by r.effective_from desc
+     limit 1;
+    if found and v_rate is not null then
+      tax_name := v_name; rate := v_rate;
+      return next;
+      return;
+    end if;
+  end if;
+
+  select r.name, r.rate_percent into v_name, v_rate
+    from tax_rates r
+   where r.outlet_id = p_outlet and r.category_id is null and r.effective_from <= p_at
+   order by r.effective_from desc
+   limit 1;
+  tax_name := coalesce(v_name, 'GST');
+  rate := coalesce(v_rate, 0);
+  return next;
+end;
+$$;
+revoke all on function tax_rate_for(uuid, uuid, timestamptz) from public, anon, authenticated;
