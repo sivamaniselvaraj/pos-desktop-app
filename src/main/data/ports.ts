@@ -251,6 +251,8 @@ export interface MenuRepository {
   /** The outlet's full menu as raw items plus category_id / category_name. Works without a signed-in user. */
   fetchMenu(outletId: string): Promise<Record<string, unknown>[]>;
   setItemActive(menuItemId: string, isActive: boolean): Promise<void>;
+  /** Every item of the category in this outlet (null = items with no category). Returns how many rows changed. */
+  setCategoryActive(outletId: string, categoryId: string | null, isActive: boolean): Promise<number>;
   listCategories(): Promise<MenuCategory[]>;
   /** Ids of items in this outlet whose name equals `name`, ignoring case. */
   findItemIdsByName(outletId: string, name: string): Promise<string[]>;

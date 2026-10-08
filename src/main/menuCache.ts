@@ -86,6 +86,13 @@ export async function setMenuItemActive(
   return refreshMenuCache();
 }
 
+/** Turn a whole category on or off ("the whole category ran out"), then refresh the cache for Android. */
+export async function setCategoryActive(categoryId: string, isActive: boolean): Promise<MenuCacheState> {
+  if (!config.outletId) throw new Error('OUTLET_ID is not configured for this machine.');
+  await db.menu.setCategoryActive(config.outletId, categoryId || null, isActive);
+  return refreshMenuCache();
+}
+
 /** Drops the cached menu (used when a runtime-bound outlet signs out, so the next user never sees it). */
 export function clearMenuCache(): void {
   items = [];

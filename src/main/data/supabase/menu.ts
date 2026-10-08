@@ -53,6 +53,16 @@ export const menu: MenuRepository = {
     if (!data || data.length === 0) throw new Error('Not authorized, or menu item not found');
   },
 
+  // Same RLS check as setItemActive; only this outlet's items are touched.
+  async setCategoryActive(outletId, categoryId, isActive) {
+    let q = getAuthedClient().from('menu_items').update({ is_active: isActive }).eq('outlet_id', outletId);
+    q = categoryId ? q.eq('category_id', categoryId) : q.is('category_id', null);
+    const { data, error } = await q.select('id');
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) throw new Error('Not authorized, or no items in this category');
+    return data.length;
+  },
+
   // RLS ("members read own org categories") limits this to the caller's organization.
   async listCategories() {
     const { data, error } = await getAuthedClient().from('categories').select('id, name').order('name');

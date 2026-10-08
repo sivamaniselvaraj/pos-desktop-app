@@ -654,6 +654,7 @@ export const IpcChannels = {
   GET_MENU_ITEMS: 'get-menu-items',
   REFRESH_MENU_CACHE: 'refresh-menu-cache',
   SET_MENU_ITEM_ACTIVE: 'set-menu-item-active',
+  SET_CATEGORY_ACTIVE: 'set-category-active',
   LIST_TABLES: 'list-tables',
   LIST_MANAGED_TABLES: 'list-managed-tables',
   GET_TAX_RATE: 'get-tax-rate',
@@ -739,6 +740,8 @@ export interface ElectronApi {
   getMenuItems(): Promise<MenuCacheSnapshot>;
   refreshMenuCache(): Promise<MenuCacheSnapshot>;
   setMenuItemActive(menuItemId: string, isActive: boolean): Promise<MenuCacheSnapshot>;
+  /** Turn every item of a category on or off (this outlet). categoryId '' = items without a category. */
+  setCategoryActive(categoryId: string, isActive: boolean): Promise<MenuCacheSnapshot>;
   listTables(): Promise<TableCard[]>;
   listManagedTables(): Promise<ManagedTable[]>;
   getTaxRate(): Promise<TaxRates>;

@@ -61,6 +61,7 @@ export function MenuItemsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [togglingCat, setTogglingCat] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(
     null,
   );
@@ -147,6 +148,23 @@ export function MenuItemsPage() {
     }
   }
 
+  async function handleToggleCategory(group: { key: string; name: string; items: MenuItemRecord[] }) {
+    const allOn = group.items.every((i) => i.is_active !== false);
+    const next = !allOn;
+    const verb = next ? 'on' : 'off';
+    if (!next && !confirm(`Turn off all ${group.items.length} item(s) in "${group.name}"?`)) return;
+    try {
+      setTogglingCat(group.key);
+      const result = await window.api.setCategoryActive(group.key, next);
+      setSnapshot(result);
+      flash('success', `${group.name}: all items turned ${verb}`);
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to update category' });
+    } finally {
+      setTogglingCat(null);
+    }
+  }
+
   function flash(type: 'success' | 'error', text: string) {
     setMessage({ type, text });
     setTimeout(() => setMessage(null), 3000);
@@ -169,6 +187,20 @@ export function MenuItemsPage() {
     if (!q) return snapshot.items;
     return snapshot.items.filter((item) => {return String(item.name ?? '').toLowerCase().includes(q) || String(item.search_key ?? '').toLowerCase().includes(q) });
   }, [snapshot.items, searchQuery]);
+
+  // Items grouped by category (categories A-Z, uncategorised last).
+  const groups = useMemo(() => {
+    const m = new Map<string, { key: string; name: string; items: MenuItemRecord[] }>();
+    for (const item of filteredItems) {
+      const key = item.category_id ? String(item.category_id) : '';
+      const g = m.get(key) ?? { key, name: key ? String(item.category_name ?? 'Category') : 'No category', items: [] };
+      g.items.push(item);
+      m.set(key, g);
+    }
+    return [...m.values()].sort((a, b) =>
+      a.key === '' ? 1 : b.key === '' ? -1 : a.name.localeCompare(b.name),
+    );
+  }, [filteredItems]);
 
   return (
     <div className={pageStyles.page}>
@@ -226,8 +258,35 @@ export function MenuItemsPage() {
               {canManage && <th>Actions</th>}
             </tr>
           </thead>
-          <tbody>
-            {filteredItems.map((item: MenuItemRecord, i) => {
+          {groups.map((group) => {
+            const onCount = group.items.filter((i) => i.is_active !== false).length;
+            const allOn = onCount === group.items.length;
+            const state = allOn ? 'On' : onCount === 0 ? 'Off' : 'Mixed';
+            return (
+              <tbody key={group.key || 'none'}>
+                <tr className={styles.groupRow}>
+                  <td colSpan={columns.length + 1 + (canManage ? 1 : 0)}>
+                    <div className={styles.groupBar}>
+                      <strong>{group.name}</strong>
+                      <span className={pageStyles.muted}>
+                        {group.items.length} item{group.items.length === 1 ? '' : 's'} · {onCount} on
+                      </span>
+                      {canManage && (
+                        <button
+                          className={`${styles.statusToggle} ${
+                            allOn ? styles.statusOn : state === 'Off' ? styles.statusOff : styles.statusMixed
+                          }`}
+                          onClick={() => void handleToggleCategory(group)}
+                          disabled={togglingCat === group.key}
+                          title={allOn ? 'Turn off the whole category' : 'Click to turn the whole category on'}
+                        >
+                          {togglingCat === group.key ? '…' : (allOn ? 'All on' : state === 'Off' ? 'All off' : 'Some on')}
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+            {group.items.map((item: MenuItemRecord, i) => {
               const id = String(item.id ?? i);
               const isActive = item.is_active !== false;
               return (
@@ -267,6 +326,8 @@ export function MenuItemsPage() {
               );
             })}
           </tbody>
+            );
+          })}
         </table>
       )}
       {formItem !== undefined && (

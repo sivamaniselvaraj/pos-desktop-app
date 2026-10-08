@@ -116,3 +116,23 @@
 .statusOff:hover:not(:disabled) {
   background: #fecaca;
 }
+
+.groupRow td {
+  background: #f6f7f9;
+  padding: 8px 12px;
+}
+
+.groupBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.groupBar .statusToggle {
+  margin-left: auto;
+}
+
+.statusMixed {
+  background: #fef3c7;
+  color: #b45309;
+}

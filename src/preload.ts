@@ -129,6 +129,8 @@ const api: ElectronApi = {
   getMenuItems: () => ipcRenderer.invoke(IpcChannels.GET_MENU_ITEMS) as Promise<MenuCacheSnapshot>,
   refreshMenuCache: () =>
     ipcRenderer.invoke(IpcChannels.REFRESH_MENU_CACHE) as Promise<MenuCacheSnapshot>,
+  setCategoryActive: (categoryId, isActive) =>
+    ipcRenderer.invoke(IpcChannels.SET_CATEGORY_ACTIVE, categoryId, isActive) as Promise<MenuCacheSnapshot>,
   setMenuItemActive: (menuItemId, isActive) =>
     ipcRenderer.invoke(
       IpcChannels.SET_MENU_ITEM_ACTIVE,

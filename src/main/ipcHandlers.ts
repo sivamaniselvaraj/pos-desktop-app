@@ -40,7 +40,7 @@ import {
   reprintOrder,
   reprintTableBill,
 } from './ordersListManager';
-import { getCachedMenuItems, refreshMenuCache, setMenuItemActive } from './menuCache';
+import { getCachedMenuItems, refreshMenuCache, setCategoryActive, setMenuItemActive } from './menuCache';
 import {
   listTables,
   listManagedTables,
@@ -230,8 +230,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   // in Promise.resolve() only so it matches the async invoke() contract.
   ipcMain.handle(IpcChannels.GET_MENU_ITEMS, () => Promise.resolve(getCachedMenuItems()));
   ipcMain.handle(IpcChannels.REFRESH_MENU_CACHE, () => refreshMenuCache());
-  ipcMain.handle(IpcChannels.SET_MENU_ITEM_ACTIVE, (_e, menuItemId: string, isActive: boolean) =>
-    setMenuItemActive(menuItemId, isActive),
+  ipcMain.handle(IpcChannels.SET_CATEGORY_ACTIVE, (_e, categoryId: string, isActive: boolean) =>
+    setCategoryActive(categoryId, isActive),
+  );
+  ipcMain.handle(
+    IpcChannels.SET_MENU_ITEM_ACTIVE,
+    (_e, menuItemId: string, isActive: boolean) => setMenuItemActive(menuItemId, isActive),
   );
 
   // Dashboard table cards
