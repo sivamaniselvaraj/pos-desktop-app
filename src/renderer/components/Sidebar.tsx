@@ -16,7 +16,7 @@ interface NavItem {
 // names from the database are checked against the icons bundled in the app.
 const KNOWN_ICONS = new Set<string>([
   'printer', 'dashboard', 'history', 'reports', 'settings', 'info', 'menu', 'print', 'table', 'foodMenu', 'orders', 
-  'refresh', 'plus', 'check', 'trash', 'lock', 'logout', 'user', 'users', 'edit', 'view', 'save',
+  'refresh', 'plus', 'check', 'trash', 'lock', 'logout', 'user', 'users', 'edit', 'view', 'save','taxIcon',
 ]);
 
 interface SidebarProps {
