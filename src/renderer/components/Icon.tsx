@@ -29,7 +29,8 @@ type IconName =
   | 'edit'
   | 'view'
   | 'save'
-  | 'table';
+  | 'table'
+  | 'tax';
 
 interface IconProps {
   name: IconName;
@@ -341,6 +342,16 @@ const paths: Record<IconName, ReactElement> = {
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round" d="M17 21v-8H7v8M7 3v5h8"
+        />
+    </>
+  ),
+  tax: (
+    <>
+    <path fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round" d="M192 128a96 96 0 1 0 -192 0 96 96 0 1 0 192 0zM448 384a96 96 0 1 0 -192 0 96 96 0 1 0 192 0zM438.6 86.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-384 384c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0l384-384z"
         />
     </>
   ),

@@ -6,6 +6,7 @@ import { Settings } from './pages/Settings';
 import { History } from './pages/History';
 import { SalesReport } from './pages/SalesReport';
 import { UserManagement } from './pages/UserManagement';
+import { TaxRates } from './pages/TaxRates';
 import { NewOrder } from './pages/NewOrder';
 import { TablesManagement } from './pages/TablesManagement';
 import { OrdersList } from './pages/OrdersList';
@@ -72,6 +73,7 @@ export default function App() {
           {current === 'history' && <History />}
           {current === 'sales-report' && <SalesReport />}
           {current === 'users' && <UserManagement />}
+          {current === 'tax-rates' && <TaxRates />}
           {current === 'orders-list' && <OrdersList />}
           {current === 'tables' && <TablesManagement />}
           {current === 'new-order' && <NewOrder />}

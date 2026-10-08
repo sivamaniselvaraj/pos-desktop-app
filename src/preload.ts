@@ -23,7 +23,9 @@ import type {
   MenuCacheSnapshot,
   TableCard,
   ManagedTable,
-  TaxRate,
+  TaxRates,
+  TaxRateRow,
+  AddTaxRatePayload,
   MyAccess,
   MenuCategory,
   PlaceOrderResult,
@@ -141,7 +143,11 @@ const api: ElectronApi = {
   saveMenuItem: (payload) =>
     ipcRenderer.invoke(IpcChannels.SAVE_MENU_ITEM, payload) as Promise<MenuCacheSnapshot>,
   getMyAccess: () => ipcRenderer.invoke(IpcChannels.GET_MY_ACCESS) as Promise<MyAccess | null>,
-  getTaxRate: () => ipcRenderer.invoke(IpcChannels.GET_TAX_RATE) as Promise<TaxRate>,
+  getTaxRate: () => ipcRenderer.invoke(IpcChannels.GET_TAX_RATE) as Promise<TaxRates>,
+  listTaxRates: () => ipcRenderer.invoke(IpcChannels.LIST_TAX_RATES) as Promise<TaxRateRow[]>,
+  addTaxRate: (payload: AddTaxRatePayload) =>
+    ipcRenderer.invoke(IpcChannels.ADD_TAX_RATE, payload) as Promise<void>,
+  deleteTaxRate: (id: string) => ipcRenderer.invoke(IpcChannels.DELETE_TAX_RATE, id) as Promise<void>,
   placeOrder: (payload) =>
     ipcRenderer.invoke(IpcChannels.PLACE_ORDER, payload) as Promise<PlaceOrderResult>,
   saveManagedTable: (payload) =>

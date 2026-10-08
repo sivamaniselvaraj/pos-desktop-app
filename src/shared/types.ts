@@ -50,6 +50,8 @@ export interface FoodOrder {
   items: OrderItem[];
   subtotal: number;
   tax: number;
+  /** Tax per rate (one line per rate). Empty for orders placed before per-rate tax. */
+  taxBreakdown?: TaxBreakdownLine[];
   total: number;
   /** Pickup orders only; 0/undefined for dine-in and delivery. */
   containerCharge?: number;
@@ -446,8 +448,45 @@ export interface PlaceOrderResult {
 export interface TaxRate {
   name: string;
   ratePercent: number;
-  /** false when no active tax_settings row exists for the outlet (rate falls back to 0). */
-  configured: boolean;
+}
+
+/** The rates in force now for the signed-in user's outlet (New Order page). */
+export interface TaxRates {
+  /** Outlet default; used for categories without their own rate. */
+  defaultRate: TaxRate & { configured: boolean };
+  /** Category id -> that category's own rate. */
+  byCategory: Record<string, TaxRate>;
+}
+
+/** One line of the bill's tax summary: tax for one rate. */
+export interface TaxBreakdownLine {
+  name: string;
+  rate: number;
+  taxable: number;
+  tax: number;
+}
+
+/** A row on the Tax rates screen. categoryId null = the outlet default. */
+export interface TaxRateRow {
+  id: string;
+  categoryId: string | null;
+  taxName: string;
+  /** null = this category goes back to the outlet default. */
+  ratePercent: number | null;
+  effectiveFrom: string;
+  createdAt: string;
+  createdByName?: string;
+  state: 'scheduled' | 'current' | 'past';
+}
+
+export interface AddTaxRatePayload {
+  /** null = outlet default. */
+  categoryId: string | null;
+  taxName: string;
+  /** null (categories only) = go back to the outlet default. */
+  ratePercent: number | null;
+  /** Local date-time at the outlet (yyyy-MM-ddTHH:mm); empty = now. */
+  effectiveLocal?: string;
 }
 
 export type ManagedTableStatus = 'available' | 'occupied' | 'reserved' | 'cleaning';
@@ -531,8 +570,8 @@ export interface CreateUserPayload {
 }
 
 export interface UpdateUserPayload {
-  fullName: string;
   userId: string;
+  fullName: string;
   phone?: string;
   role: UserRole;
   outletId?: string;
@@ -618,6 +657,9 @@ export const IpcChannels = {
   LIST_TABLES: 'list-tables',
   LIST_MANAGED_TABLES: 'list-managed-tables',
   GET_TAX_RATE: 'get-tax-rate',
+  LIST_TAX_RATES: 'list-tax-rates',
+  ADD_TAX_RATE: 'add-tax-rate',
+  DELETE_TAX_RATE: 'delete-tax-rate',
   GET_MY_ACCESS: 'get-my-access',
   LIST_MENU_CATEGORIES: 'list-menu-categories',
   SAVE_MENU_ITEM: 'save-menu-item',
@@ -699,7 +741,10 @@ export interface ElectronApi {
   setMenuItemActive(menuItemId: string, isActive: boolean): Promise<MenuCacheSnapshot>;
   listTables(): Promise<TableCard[]>;
   listManagedTables(): Promise<ManagedTable[]>;
-  getTaxRate(): Promise<TaxRate>;
+  getTaxRate(): Promise<TaxRates>;
+  listTaxRates(): Promise<TaxRateRow[]>;
+  addTaxRate(payload: AddTaxRatePayload): Promise<void>;
+  deleteTaxRate(id: string): Promise<void>;
   getMyAccess(): Promise<MyAccess | null>;
   listMenuCategories(): Promise<MenuCategory[]>;
   saveMenuItem(payload: SaveMenuItemPayload): Promise<MenuCacheSnapshot>;

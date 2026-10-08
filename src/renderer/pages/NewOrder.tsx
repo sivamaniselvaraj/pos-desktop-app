@@ -4,9 +4,9 @@ import { Icon } from '../components/Icon';
 import { computeTotals } from '../../shared/orderTotals';
 import type {
   ManagedTable,
-  PlaceOrderResult,
-  TaxRate,
   OrderType,
+  PlaceOrderResult,
+  TaxRates,
 } from '@shared/types';
 
 import {
@@ -27,6 +27,7 @@ interface MenuEntry {
   name: string;
   price: number;
   category: string;
+  categoryId: string;
   isVeg: boolean;
   searchKey: string;
   containerPercent: number;
@@ -43,6 +44,7 @@ function toEntry(raw: Record<string, unknown>): MenuEntry | null {
     name: String(raw.name ?? ''),
     price,
     category: raw.category_name ? String(raw.category_name) : 'Other',
+    categoryId: raw.category_id ? String(raw.category_id) : '',
     // Items without the flag are treated as veg (the column default).
     isVeg: raw.is_veg !== false,
     searchKey: raw.search_key ? String(raw.search_key).toLowerCase() : '',
@@ -80,7 +82,7 @@ export function NewOrder() {
   const [menu, setMenu] = useState<MenuEntry[]>([]);
   const [menuError, setMenuError] = useState<string | null>(null);
   const [tables, setTables] = useState<ManagedTable[]>([]);
-  const [tax, setTax] = useState<TaxRate | null>(null);
+  const [tax, setTax] = useState<TaxRates | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [orderType, setOrderType] = useState<OrderType>(DINE_IN_ORDER_TYPE);
@@ -112,7 +114,9 @@ export function NewOrder() {
       setMenuError(snap.lastError);
       const [t, rate] = await Promise.all([
         window.api.listManagedTables(),
-        window.api.getTaxRate().catch(() => ({ name: 'GST', ratePercent: 0, configured: false }) as TaxRate),
+        window.api
+          .getTaxRate()
+          .catch(() => ({ defaultRate: { name: 'GST', ratePercent: 0, configured: false }, byCategory: {} }) as TaxRates),
       ]);
       setTables(t);
       setTax(rate);
@@ -207,8 +211,9 @@ export function NewOrder() {
           unitPrice: l.item.price,
           quantity: l.qty,
           containerPercent: l.item.containerPercent,
+          taxName: (tax?.byCategory[l.item.categoryId] ?? tax?.defaultRate)?.name ?? 'GST',
+          taxPercent: (tax?.byCategory[l.item.categoryId] ?? tax?.defaultRate)?.ratePercent ?? 0,
         })),
-        tax?.ratePercent ?? 0,
         orderType === PICK_UP_ORDER_TYPE,
       ),
     [cartLines, tax, orderType],
@@ -312,9 +317,9 @@ export function NewOrder() {
         </div>
 
         {menuError && <div className={styles.warn}>Menu may be out of date: {menuError}</div>}
-        {tax && !tax.configured && (
+        {tax && !tax.defaultRate.configured && (
           <div className={styles.warn}>
-            No active GST rate is set for this outlet (tax_settings), so tax is calculated as 0%. Ask a manager to add one.
+            No default tax rate is set for this outlet, so items without their own rate are taxed at 0%. Ask a manager to add one on the Tax screen.
           </div>
         )}
 
@@ -494,18 +499,28 @@ export function NewOrder() {
             <span>Subtotal</span>
             <span>{money(totals.subtotal)}</span>
           </div>
-          <div className={styles.sum}>
-            <span>
-              {tax?.name ?? 'GST'} {tax ? `${tax.ratePercent}%` : ''}
-            </span>
-            <span>{money(totals.tax)}</span>
-          </div>
           {orderType === PICK_UP_ORDER_TYPE && (
             <div className={styles.sum}>
-              <span>Container charge</span>
+              <span>Container charge {totals.containerPercent}%</span>
               <span>{money(totals.containerCharge)}</span>
             </div>
           )}
+          {totals.breakdown.length === 0 ? (
+          <div className={styles.sum}>
+              <span>Tax</span>
+              <span>{money(0)}</span>
+            </div>
+          ) : (
+            totals.breakdown.map((b) => (
+              <div className={styles.sum} key={`${b.name}|${b.rate}`}>
+            <span>
+                  {b.name} {b.rate}%
+            </span>
+                <span>{money(b.tax)}</span>
+          </div>
+           ))
+          )}
+          
           <div className={`${styles.sum} ${styles.grand}`}>
             <span>{orderType === DINE_IN_ORDER_TYPE && selectedTable?.effectiveStatus === 'occupied' ? 'Total this round' : 'Total'}</span>
             <span>{money(totals.total)}</span>
