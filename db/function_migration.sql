@@ -1875,3 +1875,186 @@ end;
 $$;
 
 grant execute on function cancel_invoice(uuid, text, text, text, text) to authenticated;
+
+-- ============================================================================
+-- get_sales_by_order_type() / get_sales_by_type_bucketed(): order-type
+-- statistics for the Sales Report page
+-- ============================================================================
+-- Same conventions as get_sales_report_uid: auth.uid() -> profiles.outlet_id
+-- gate, status = 'completed' only (a sales report reflects closed
+-- transactions, not open/cancelled ones), created_at in the caller's outlet timezone (my_timezone()) for
+-- bucketing/filtering. order_type values ('dine-in' | 'pickup' | 'delivery')
+-- are the confirmed FoodOrder.orderType union already used throughout
+-- printerManager.ts — safe to reference by literal value here, unlike most
+-- column names in this file which have needed hedging.
+
+-- Range total — one row per type, for the whole selected date range. Backs
+-- the three summary stat cards.
+create or replace function get_sales_by_order_type(p_from date, p_to date)
+returns table (order_type text, order_count bigint)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select o.order_type, count(*)::bigint as order_count
+  from orders o
+  join profiles p on p.user_id = auth.uid()
+  where has_permission('reports.view')
+    and p.outlet_id = o.outlet_id
+    and o.status = 'completed'
+    and (o.created_at at time zone (select my_timezone()))::date between p_from and p_to
+  group by o.order_type
+  order by o.order_type;
+$$;
+
+grant execute on function get_sales_by_order_type(date, date) to authenticated;
+
+
+-- Per-bucket breakdown — one row per day/month with a count per type,
+-- pivoted server-side (via FILTER) into fixed columns so the client can
+-- plot it directly as a grouped bar chart with no client-side reshaping.
+create or replace function get_sales_by_type_bucketed(
+  p_from date,
+  p_to date,
+  p_bucket text default 'day'
+)
+returns table (
+  bucket_date date,
+  dine_in_count bigint,
+  pickup_count bigint,
+  delivery_count bigint
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    date_trunc(
+      case when p_bucket = 'month' then 'month' else 'day' end,
+      (o.created_at at time zone (select my_timezone()))
+    )::date as bucket_date,
+    count(*) filter (where o.order_type = 'dine_in')::bigint as dine_in_count,
+    count(*) filter (where o.order_type = 'takeaway')::bigint as pickup_count,
+    count(*) filter (where o.order_type = 'delivery')::bigint as delivery_count
+  from orders o
+  join profiles p on p.user_id = auth.uid()
+  where has_permission('reports.view')
+    and p.outlet_id = o.outlet_id
+    and o.status = 'completed'
+    and (o.created_at at time zone (select my_timezone()))::date between p_from and p_to
+  group by 1
+  order by 1;
+$$;
+
+grant execute on function get_sales_by_type_bucketed(date, date, text) to authenticated;
+
+-- ============================================================================
+-- RPC: get_top_items(p_from, p_to, p_limit)
+-- ============================================================================
+-- Top-selling items (by quantity sold) in the caller's outlet for the given
+-- date range, from completed orders only. Same auth.uid()-via-profiles.user_id
+-- resolution and role gate as get_sales_report_uid.
+--
+-- NOTE: order_items/menu_items column names (oi.quantity, oi.total_price,
+-- oi.menu_item_id, mi.name) have NOT been verified against the real schema
+-- the way orders/profiles columns were — if this also returns empty/errors,
+-- check those column names next using the same approach (confirm real names,
+-- fix here).
+
+create or replace function get_top_items(p_from date, p_to date, p_limit integer default 10)
+returns table (
+  menu_item_id uuid,
+  name text,
+  quantity_sold bigint,
+  revenue numeric
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    mi.id as menu_item_id,
+    mi.name,
+    sum(oi.quantity)::bigint as quantity_sold,
+    sum(oi.total_price) as revenue
+  from order_items oi
+  join orders o on o.id = oi.order_id
+  join menu_items mi on mi.id = oi.menu_item_id
+  join profiles p on p.user_id = auth.uid()
+  where has_permission('reports.view')
+    and p.outlet_id is not null
+    and o.outlet_id = p.outlet_id
+    and oi.is_deleted = false
+    and o.status = 'completed'
+    and (o.created_at at time zone (select my_timezone()))::date between p_from and p_to
+  group by mi.id, mi.name
+  order by quantity_sold desc
+  limit p_limit;
+$$;
+
+grant execute on function get_top_items(date, date, integer) to authenticated;
+
+-- Supports both report RPCs.
+create index if not exists idx_orders_outlet_status_created
+  on orders (outlet_id, status, created_at);
+
+-- ============================================================================
+-- RPC: get_sales_report_uid(p_from, p_to, p_bucket)
+-- ============================================================================
+-- Completed orders in the caller's outlet for the given date range,
+-- aggregated by day or month (p_bucket = 'day' | 'month', default 'day').
+-- Results are grouped by bucket only — one row per day/month, never per
+-- order. Bucketing uses the caller's outlet local time (my_timezone(), default Asia/Kolkata) so a late-night order lands
+-- in the correct business day rather than shifting across the UTC boundary.
+--
+-- Buckets by created_at (order-placed time), not a settlement timestamp —
+-- confirmed as the intended semantics for this report.
+--
+-- p_bucket only feeds a CASE expression below (never concatenated into SQL),
+-- so there's no injection surface from it; any value other than 'month' is
+-- treated as 'day'.
+--
+-- Outlet and role are resolved from auth.uid() via profiles.user_id (NOT
+-- profiles.id — that was the bug in the original version above), not from a
+-- client parameter — this is the actual access boundary, the UI's
+-- manager/owner/admin nav gating is convenience on top of this. Callers whose
+-- profile isn't manager/owner/admin, or who have no outlet_id, get an
+-- empty result rather than an error (keeps the client simple).
+
+create or replace function get_sales_report_uid(p_from date, p_to date, p_bucket text default 'day')
+returns table (
+  bucket_date date,
+  order_count bigint,
+  tax_total numeric,
+  net_total numeric,
+  avg_order_value numeric
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    date_trunc(
+      case when p_bucket = 'month' then 'month' else 'day' end,
+      (o.created_at at time zone (select my_timezone()))
+    )::date as bucket_date,
+    count(*)::bigint as order_count,
+    sum(o.tax_amount) as tax_total,
+    sum(o.total_amount) as net_total,
+    round((sum(o.total_amount) / count(*))::numeric, 2) as avg_order_value
+  from orders o
+  join profiles p on p.user_id = auth.uid()
+  where has_permission('reports.view')
+    and p.outlet_id is not null
+    and o.outlet_id = p.outlet_id
+    and o.status = 'completed'
+    and (o.created_at at time zone (select my_timezone()))::date between p_from and p_to
+  group by 1
+  order by 1;
+$$;
+
+grant execute on function get_sales_report_uid(date, date, text) to authenticated;
