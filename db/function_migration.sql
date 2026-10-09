@@ -271,6 +271,7 @@ returns table (
   table_number text,
   table_state text,
   order_id uuid,
+  invoice_number text,
   order_status text,
   order_created_at timestamptz,
   order_total_amount numeric
@@ -285,6 +286,7 @@ as $$
     t.table_number::text as table_number,
     t.status as table_state,
     o.id as order_id,
+    o.invoice_number as invoice_number,
     o.status as order_status,
     o.created_at as order_created_at,
     o.total_amount as order_total_amount
@@ -307,7 +309,7 @@ as $$
    --p.role in ('manager', 'owner', 'admin')
    has_permission('tables.view')
     and t.outlet_id = p.outlet_id
-  order by t.table_number;
+  order by t.table_number, o.order_number;
 $$;
 
 grant execute on function list_tables_for_outlet() to authenticated;
@@ -1553,6 +1555,7 @@ begin
 
   update order_items
      set is_deleted = true,
+         status = 'cancelled',
          edited_at = now(),
          edited_by = auth.uid()
    where id = p_order_item_id
