@@ -107,7 +107,7 @@ as $$
                  and coalesce(p.is_active, true)
                  and p.outlet_id = o.outlet_id
   where has_permission('orders.view')
-    and o.status = 'open'
+    and o.status not in ('completed', 'cancelled')
     and exists (select 1 from order_items oi
                  where oi.order_id = o.id
                    and not oi.is_deleted
@@ -654,82 +654,94 @@ $$;
 
 grant execute on function get_next_order_number(uuid) to authenticated;
 
--- ============================================================================
--- place_pickup_order(): New Order page, pickup orders
--- ============================================================================
--- Mirrors place_order() (same item JSON: menu_item_id, unit_price,
--- total_price, quantity) but creates a table-less pickup order with optional
--- customer details, a note and the container charge.
--- TAX IS CALCULATED HERE, not by the caller: p_subtotal, p_tax,
--- p_container_charge and p_total are accepted only so existing callers keep
--- working and are IGNORED. Each line is stamped with the rate in force now for
--- its category (tax_rate_for) and the order totals come from
--- recompute_order_totals().
--- Assumes orders(order_type, customer_name, customer_phone,
--- container_charge_amount, special_notes) — the columns the desktop app
--- already reads. If one differs this fails loudly at deploy/run time.
-drop function if exists place_pickup_order(jsonb, numeric, numeric, numeric, numeric, text, text, text, uuid);
-create or replace function place_pickup_order(
-  p_items            jsonb,
-  p_subtotal         numeric,
-  p_tax              numeric,
-  p_container_charge numeric,
-  p_total            numeric,
-  p_customer_name    text default null,
-  p_customer_phone   text default null,
-  p_notes            text default null,
-  p_outlet_id        uuid default null
+-- ---------------------------------------------------------------------------
+-- place_order(): the one place that creates an order
+-- ---------------------------------------------------------------------------
+-- Used by place_order() (dine-in, needs a table) 
+-- (pickup, no table). Checks: signed in, orders.place, the outlet is the
+-- caller's own (p_outlet_id may be null = own outlet), the table belongs to
+-- it (dine-in), every item is on its menu. Creates the order and its lines,
+-- calculates tax per rate (recompute_order_totals) and, for dine-in, marks the
+-- table occupied. Any client-supplied totals are never seen here.
+-- Internal helper: not callable by app users.
+
+create or replace function place_order(
+  p_order_type     text,          -- 'dine_in' or 'takeaway'
+  p_table_id       uuid,          -- dine_in only
+  p_outlet_id      uuid,          -- null = the caller's own outlet
+  p_items          jsonb,
+  p_customer_name  text default null,
+  p_customer_phone text default null,
+  p_notes          text default null
 ) returns uuid
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
+  v_outlet      uuid;
+  v_waiter_name text;
   v_order_id    uuid;
+  v_dine_in     boolean := (p_order_type = 'dine_in');
 begin
+  if p_order_type not in ('dine_in', 'takeaway') then
+    raise exception 'Unknown order type';
+  end if;
   if auth.uid() is null then
     raise exception 'Not authenticated';
   end if;
-  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
-    raise exception 'An order needs at least one item';
+  if not has_permission('orders.place') then
+    raise exception 'Not allowed to place orders';
   end if;
 
-  -- Must belong to the caller's own outlet and be an ordering role.
-  if not exists (
-    select 1 from profiles p
-     where p.user_id = auth.uid()
-       and p.outlet_id = p_outlet_id
-       and has_permission('orders.place')
-  ) then
+  select p.outlet_id, p.first_name into v_outlet, v_waiter_name
+    from profiles p
+   where p.user_id = auth.uid();
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  if p_outlet_id is not null and p_outlet_id <> v_outlet then
     raise exception 'Not allowed to place orders for this outlet';
   end if;
-  perform assert_order_items_valid(p_items, p_outlet_id);
+
+  if v_dine_in and not exists (select 1 from tables t
+                                where t.id = p_table_id and t.outlet_id = v_outlet) then
+    raise exception 'Table not found in your outlet';
+  end if;
+
+  perform assert_order_items_valid(p_items, v_outlet);
 
   insert into orders (
     table_id, order_type, status, waiter_id, outlet_id, order_number,
     customer_name, customer_phone, notes,
-    subtotal_amount, tax_amount, container_amount, total_amount, confirmed_at
+    subtotal_amount, tax_amount, total_amount, confirmed_at
   ) values (
-    null, 'takeaway', 'preparing', auth.uid(), p_outlet_id,
-    get_next_order_number(p_outlet_id),
+    case when v_dine_in then p_table_id end, p_order_type, 'preparing', auth.uid(),
+    v_outlet, get_next_order_number(v_outlet),
     nullif(btrim(p_customer_name), ''), nullif(btrim(p_customer_phone), ''), nullif(btrim(p_notes), ''),
-    0, 0, 0, 0, now()
+    0, 0, 0, now()
   )
   returning id into v_order_id;
 
-  perform insert_order_items(v_order_id, p_outlet_id, p_items);
+  perform insert_order_items(v_order_id, v_outlet, p_items);
   perform recompute_order_totals(v_order_id);
+
+  if v_dine_in then
+    update tables set status = 'occupied' where id = p_table_id;
+  end if;
 
   insert into app_activity_log (order_id, activity, changed_by, changed_at) values (v_order_id, 'orders.created', auth.uid(), now());
 
   return v_order_id;
 end;
 $$;
+revoke all on function place_order(text, uuid, uuid, jsonb, text, text, text)
+  from public, anon, authenticated;
 
-grant execute on function place_pickup_order(jsonb, numeric, numeric, numeric, numeric, text, text, text, uuid) to authenticated;
+grant execute on function place_order(text, uuid, uuid, jsonb, text, text, text) to authenticated;
 
 -- ---------------------------------------------------------------------------
--- Shared by place_order() and place_pickup_order()
+-- Shared by place_order()
 -- ---------------------------------------------------------------------------
 -- Validates the item list: every menu item belongs to the outlet, quantities
 -- are 1..99 and prices are not negative. Raises on the first problem.
@@ -790,85 +802,6 @@ as $$
     cross join lateral tax_rate_for(p_outlet_id, mi.category_id, now()) tr;
 $$;
 revoke all on function insert_order_items(uuid, uuid, jsonb) from public, anon, authenticated;
-
--- ---------------------------------------------------------------------------
--- place_order(): dine-in order for a table (also called by the Android app)
--- ---------------------------------------------------------------------------
--- Same parameters as before, so existing callers keep working. Replaces the
--- version that trusted the client's tax: p_subtotal, p_tax and p_total are
--- IGNORED and the totals are calculated here per tax rate (see
--- recompute_order_totals). Checks: signed in, orders.place, the outlet is the
--- caller's own, the table belongs to it, every item is on its menu.
--- Based on the body of the function this replaces; if your live one has other
--- columns or side effects, merge them in before running.
-create or replace function public.place_order(
-    p_table_id   uuid,
-    p_items      jsonb,
-    p_subtotal   numeric,
-    p_tax        numeric,
-    p_total      numeric,
-    p_outlet_id  uuid default null,
-    p_created_by uuid default null
-) returns uuid
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-    v_order_id uuid;
-    v_waiter_name text;
-    v_outlet_id uuid;
-begin
-    if auth.uid() is null then
-        raise exception 'Not authenticated';
-    end if;
-    if not has_permission('orders.place') then
-        raise exception 'Not allowed to place orders';
-    end if;
-
-    select p.outlet_id into v_outlet_id
-      from public.profiles p
-     where p.user_id = auth.uid();
-    if v_outlet_id is null then
-        raise exception 'Your account has no outlet';
-    end if;
-    if p_outlet_id is not null and p_outlet_id <> v_outlet_id then
-        raise exception 'Not allowed to place orders for this outlet';
-    end if;
-
-    if not exists (select 1 from public.tables t
-                    where t.id = p_table_id and t.outlet_id = v_outlet_id) then
-        raise exception 'Table not found in your outlet';
-    end if;
-    perform assert_order_items_valid(p_items, v_outlet_id);
-
-    select first_name into v_waiter_name
-      from public.profiles
-     where user_id = auth.uid();
-
-    insert into public.orders (
-        table_id, status, waiter_id, waiter_name, outlet_id, order_number,
-        subtotal_amount, tax_amount, total_amount, confirmed_at
-    )
-    values (
-        p_table_id, 'preparing', auth.uid(), v_waiter_name, v_outlet_id,
-        get_next_order_number(v_outlet_id),
-        0, 0, 0, now()
-    )
-    returning id into v_order_id;
-
-    perform insert_order_items(v_order_id, v_outlet_id, p_items);
-    perform recompute_order_totals(v_order_id);
-
-    update public.tables
-       set status = 'occupied'
-     where id = p_table_id;
-
-    return v_order_id;
-end;
-$$;
-
-grant execute on function public.place_order(uuid, jsonb, numeric, numeric, numeric, uuid, uuid) to authenticated;
 
 -- ============================================================================
 -- recompute_order_totals(): shared tax/container-charge/total formula
@@ -1600,7 +1533,7 @@ begin
     and has_permission('orders.edit')
     and p.outlet_id = p_outlet_id
     and o.outlet_id = p_outlet_id
-    and o.status = 'open';
+    and o.status not in ('completed', 'cancelled');
 
   if v_order_id is null then
     raise exception 'Not authorized, item not found, or the order is not editable in its current status';
@@ -1727,7 +1660,7 @@ begin
     where table_id = v_table_id
       and status not in ('completed', 'cancelled')
   ) then
-    update tables set state = 'open' where id = v_table_id;
+    update tables set status = 'available' where id = v_table_id;
   end if;
 
   select jsonb_build_object(
