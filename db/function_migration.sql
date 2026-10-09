@@ -1752,3 +1752,126 @@ end;
 $$;
 
 grant execute on function complete_order(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- cancel_invoice(): "cancel all" for a dine-in table sitting — cancels every
+-- not-yet-cancelled order (round) sharing one invoice_number in ONE
+-- transaction, with ONE editor approval for the whole table. Cancelling a
+-- single round stays cancel_order() above.
+--
+-- Same rules as cancel_order: reason required; caller must be
+-- manager/owner/admin of p_outlet_id and the invoice must belong to that
+-- outlet (authorization raises, and is checked BEFORE editor credentials);
+-- bad credentials return {ok:false,error}. Additionally refuses if ANY round
+-- already has a payment recorded — a paid sitting can't be cancelled, and
+-- cancelling "all but the paid one" would leave a half-cancelled invoice.
+-- Settled-but-unpaid (completed) rounds ARE cancelled along with open ones.
+-- Frees the table once at the end, and writes one app_activity_log row per
+-- round cancelled (activity 'cancel_order', invoice + editor in
+-- order_details) so the per-order trail matches single cancels.
+-- ---------------------------------------------------------------------------
+drop function if exists cancel_invoice(uuid, text, text, text, text);
+
+create or replace function cancel_invoice(
+  p_outlet_id uuid,
+  p_invoice_number text,
+  p_reason text,
+  p_editor_username text,
+  p_editor_password text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_approval jsonb;
+  v_ids uuid[];
+  v_table_ids uuid[];
+  v_id uuid;
+  v_tid uuid;
+  v_order jsonb;
+begin
+  if p_reason is null or trim(p_reason) = '' then
+    raise exception 'A reason is required to cancel an order';
+  end if;
+
+  if not exists (
+    select 1 from profiles p
+    where p.user_id = auth.uid()
+      and has_permission('orders.cancel')
+      and p.outlet_id = p_outlet_id
+  ) then
+    raise exception 'Not authorized, or invoice not found';
+  end if;
+
+  select array_agg(o.id order by o.order_number)
+    into v_ids
+  from orders o
+  where o.outlet_id = p_outlet_id
+    and o.invoice_number = p_invoice_number
+    and o.status <> 'cancelled';
+
+  if v_ids is null then
+    raise exception 'No cancellable orders found for this invoice (already cancelled, or not found)';
+  end if;
+
+  if exists (
+    select 1 from orders o
+    where o.outlet_id = p_outlet_id
+      and o.invoice_number = p_invoice_number
+      and o.payment_details is not null
+  ) then
+    raise exception 'Payment is already recorded for this invoice, so it cannot be cancelled';
+  end if;
+
+  v_approval := verify_editor_approval(p_outlet_id, p_editor_username, p_editor_password);
+  if v_approval ? 'error' then
+    return jsonb_build_object('ok', false, 'error', v_approval->>'error');
+  end if;
+
+  select array_agg(distinct o.table_id) filter (where o.table_id is not null)
+    into v_table_ids
+  from orders o where o.id = any (v_ids);
+
+  update orders
+     set status = 'cancelled',
+         cancel_reason = trim(p_reason),
+         cancelled_by = auth.uid(),
+         cancelled_at = now()
+   where id = any (v_ids);
+
+  foreach v_id in array v_ids loop
+    select jsonb_build_object(
+             'order_number', o.order_number, 'invoice_number', o.invoice_number,
+             'table_id', o.table_id, 'order_type', o.order_type,
+             'status', o.status, 'total_amount', o.total_amount,
+             'cancelled_with', v_ids, 'scope', 'invoice',
+             'approved_by', v_approval->>'editor_email',
+             'approved_by_id', v_approval->>'editor_id')
+      into v_order
+    from orders o where o.id = v_id;
+
+    insert into app_activity_log
+      (order_id, order_item_id, old_quantity, new_quantity, changed_by, changed_at,
+       created_at, order_details, reason, activity)
+    values (v_id, null, null, null, auth.uid(), now(), now(), v_order::json,
+            trim(p_reason), 'orders.cancelled');
+  end loop;
+
+  if v_table_ids is not null then
+    foreach v_tid in array v_table_ids loop
+      if not exists (
+        select 1 from orders
+        where table_id = v_tid and status not in ('completed', 'cancelled')
+      ) then
+        update tables set status = 'available' where id = v_tid;
+      end if;
+    end loop;
+  end if;
+
+  return jsonb_build_object('ok', true, 'cancelled', cardinality(v_ids));
+end;
+$$;
+
+grant execute on function cancel_invoice(uuid, text, text, text, text) to authenticated;
