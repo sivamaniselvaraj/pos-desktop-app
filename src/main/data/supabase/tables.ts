@@ -190,8 +190,8 @@ export const tables: TableRepository = {
   },
 
   async getStatusById(tableId) {
-    const { data, error } = await getAuthedClient().from('tables').select('state').eq('id', tableId).single();
+    const { data, error } = await getAuthedClient().from('tables').select('status').eq('id', tableId).single();
     if (error) throw new Error(error.message);
-    return data ? fromDbState(data.state) : null;
+    return data ? fromDbState(data.status) : null;
   },
 };

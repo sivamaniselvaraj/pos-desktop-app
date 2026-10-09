@@ -25,29 +25,30 @@ export const orderEntry: OrderEntryRepository = {
   },
 
   async placeDineInOrder(a) {
+
     const { data, error } = await getAuthedClient().rpc('place_order', {
+      p_order_type:'dine_in',
       p_table_id: a.tableId,
-      p_items: toJsonItems(a.items),
-      p_subtotal: a.subtotal,
-      p_tax: a.tax,
-      p_total: a.total,
       p_outlet_id: a.outletId,
+      p_items: toJsonItems(a.items),
+      p_customer_name: null,
+      p_customer_phone: null,
+      p_notes: null,
     });
+
     if (error) throw new Error(error.message);
     return String(data);
   },
 
   async placePickupOrder(a) {
-    const { data, error } = await getAuthedClient().rpc('place_pickup_order', {
+    const { data, error } = await getAuthedClient().rpc('place_order', {
+      p_order_type:'takeaway',
+      p_table_id: null,
+      p_outlet_id: a.outletId,
       p_items: toJsonItems(a.items),
-      p_subtotal: a.subtotal,
-      p_tax: a.tax,
-      p_container_charge: a.containerCharge,
-      p_total: a.total,
       p_customer_name: a.customerName,
       p_customer_phone: a.customerPhone,
       p_notes: a.notes,
-      p_outlet_id: a.outletId,
     });
     if (error) throw new Error(error.message);
     return String(data);
