@@ -1,4 +1,5 @@
 import { Fragment, useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 import type { OrderDetailItem, OrderActivityLogEntry, EditorApproval } from '@shared/types';
 import { DINE_IN_ORDER_TYPE } from '../../shared/types';
 import { ApprovalModal } from './ApprovalModal';
@@ -101,9 +102,16 @@ export function OrderDetailModal({
   onDeleteItem,
   onMessage,
 }: OrderDetailModalProps) {
-  const [editing, setEditing] = useState<{ id: string; quantity: string; reason: string } | null>(
-    null,
-  );
+  // Buttons appear only when one of the user's groups grants the matching permission.
+  const { can } = useAuth();
+  const canEditItems = editable && can('orders.edit');
+  const canCancelRound = editable && can('orders.cancel');
+  const [editing, setEditing] = useState<{
+    id: string;
+    mode: 'edit' | 'remove';
+    quantity: string;
+    reason: string;
+  } | null>(null);
   // Pending change awaiting editor approval. The callbacks must THROW on
   // failure (e.g. wrong editor password) so ApprovalModal can show the error
   // and let the editor retry; resolve on success.
@@ -114,7 +122,25 @@ export function OrderDetailModal({
   const grouped = orders.length > 1;
 
   function startEdit(item: OrderDetailItem) {
-    setEditing({ id: item.orderItemId, quantity: String(item.quantity), reason: '' });
+    setEditing({ id: item.orderItemId, mode: 'edit', quantity: String(item.quantity), reason: '' });
+  }
+
+  /** Opens the reason box for removing an item (window.prompt is not available in Electron). */
+  function startRemove(item: OrderDetailItem) {
+    // Removing the last live item would leave an empty (void) order.
+    const liveInOrder = items.filter(
+      (i) => !i.isDeleted && (item.orderNumber === undefined || i.orderNumber === item.orderNumber),
+    );
+    if (liveInOrder.length <= 1) {
+      onMessage(
+        'error',
+        `"${item.name}" is the only item in ${
+          item.orderNumber !== undefined ? `order #${item.orderNumber}` : 'this order'
+        }. Removing it would leave an empty order. Cancel the order instead.`,
+      );
+      return;
+    }
+    setEditing({ id: item.orderItemId, mode: 'remove', quantity: String(item.quantity), reason: '' });
   }
 
   function submitEdit() {
@@ -140,17 +166,21 @@ export function OrderDetailModal({
     });
   }
 
-  function submitDelete(item: OrderDetailItem) {
-    const raw = prompt(`Reason for removing "${item.name}" from this order:`);
-    if (raw === null) return; // cancelled
-    const reason = raw.trim();
+  function submitDelete() {
+    if (!editing) return;
+    const item = items.find((i) => i.orderItemId === editing.id);
+    if (!item) return;
+    const reason = editing.reason.trim();
     if (!reason) {
       onMessage('error', 'A reason is required to remove an item');
       return;
     }
     setPending({
       action: `Remove "${item.name}"`,
-      run: (approval) => onDeleteItem(item, reason, approval),
+      run: async (approval) => {
+        await onDeleteItem(item, reason, approval);
+        setEditing(null);
+      },
     });
   }
 
@@ -216,7 +246,7 @@ export function OrderDetailModal({
                             if (round.status === 'cancelled') {
                               return <span className={styles.tag}>cancelled</span>;
                             }
-                            return onCancelRound && editable ? (
+                            return onCancelRound && canCancelRound ? (
                               <button
                                 className={styles.smallBtnDanger}
                                 style={{ float: 'right' }}
@@ -230,7 +260,22 @@ export function OrderDetailModal({
                       </tr>
                     )}
                     <tr className={item.isDeleted ? styles.deletedRow : undefined}>
-                      {isEditing && editing ? (
+                      {isEditing && editing && editing.mode === 'remove' ? (
+                        <>
+                          <td>{item.name}</td>
+                          <td>{item.quantity}</td>
+                          <td>{formatCurrency(item.unitPrice)}</td>
+                          <td>{formatCurrency(item.totalPrice)}</td>
+                          <td className={styles.itemActions}>
+                            <button className={styles.smallBtnDanger} onClick={submitDelete}>
+                              Remove
+                            </button>
+                            <button className={styles.smallBtnGhost} onClick={() => setEditing(null)}>
+                              Cancel
+                            </button>
+                          </td>
+                        </>
+                      ) : isEditing && editing ? (
                         <>
                           <td>{item.name}</td>
                           <td>
@@ -265,14 +310,14 @@ export function OrderDetailModal({
                           <td>{formatCurrency(item.unitPrice)}</td>
                           <td>{formatCurrency(item.totalPrice)}</td>
                           <td className={styles.itemActions}>
-                            {!item.isDeleted && editable && (
+                            {!item.isDeleted && canEditItems && (
                               <>
                                 <button className={styles.smallBtn} onClick={() => startEdit(item)}>
                                   Edit
                                 </button>
                                 <button
                                   className={styles.smallBtnDanger}
-                                  onClick={() => submitDelete(item)}
+                                  onClick={() => startRemove(item)}
                                 >
                                   Remove
                                 </button>
@@ -288,7 +333,11 @@ export function OrderDetailModal({
                           <input
                             type="text"
                             className={styles.reasonInput}
-                            placeholder="Reason for this edit (required)"
+                            placeholder={
+                              editing.mode === 'remove'
+                                ? 'Reason for removing this item (required)'
+                                : 'Reason for this edit (required)'
+                            }
                             value={editing.reason}
                             onChange={(e) => setEditing({ ...editing, reason: e.target.value })}
                             autoFocus
@@ -371,12 +420,12 @@ export function OrderDetailModal({
                         {grouped && <td>{entry.orderNumber ?? '—'}</td>}
                         <td>{entry.action}</td>
                         <td>
-                          {entry.action === 'delete'
+                          {entry.action === 'order.item.delete'
                             ? entry.newQuantity ?? entry.oldQuantity
                             : entry.oldQuantity !== entry.newQuantity
                               ? `${entry.oldQuantity} → ${entry.newQuantity}`
                               : entry.newQuantity}
-                          {entry.action === 'edit' && entry.oldUnitPrice !== entry.newUnitPrice && (
+                          {entry.action === 'order.item.edit' && entry.oldUnitPrice !== entry.newUnitPrice && (
                             <div className={styles.timelineDetail}>
                               {formatCurrency(entry.oldUnitPrice ?? 0)} →{' '}
                               {formatCurrency(entry.newUnitPrice ?? 0)}

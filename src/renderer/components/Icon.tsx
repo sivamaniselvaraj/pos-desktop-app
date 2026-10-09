@@ -347,7 +347,7 @@ const paths: Record<IconName, ReactElement> = {
   ),
   taxIcon: (
     <>
-        <text x="0" y="15" stroke="currentColor" strokeWidth="1" fill="currentColor" font-size="12">TAX</text>
+        <text x="0" y="15" stroke="currentColor" strokeWidth="1" fill="currentColor" fontSize="13">TAX</text>
     </>
   ),
 };
