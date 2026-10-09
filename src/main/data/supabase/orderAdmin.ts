@@ -142,7 +142,7 @@ export const orderAdmin: OrderAdminRepository = {
       .select('status')
       .eq('id', (item as { order_id: string }).order_id)
       .single();
-    return !(orderErr || !order || (order as { status: string }).status !== 'open');
+    return !(orderErr || !order || (order as { status: string }).status === 'completed' || (order as { status: string }).status === 'cancelled');
   },
 
   // update + audit insert + totals recompute stay ONE security-definer function:
