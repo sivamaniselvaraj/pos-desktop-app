@@ -602,6 +602,7 @@ create table public.order_items (
       status = any (
         array[
           'pending'::text,
+          'cancelled'::text,
           'confirmed'::text,
           'preparing'::text,
           'ready'::text,
