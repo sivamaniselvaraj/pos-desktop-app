@@ -306,7 +306,7 @@ export function Dashboard() {
                 <>
                   <div className={styles.cardTop}>
                     {mins !== null && <div className={styles.minutes}>{mins} Min</div>}
-                    <div className={styles.tableNumber}>{table.tableNumber}</div>
+                    <div className={styles.tableNumber}>Table {table.tableNumber}</div>
                     <div className={styles.tableNumber}>{table.tableState}</div>
                     <div className={styles.amount}>{formatCurrency(table.orderTotalAmount ?? 0)}</div>
                   </div>

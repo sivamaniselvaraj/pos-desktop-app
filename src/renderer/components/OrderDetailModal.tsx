@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import type { OrderDetailItem, OrderActivityLogEntry, EditorApproval } from '@shared/types';
 import { DINE_IN_ORDER_TYPE } from '../../shared/types';
@@ -92,7 +92,7 @@ export function OrderDetailModal({
   orders,
   meta,
   totals,
-  items,
+  items: rawItems,
   log,
   loading,
   editable,
@@ -120,6 +120,18 @@ export function OrderDetailModal({
     run: (approval: EditorApproval) => Promise<void>;
   } | null>(null);
   const grouped = orders.length > 1;
+  // One block per order: items sorted by order number (stable, so each order keeps its own item order).
+  const items = useMemo(
+    () =>
+      rawItems
+        .map((it, idx) => ({ it, idx }))
+        .sort((a, b) => (a.it.orderNumber ?? 0) - (b.it.orderNumber ?? 0) || a.idx - b.idx)
+        .map((x) => x.it),
+    [rawItems],
+  );
+  /** Edit/Remove are not offered for items of a cancelled order. */
+  const isRoundCancelled = (orderNumber: number | undefined) =>
+    orderNumber !== undefined && orders.find((o) => o.orderNumber === orderNumber)?.status === 'cancelled';
 
   function startEdit(item: OrderDetailItem) {
     setEditing({ id: item.orderItemId, mode: 'edit', quantity: String(item.quantity), reason: '' });
@@ -128,6 +140,7 @@ export function OrderDetailModal({
   /** Opens the reason box for removing an item (window.prompt is not available in Electron). */
   function startRemove(item: OrderDetailItem) {
     // Removing the last live item would leave an empty (void) order.
+    if (isRoundCancelled(item.orderNumber)) return;
     const liveInOrder = items.filter(
       (i) => !i.isDeleted && (item.orderNumber === undefined || i.orderNumber === item.orderNumber),
     );
@@ -161,7 +174,7 @@ export function OrderDetailModal({
       action: `Edit "${itemName}" to quantity ${quantity}`,
       run: async (approval) => {
         await onEditItem(itemId, quantity, reason, approval);
-    setEditing(null);
+        setEditing(null);
       },
     });
   }
@@ -310,7 +323,7 @@ export function OrderDetailModal({
                           <td>{formatCurrency(item.unitPrice)}</td>
                           <td>{formatCurrency(item.totalPrice)}</td>
                           <td className={styles.itemActions}>
-                            {!item.isDeleted && canEditItems && (
+                            {!item.isDeleted && canEditItems && !isRoundCancelled(item.orderNumber) && (
                               <>
                                 <button className={styles.smallBtn} onClick={() => startEdit(item)}>
                                   Edit
