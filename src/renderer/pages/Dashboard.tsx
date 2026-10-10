@@ -118,7 +118,8 @@ export function Dashboard() {
     Math.round(partPaymentSum * 100) === Math.round((payingTable.orderTotalAmount ?? 0) * 100);
 
   async function handleSavePayment() {
-    if (!payingTable?.orderId) return;
+    console.log(payingTable)
+    if (!payingTable?.invoiceNumber) return;
 
     if (paymentMethod === 'part-payment' && !partPaymentMatches) {
       flash(
@@ -133,7 +134,7 @@ export function Dashboard() {
     try {
       setSavingPayment(true);
       await window.api.savePayment({
-        orderId: payingTable.orderId,
+        invoiceNumber: payingTable.invoiceNumber,
         method: paymentMethod,
         cashAmount: paymentMethod === 'part-payment' ? Number(cashAmount) || 0 : undefined,
         cardAmount: paymentMethod === 'part-payment' ? Number(cardAmount) || 0 : undefined,

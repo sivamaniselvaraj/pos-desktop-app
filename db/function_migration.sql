@@ -2472,3 +2472,128 @@ begin
 end;
 $$;
 grant execute on function save_kot_workflow(jsonb, jsonb) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- save_order_payment(): Table Dashboard Save button. Records how a table's
+-- whole settled-and-unpaid batch was paid, then frees the table.
+--
+-- p_invoice_number only needs to identify ONE order in the batch (whichever the
+-- card happened to carry) — the function resolves that order's table_id and
+-- applies payment to every order on the table that is 'completed' with
+-- payment_details still null (i.e. the batch complete_order() just closed).
+-- This mirrors complete_order()'s "whole table settles together" model: the
+-- printed bill was already the merged total for all of them, so payment is
+-- recorded once for the group, not per individual order.
+--
+-- Pickup/delivery orders (table_id null) have no batch to join, so only
+-- p_invoice_number itself is paid.
+--
+-- Part-payment amounts must sum to the GROUP total (every order's
+-- total_amount added together), not just p_invoice_number's own total.
+--
+-- RACE GUARD: a new dine-in round can be created on this table (Android) in
+-- the narrow window between the settle-print's batch being read and this
+-- payment being saved (see orderManager.ts handleSettle) — that straggler
+-- order lands on the table with status still NOT 'completed'. Freeing the
+-- table here would then release it while a genuinely open, unbilled order
+-- still sits on it. So the table is only freed when there is no other order
+-- left on it that isn't completed or cancelled — same guard cancel_order()
+-- above already applies. If a straggler exists, payment for the settled
+-- batch is still recorded (that money IS accounted for), the table just
+-- stays locked until the straggler is itself settled and paid too.
+-- ---------------------------------------------------------------------------
+create or replace function save_order_payment(
+  p_invoice_number text,
+  p_method text, -- 'card' | 'cash' | 'upi' | 'part-payment'
+  p_cash_amount numeric default null,
+  p_card_amount numeric default null,
+  p_upi_amount numeric default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_table_id uuid;
+  v_total numeric;
+  v_sum numeric;
+  v_recorded_at timestamptz := now();
+begin
+  if p_method not in ('card', 'cash', 'upi', 'part-payment') then
+    raise exception 'Invalid payment method: %', p_method;
+  end if;
+
+  select o.table_id into v_table_id
+  from orders o
+  join profiles p on p.user_id = auth.uid()
+  where o.invoice_number = p_invoice_number
+    and has_permission('orders.complete')
+    and p.outlet_id = o.outlet_id
+    and o.status = 'completed';
+
+  if not found then
+    raise exception 'Not authorized, order not found, or order is not completed yet';
+  end if;
+
+  if v_table_id is not null then
+    select sum(total_amount) into v_total
+    from orders
+    where table_id = v_table_id
+      and status = 'completed'
+      and payment_details is null;
+  else
+    select total_amount into v_total from orders where invoice_number = p_invoice_number;
+  end if;
+
+  if p_method = 'part-payment' then
+    v_sum := coalesce(p_cash_amount, 0) + coalesce(p_card_amount, 0) + coalesce(p_upi_amount, 0);
+    if round(v_sum, 2) != round(coalesce(v_total, 0), 2) then
+      raise exception 'Part-payment amounts (%) do not match the order total (%)', v_sum, v_total;
+    end if;
+  end if;
+
+  if v_table_id is not null then
+    update orders
+       set
+       payment_status = 'completed',
+       payment_method = p_method,
+       paid_at = now(), 
+       payment_details = jsonb_build_object(
+         'method', p_method,
+         'cashAmount', p_cash_amount,
+         'cardAmount', p_card_amount,
+         'upiAmount', p_upi_amount,
+         'recordedAt', v_recorded_at
+       )
+     where table_id = v_table_id
+       and invoice_number = p_invoice_number
+       and status = 'completed'
+       and payment_details is null;
+
+    if not exists (
+      select 1 from orders
+      where table_id = v_table_id
+        and status not in ('completed', 'cancelled')
+    ) then
+      update tables set status = 'available' where id = v_table_id;
+    end if;
+  else
+    update orders
+       set
+        payment_status = 'completed',
+        payment_method = p_method,
+        paid_at = now(),
+        payment_details = jsonb_build_object(
+         'method', p_method,
+         'cashAmount', p_cash_amount,
+         'cardAmount', p_card_amount,
+         'upiAmount', p_upi_amount,
+         'recordedAt', v_recorded_at
+       )
+     where invoice_number = p_invoice_number;
+  end if;
+end;
+$$;
+
+grant execute on function save_order_payment(text, text, numeric, numeric, numeric) to authenticated;

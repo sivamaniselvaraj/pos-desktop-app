@@ -613,7 +613,7 @@ export type PaymentMethod = 'card' | 'cash' | 'upi' | 'part-payment';
 
 export interface SavePaymentPayload {
   /** Any one order id from the table's batch — the RPC resolves the rest via its table_id. */
-  orderId: string;
+  invoiceNumber: string;
   method: PaymentMethod;
   cashAmount?: number;
   cardAmount?: number;

@@ -84,7 +84,7 @@ export const tables: TableRepository = {
 
   async savePayment(payload) {
     const { error } = await getAuthedClient().rpc('save_order_payment', {
-      p_order_id: payload.orderId,
+      p_invoice_number: payload.invoiceNumber,
       p_method: payload.method,
       p_cash_amount: payload.cashAmount ?? null,
       p_card_amount: payload.cardAmount ?? null,
