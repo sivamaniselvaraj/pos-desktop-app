@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import { GroupsPanel } from '../components/GroupsPanel';
+import { useAuth } from '../context/AuthContext';
 import type {
   ManagedUser,
   OutletOption,
@@ -42,6 +43,10 @@ const EMPTY_FORM: FormState = {
 };
 
 export function UserManagement() {
+  const { can } = useAuth();
+  // Only Admin+ add. The database enforces this too (RLS on menu_items).
+  const canAddUser = can('users.add');
+
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [outlets, setOutlets] = useState<OutletOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -255,10 +260,12 @@ export function UserManagement() {
           <option value="inactive">Inactive</option>
         </select>
         <div className={styles.actionButtons}>
+          {canAddUser && (
           <button className={styles.addBtn} onClick={openCreate}>
             <Icon name="plus" size={16} />
             Add User
           </button>
+          )}
         </div>
       </div>
 
