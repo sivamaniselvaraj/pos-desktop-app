@@ -48,9 +48,6 @@ async function createViaEdgeFunction(payload: CreateUserPayload): Promise<boolea
     },
   });
   if (!error) return true;
-  console.log("user error ", error)
-
-  console.log("user payload ", payload)
 
   const ctx = (error as { context?: Response }).context;
   if (ctx && typeof ctx.status === 'number') {
