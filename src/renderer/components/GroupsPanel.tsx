@@ -18,7 +18,7 @@ interface Props {
 
 /** Display group for a permission code, from its prefix. Unknown prefixes land in Other. */
 const PERMISSION_GROUPS: [string, string[]][] = [
-  ['Orders', ['orders']],
+  ['Orders', ['orders', 'kot']],
   ['Tables', ['dashboard', 'tables']],
   ['Menu', ['menu']],
   ['Reports and billing', ['reports', 'history', 'tax', 'invoicing']],

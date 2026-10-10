@@ -11,6 +11,7 @@ import { NewOrder } from './pages/NewOrder';
 import { TablesManagement } from './pages/TablesManagement';
 import { OrdersList } from './pages/OrdersList';
 import { MenuItemsPage } from './pages/MenuItems';
+import { KotBoardPage } from './pages/KotBoard';
 import { About } from './pages/About';
 import { Login } from './pages/Login';
 import { useStatus } from './hooks/useStatus';
@@ -78,6 +79,7 @@ export default function App() {
           {current === 'tables' && <TablesManagement />}
           {current === 'new-order' && <NewOrder />}
           {current === 'menu-items' && <MenuItemsPage />}
+          {current === 'kot-board' && <KotBoardPage />}
           {current === 'about' && <About />}
         </div>
       </main>

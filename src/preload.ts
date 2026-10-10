@@ -23,6 +23,8 @@ import type {
   MenuCacheSnapshot,
   TableCard,
   ManagedTable,
+  KotBoard,
+  KotWorkflow,
   TaxRates,
   TaxRateRow,
   AddTaxRatePayload,
@@ -145,6 +147,12 @@ const api: ElectronApi = {
   saveMenuItem: (payload) =>
     ipcRenderer.invoke(IpcChannels.SAVE_MENU_ITEM, payload) as Promise<MenuCacheSnapshot>,
   getMyAccess: () => ipcRenderer.invoke(IpcChannels.GET_MY_ACCESS) as Promise<MyAccess | null>,
+  getKotBoard: () => ipcRenderer.invoke(IpcChannels.GET_KOT_BOARD) as Promise<KotBoard>,
+  moveKot: (orderId: string, toStatusId: string, fromStatusId: string) =>
+    ipcRenderer.invoke(IpcChannels.MOVE_KOT, orderId, toStatusId, fromStatusId) as Promise<void>,
+  getKotWorkflow: () => ipcRenderer.invoke(IpcChannels.GET_KOT_WORKFLOW) as Promise<KotWorkflow>,
+  saveKotWorkflow: (workflow: KotWorkflow) =>
+    ipcRenderer.invoke(IpcChannels.SAVE_KOT_WORKFLOW, workflow) as Promise<void>,
   getTaxRate: () => ipcRenderer.invoke(IpcChannels.GET_TAX_RATE) as Promise<TaxRates>,
   listTaxRates: () => ipcRenderer.invoke(IpcChannels.LIST_TAX_RATES) as Promise<TaxRateRow[]>,
   addTaxRate: (payload: AddTaxRatePayload) =>

@@ -489,6 +489,72 @@ export interface AddTaxRatePayload {
   effectiveLocal?: string;
 }
 
+// ---- KOT board ----------------------------------------------------------
+export interface KotStatus {
+  id: string;
+  name: string;
+  color: string;
+  /** Label of the button that moves a KOT INTO this step. */
+  actionLabel: string | null;
+  sortOrder: number;
+  isInitial: boolean;
+  isFinal: boolean;
+  showOnBoard: boolean;
+}
+export interface KotTimeLevel {
+  name: string;
+  fromMinutes: number;
+  color: string;
+}
+export interface KotCardItem {
+  id: string;
+  name: string;
+  quantity: number;
+  note: string | null;
+  isDeleted: boolean;
+}
+export interface KotCard {
+  /** Stable key for the UI (order:step). A card = the order's items sitting in one step. */
+  id: string;
+  statusId: string;
+  createdAt: string;
+  orderId: string;
+  orderNumber: number;
+  orderType: string;
+  tableNumber: string | null;
+  customerName: string | null;
+  notes: string | null;
+  items: KotCardItem[];
+}
+export interface KotBoard {
+  /** Server time when the board was read (to correct clock differences). */
+  now: string;
+  statuses: KotStatus[];
+  /** Allowed moves: from -> to. */
+  transitions: { from: string; to: string }[];
+  levels: KotTimeLevel[];
+  kots: KotCard[];
+}
+
+export interface KotWorkflowStep {
+  /** Absent for a step that has not been saved yet. */
+  id?: string;
+  /** The order_items.status value of this step; fixed once saved. */
+  code: string;
+  name: string;
+  color: string;
+  actionLabel: string;
+  showOnBoard: boolean;
+  /** 1-based positions of the earlier steps a KOT may go back to. */
+  backTo: number[];
+  /** Read-only: KOTs currently in this step. */
+  kotCount?: number;
+}
+export interface KotWorkflow {
+  steps: KotWorkflowStep[];
+  levels: KotTimeLevel[];
+}
+
 export type ManagedTableStatus = 'available' | 'occupied' | 'reserved' | 'cleaning';
 
 /** One row on the Tables management page. */
@@ -657,6 +723,10 @@ export const IpcChannels = {
   SET_CATEGORY_ACTIVE: 'set-category-active',
   LIST_TABLES: 'list-tables',
   LIST_MANAGED_TABLES: 'list-managed-tables',
+  GET_KOT_BOARD: 'get-kot-board',
+  MOVE_KOT: 'move-kot',
+  GET_KOT_WORKFLOW: 'get-kot-workflow',
+  SAVE_KOT_WORKFLOW: 'save-kot-workflow',
   GET_TAX_RATE: 'get-tax-rate',
   LIST_TAX_RATES: 'list-tax-rates',
   ADD_TAX_RATE: 'add-tax-rate',
@@ -744,6 +814,10 @@ export interface ElectronApi {
   setCategoryActive(categoryId: string, isActive: boolean): Promise<MenuCacheSnapshot>;
   listTables(): Promise<TableCard[]>;
   listManagedTables(): Promise<ManagedTable[]>;
+  getKotBoard(): Promise<KotBoard>;
+  moveKot(orderId: string, toStatusId: string, fromStatusId: string): Promise<void>;
+  getKotWorkflow(): Promise<KotWorkflow>;
+  saveKotWorkflow(workflow: KotWorkflow): Promise<void>;
   getTaxRate(): Promise<TaxRates>;
   listTaxRates(): Promise<TaxRateRow[]>;
   addTaxRate(payload: AddTaxRatePayload): Promise<void>;
