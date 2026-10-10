@@ -695,3 +695,56 @@ create policy "tax managers read own outlet rates" on tax_rates
 alter table order_items add column if not exists tax_rate_percent numeric(5,2);
 alter table order_items add column if not exists tax_name text;
 alter table orders      add column if not exists tax_breakdown jsonb;
+
+
+-- ============================================================================
+-- KOT BOARD: kitchen tickets with a configurable workflow
+-- ============================================================================
+-- A KOT is created when a kitchen ticket prints (record_kot()). It then moves
+-- through the steps the outlet defined in kot_statuses (default: New ->
+-- Preparing -> Ready -> Served). Which move is allowed is data, in
+-- kot_transitions (forward is the next step, "back" is any listed earlier
+-- step). The last step is final: a KOT in it leaves the board. Card colours
+-- by waiting time come from kot_time_levels. Nothing here is hard-coded in the
+-- app. Tables are written only through the functions in db/functions.sql.
+
+create table if not exists kot_statuses (
+  id            uuid primary key default gen_random_uuid(),
+  outlet_id     uuid not null references outlets(id) on delete cascade,
+  code          text not null,
+  name          text not null check (char_length(btrim(name)) between 1 and 30),
+  color         text not null default '#7f8c8d' check (color ~ '^#[0-9a-fA-F]{6}$'),
+  action_label  text,            -- label of the button that moves a KOT INTO this step
+  sort_order    integer not null,
+  is_initial    boolean not null default false,
+  is_final      boolean not null default false,
+  show_on_board boolean not null default true,
+  created_at    timestamptz not null default now(),
+  unique (outlet_id, code)
+);
+create unique index if not exists kot_statuses_one_initial on kot_statuses (outlet_id) where is_initial;
+create unique index if not exists kot_statuses_one_final   on kot_statuses (outlet_id) where is_final;
+
+create table if not exists kot_transitions (
+  from_status uuid not null references kot_statuses(id) on delete cascade,
+  to_status   uuid not null references kot_statuses(id) on delete cascade,
+  primary key (from_status, to_status),
+  check (from_status <> to_status)
+);
+
+create table if not exists kot_time_levels (
+  id           uuid primary key default gen_random_uuid(),
+  outlet_id    uuid not null references outlets(id) on delete cascade,
+  name         text not null check (char_length(btrim(name)) between 1 and 30),
+  from_minutes integer not null check (from_minutes >= 0),
+  color        text not null check (color ~ '^#[0-9a-fA-F]{6}$'),
+  unique (outlet_id, from_minutes)
+);
+
+create table if not exists kot_counters (
+  outlet_id uuid not null references outlets(id) on delete cascade,
+  kot_date  date not null,
+  last_no   integer not null default 0,
+  primary key (outlet_id, kot_date)
+);
+

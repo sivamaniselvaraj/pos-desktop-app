@@ -2121,3 +2121,81 @@ end;
 $$;
 
 grant execute on function assert_can_create_user(uuid, text) to authenticated;
+
+
+-- ============================================================================
+-- KOT BOARD (see the KOT BOARD section of db/schema.sql)
+-- ============================================================================
+-- get_kot_board(): everything the board needs in one call, for the caller's
+-- outlet: the steps, the allowed moves, the waiting-time levels and the cards.
+-- A card = the items of one OPEN order that have the same order_items.status
+-- (hidden / final steps, and orders that are cancelled or already billed, are
+-- left out), with ALL its items. Needs kot.view.
+create or replace function get_kot_board()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not has_permission('kot.view') then
+    raise exception 'Not allowed to see the KOT board';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+
+  return jsonb_build_object(
+    'now', now(),
+    'statuses', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'id', s.id, 'code', s.code, 'name', s.name, 'color', s.color,
+               'action_label', s.action_label, 'sort_order', s.sort_order,
+               'is_initial', s.is_initial, 'is_final', s.is_final,
+               'show_on_board', s.show_on_board) order by s.sort_order), '[]'::jsonb)
+        from kot_statuses s where s.outlet_id = v_outlet),
+    'transitions', (
+      select coalesce(jsonb_agg(jsonb_build_object('from', t.from_status, 'to', t.to_status)), '[]'::jsonb)
+        from kot_transitions t join kot_statuses s on s.id = t.from_status
+       where s.outlet_id = v_outlet),
+    'levels', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'id', l.id, 'name', l.name, 'from_minutes', l.from_minutes, 'color', l.color)
+               order by l.from_minutes), '[]'::jsonb)
+        from kot_time_levels l where l.outlet_id = v_outlet),
+    'kots', (
+      select coalesce(jsonb_agg(g.card order by g.created_at), '[]'::jsonb)
+        from (
+          select coalesce(min(oi.created_at), min(oi.kot_printed_at), now()) as created_at,
+                 jsonb_build_object(
+                   'status_id', s.id,
+                   'created_at', coalesce(min(oi.created_at), min(oi.kot_printed_at), now()),
+                   'order_id', o.id,
+                   'order_number', o.order_number, 'order_type', o.order_type,
+                   'table_number', t.table_number, 'customer_name', o.customer_name,
+                   'notes', o.notes,
+                   'items', jsonb_agg(jsonb_build_object(
+                              'id', oi.id, 'name', coalesce(mi.name, 'Item'), 'quantity', oi.quantity,
+                              'note', oi.notes, 'is_deleted', oi.is_deleted)
+                              order by oi.created_at nulls last, oi.id)
+                 ) as card
+            from order_items oi
+            join orders o on o.id = oi.order_id
+            join kot_statuses s on s.outlet_id = o.outlet_id and s.code = oi.status
+            left join menu_items mi on mi.id = oi.menu_item_id
+            left join tables t on t.id = o.table_id
+           where o.outlet_id = v_outlet
+             and s.show_on_board and not s.is_final
+             and o.status not in ('cancelled', 'completed')
+           group by o.id, o.order_number, o.order_type, t.table_number, o.customer_name,
+                    o.notes, s.id
+        ) g)
+  );
+end;
+$$;
+grant execute on function get_kot_board() to authenticated;
