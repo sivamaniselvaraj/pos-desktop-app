@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import { OrderDetailModal } from '../components/OrderDetailModal';
+import { useAuth } from '../context/AuthContext';
 import { TableFormModal } from '../components/TableFormModal';
 import type {
   TableCard,
@@ -13,7 +14,6 @@ import type {
 } from '@shared/types';
 import styles from '../styles/TableDashboard.module.css';
 import { formatMoney as formatCurrency } from '../lib/format';
-import { useAuth } from '../context/AuthContext';
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'card', label: 'Card' },
