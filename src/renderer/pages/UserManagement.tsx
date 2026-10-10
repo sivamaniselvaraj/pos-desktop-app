@@ -135,6 +135,10 @@ export function UserManagement() {
       setMessage({ type: 'error', text: 'Email and password are required for a new user' });
       return;
     }
+    if (!form.userId && !form.outletId) {
+      setMessage({ type: 'error', text: 'Select an outlet for the new user' });
+      return;
+    }
 
     try {
       setSaving(true);
@@ -352,7 +356,7 @@ export function UserManagement() {
             <h3>{form.userId ? 'Edit User' : 'Add User'}</h3>
 
             <label className={styles.formLabel}>
-              Full Name
+              Full Name *
               <input
                 type="text"
                 value={form.firstName}
@@ -361,7 +365,7 @@ export function UserManagement() {
             </label>
 
             <label className={styles.formLabel}>
-              Email
+              Email *
               <input
                 type="email"
                 value={form.email}
@@ -375,7 +379,7 @@ export function UserManagement() {
 
             {!form.userId && (
               <label className={styles.formLabel}>
-                Password
+                Password *
                 <input
                   type="password"
                   value={form.password}
@@ -408,12 +412,12 @@ export function UserManagement() {
             </label>
 
             <label className={styles.formLabel}>
-              Outlet
+              {form.userId ? 'Outlet' : 'Outlet *'}
               <select
                 value={form.outletId}
                 onChange={(e) => setForm({ ...form, outletId: e.target.value })}
               >
-                <option value="">— None —</option>
+                <option value="">{form.userId ? '— None —' : '— Select an outlet —'}</option>
                 {outlets.map((o) => (
                   <option key={o.id} value={o.id}>
                     {o.name}

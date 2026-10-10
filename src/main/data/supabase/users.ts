@@ -22,7 +22,7 @@ function mapUserRow(row: Record<string, unknown>): ManagedUser {
  * manage users, the outlet belongs to THEIR organization and the role is a
  * known one. Returns the organization the new profile must belong to.
  */
-async function assertCanCreate(outletId: string | null, role: string): Promise<string> {
+async function assertCanCreate(outletId: string, role: string): Promise<string> {
   const { data, error } = await getAuthedClient().rpc('assert_can_create_user', {
     p_outlet_id: outletId,
     p_role: role,
@@ -44,10 +44,13 @@ async function createViaEdgeFunction(payload: CreateUserPayload): Promise<boolea
       fullName: payload.fullName,
       phone: payload.phone ?? null,
       role: payload.role,
-      outletId: payload.outletId ?? null,
+      outletId: payload.outletId,
     },
   });
   if (!error) return true;
+  console.log("user error ", error)
+
+  console.log("user payload ", payload)
 
   const ctx = (error as { context?: Response }).context;
   if (ctx && typeof ctx.status === 'number') {
@@ -89,7 +92,8 @@ export const users: UserRepository = {
    *    SUPABASE_SERVICE_ROLE_KEY is configured. Deprecated.
    */
   async create(payload) {
-    const orgId = await assertCanCreate(payload.outletId ?? null, payload.role);
+    if (!payload.outletId) throw new Error('Select an outlet for the new user.');
+    const orgId = await assertCanCreate(payload.outletId, payload.role);
     if (await createViaEdgeFunction(payload)) return;
 
     console.warn('admin-create-user Edge Function is not deployed; using the local service_role key (deprecated).');
@@ -100,25 +104,31 @@ export const users: UserRepository = {
       password: payload.password,
       email_confirm: true,
     });
+    console.log("admin createUser", created, createError)
     if (createError) throw new Error(createError.message);
 
     const newUserId = created.user?.id;
+
     if (!newUserId) throw new Error('User creation did not return a user id.');
 
-    const { error: profileError } = await admin.from('profiles').insert({
-      user_id: newUserId,
-      email: payload.email,
+    const { data: updated, error: profileError } = await admin.from('profiles').update({
+      //user_id: newUserId,
+      //email: payload.email,
       first_name: payload.fullName,
+      //last_name: '',
       phone: payload.phone ?? null,
       role: payload.role,
-      outlet_id: payload.outletId ?? null,
+      outlet_id: payload.outletId,
       org_id: orgId,
-      is_active: true,
-    });
-    if (profileError) {
+      //is_active: true,
+    }).eq('user_id', newUserId)
+    .select('user_id');
+   if (profileError || !updated || updated.length === 0) {
       // Best-effort cleanup: don't leave a login with no profile behind.
       await admin.auth.admin.deleteUser(newUserId).catch(() => undefined);
-      throw new Error(profileError.message);
+      const { error: profileDeleteError } =  await admin.from('profiles') .delete().eq('user_id', newUserId);
+      console.log(profileDeleteError);
+      throw new Error(profileError?.message);
     }
   },
 
@@ -128,7 +138,7 @@ export const users: UserRepository = {
       p_full_name: payload.fullName,
       p_phone: payload.phone ?? null,
       p_role: payload.role,
-      p_outlet_id: payload.outletId ?? null,
+      p_outlet_id: payload.outletId,
     });
     if (error) throw new Error(error.message);
   },
