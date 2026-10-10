@@ -60,6 +60,14 @@ function mapRow(row: Record<string, unknown>): FoodOrder {
     // likely showed ₹0.00 tax/total regardless of the real order value.
     subtotal: Number(row.subtotal_amount ?? 0),
     tax: Number(row.tax_amount ?? 0),
+    taxBreakdown: Array.isArray(row.tax_breakdown)
+      ? (row.tax_breakdown as Record<string, unknown>[]).map((b) => ({
+          name: String(b.name ?? 'GST'),
+          rate: Number(b.rate ?? 0),
+          taxable: Number(b.taxable ?? 0),
+          tax: Number(b.tax ?? 0),
+        }))
+      : undefined,
     total: Number(row.total_amount ?? 0),
     containerCharge: row.container_charge_amount != null ? Number(row.container_charge_amount) : undefined,
     // Inferred from the confirmed subtotal_amount/tax_amount/total_amount/
@@ -252,6 +260,38 @@ async function fetchUnprintedItems(orderId: string): Promise<OrderItem[]> {
     .eq('kot_printed', false);
   if (error) throw new Error(error.message);
   return (data as Record<string, unknown>[] | null)?.map(mapItem) ?? [];
+}
+
+/**
+ * KOT claim: atomically take the unprinted items of this order (see
+ * claim_kot_items). Only the items this call won are returned, so two
+ * callers can never print the same item.
+ */
+async function claimUnprintedItems(orderId: string): Promise<OrderItem[]> {
+  const supabase = getClient();
+  if (!supabase) throw new Error('Database is not configured.');
+  const id = await resolveOrderId(orderId);
+  if (!id) return [];
+
+  const { data: claimed, error } = await supabase.rpc('claim_kot_items', { p_order_id: id });
+  if (error) throw new Error(error.message);
+  const ids = ((claimed ?? []) as unknown[]).map((v) => String(typeof v === 'object' && v ? Object.values(v)[0] : v));
+  if (ids.length === 0) return [];
+
+  const { data, error: readErr } = await supabase.from(ITEMS_TABLE_NAME).select('*').in('id', ids);
+  if (readErr) {
+    await releaseKotClaim(ids).catch(() => undefined);
+    throw new Error(readErr.message);
+  }
+  return (data as Record<string, unknown>[] | null)?.map(mapItem) ?? [];
+}
+
+async function releaseKotClaim(itemIds: string[]): Promise<void> {
+  if (itemIds.length === 0) return;
+  const supabase = getClient();
+  if (!supabase) throw new Error('Database is not configured.');
+  const { error } = await supabase.rpc('release_kot_claim', { p_item_ids: itemIds });
+  if (error) throw new Error(error.message);
 }
 
 /**
@@ -509,4 +549,6 @@ export const orders: OrderRepository = {
   fetchOrdersByNumbers,
   markOrdersCompleted,
   findOrdersWithPendingKot,
+  claimUnprintedItems,
+  releaseKotClaim,
 };

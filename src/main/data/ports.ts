@@ -22,6 +22,8 @@
  * ---------------------------------------------------------------------------
  */
 import type {
+  KotBoard,
+  KotWorkflow,
   UserGroup,
   PermissionInfo,
   GroupMembership,
@@ -110,6 +112,10 @@ export interface OrderRepository {
   /** Items not yet sent to the kitchen. */
   fetchUnprintedItems(orderId: string): Promise<OrderItem[]>;
   markItemsKotPrinted(itemIds: string[]): Promise<void>;
+  /** Atomically claim the order's unprinted items for printing; returns only the items this caller won. */
+  claimUnprintedItems(orderId: string): Promise<OrderItem[]>;
+  /** Give claimed items back (the print failed). */
+  releaseKotClaim(itemIds: string[]): Promise<void>;
   /** Non-deleted items merged by dish (2 + 3 of the same dish = 5). */
   fetchAggregatedItems(orderId: string): Promise<OrderItem[]>;
   fetchAggregatedItemsForOrders(orderIds: string[]): Promise<OrderItem[]>;
@@ -264,6 +270,13 @@ export interface MenuRepository {
 // ---------------------------------------------------------------------------
 // Tax rates (Tax rates screen). Authorized server-side (tax.manage).
 // ---------------------------------------------------------------------------
+export interface KotRepository {
+  getBoard(): Promise<KotBoard>;
+  move(orderId: string, toStatusId: string, fromStatusId: string): Promise<void>;
+  getWorkflow(): Promise<KotWorkflow>;
+  saveWorkflow(workflow: KotWorkflow): Promise<void>;
+}
+
 export interface TaxRepository {
   list(): Promise<TaxRateRow[]>;
   add(payload: AddTaxRatePayload): Promise<void>;
@@ -321,6 +334,7 @@ export interface DataProvider {
   orderAdmin: OrderAdminRepository;
   orderEntry: OrderEntryRepository;
   tax: TaxRepository;
+  kots: KotRepository;
   tables: TableRepository;
   menu: MenuRepository;
   users: UserRepository;

@@ -59,6 +59,9 @@ export const db: DataProvider = {
   get tax() {
     return getProvider().tax;
   },
+  get kots() {
+    return getProvider().kots;
+  },
   get tables() {
     return getProvider().tables;
   },

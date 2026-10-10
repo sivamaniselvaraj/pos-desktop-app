@@ -56,15 +56,16 @@ export async function reconcilePendingKots(): Promise<void> {
 
     for (const row of rows) {
       try {
-        // Same queue as every other print entry point — never a direct call.
-        const result = await printQueue.enqueue(() =>
-          orderManager.handleIncoming(row.orderId, 'kot'),
-        );
-        if (result.success) {
-          console.log(`[kotReconciliation] Order ${row.orderId}: ${result.message}`);
-        } else {
-          console.error(`[kotReconciliation] Order ${row.orderId}: ${result.message}`);
-        }
+        console.log(`[kotReconciliation] logic pending`);
+        // // Same queue as every other print entry point — never a direct call.
+        // const result = await printQueue.enqueue(() =>
+        //   orderManager.handleIncoming(row.orderId, 'kot'),
+        // );
+        // if (result.success) {
+        //   console.log(`[kotReconciliation] Order ${row.orderId}: ${result.message}`);
+        // } else {
+        //   console.error(`[kotReconciliation] Order ${row.orderId}: ${result.message}`);
+        // }
       } catch (err) {
         // One bad order must not stop the rest of this cycle's list.
         console.error(

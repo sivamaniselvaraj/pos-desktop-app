@@ -10,6 +10,7 @@ import { orders } from './orders';
 import { orderAdmin } from './orderAdmin';
 import { orderEntry } from './orderEntry';
 import { tax } from './tax';
+import { kots } from './kots';
 import { tables } from './tables';
 import { menu } from './menu';
 import { users } from './users';
@@ -27,6 +28,7 @@ export function createSupabaseProvider(): DataProvider {
     orderAdmin,
     orderEntry,
     tax,
+    kots,
     tables,
     menu,
     users,

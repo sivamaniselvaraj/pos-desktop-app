@@ -27,6 +27,7 @@ import {
 import { listMenuCategories, saveMenuItem } from './menuManager';
 import { getMyAccess } from './accessManager';
 import { getTaxRate, placeOrder } from './orderEntryManager';
+import { getKotBoard, getKotWorkflow, moveKot, saveKotWorkflow } from './kotManager';
 import { addTaxRate, deleteTaxRate, listTaxRates } from './taxManager';
 import {
   listOrders,
@@ -67,6 +68,7 @@ import type {
   SaveMenuItemPayload,
   ManagedTableStatus,
   AddTaxRatePayload,
+  KotWorkflow,
 } from '../shared/types';
 
 /**
@@ -246,6 +248,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     saveMenuItem(payload),
   );
   ipcMain.handle(IpcChannels.GET_MY_ACCESS, () => getMyAccess());
+  ipcMain.handle(IpcChannels.GET_KOT_BOARD, () => getKotBoard());
+  ipcMain.handle(IpcChannels.MOVE_KOT, (_e, orderId: string, to: string, from: string) => moveKot(orderId, to, from));
+  ipcMain.handle(IpcChannels.GET_KOT_WORKFLOW, () => getKotWorkflow());
+  ipcMain.handle(IpcChannels.SAVE_KOT_WORKFLOW, (_e, w: KotWorkflow) => saveKotWorkflow(w));
   ipcMain.handle(IpcChannels.GET_TAX_RATE, () => getTaxRate());
   ipcMain.handle(IpcChannels.LIST_TAX_RATES, () => listTaxRates());
   ipcMain.handle(IpcChannels.ADD_TAX_RATE, (_e, payload: AddTaxRatePayload) => addTaxRate(payload));
