@@ -2058,3 +2058,66 @@ as $$
 $$;
 
 grant execute on function get_sales_report_uid(date, date, text) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- set_user_active(): soft delete (false) / reactivate (true). Never removes
+-- the profile row or the underlying auth login.
+-- ---------------------------------------------------------------------------
+create or replace function set_user_active(p_user_id uuid, p_is_active boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_org uuid := current_org_id();
+begin
+  if not has_permission('users.manage') or v_org is null then
+    raise exception 'Only admins can change user status';
+  end if;
+  if p_user_id = auth.uid() and not p_is_active then
+    raise exception 'You cannot deactivate your own account';
+  end if;
+
+  update profiles set is_active = p_is_active
+   where user_id = p_user_id and org_id = v_org;
+  if not found then
+    raise exception 'User not found in your organization';
+  end if;
+end;
+$$;
+
+grant execute on function set_user_active(uuid, boolean) to authenticated;
+
+-- ============================================================================
+-- Multi-tenant helpers used by the app
+-- ============================================================================
+-- assert_can_create_user(): called by the create-user path BEFORE any login is
+-- created. Verifies the caller may manage users, the outlet belongs to the
+-- caller's organization and the role is a known one. Returns the caller's
+-- organization id so the profile is created inside it.
+create or replace function assert_can_create_user(p_outlet_id uuid, p_role text)
+returns uuid
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_org uuid := current_org_id();
+begin
+  if not has_permission('users.manage') or v_org is null then
+    raise exception 'Only admins can create users';
+  end if;
+  if p_role is null or p_role not in ('staff', 'manager', 'owner', 'admin', 'editor') then
+    raise exception 'Unknown role';
+  end if;
+  if p_outlet_id is not null
+     and not exists (select 1 from outlets o where o.id = p_outlet_id and o.org_id = v_org) then
+    raise exception 'That outlet does not belong to your organization';
+  end if;
+  return v_org;
+end;
+$$;
+
+grant execute on function assert_can_create_user(uuid, text) to authenticated;
