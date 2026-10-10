@@ -1,9 +1,12 @@
+.settingsPage {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #f5f5f5;
+}
 
 .pageHeader {
-  padding: 16px 24px;
-  background: white;
-  border-bottom: 1px solid #eee;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  padding: 0px 2px;
 }
 
 .pageHeader h1 {
@@ -258,3 +261,45 @@
     width: auto;
   }
 }
+
+/* Mobile devices */
+.deviceForm {
+  display: flex;
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.textInput {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.tokenBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  background: #fff8e1;
+  border: 1px solid #f0d98a;
+  border-radius: 6px;
+}
+
+.tokenBox code {
+  display: block;
+  padding: 8px 10px;
+  background: white;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  font-size: 13px;
+  word-break: break-all;
+  user-select: all;
+}
+
+.tabs { display: flex; gap: 4px; border-bottom: 2px solid #bdc3c7; margin-bottom: 16px; }
+.tab, .tabActive { padding: 10px 20px; font-size: 15px; background: none; border: none; cursor: pointer; color: #7f8c8d; font-weight: 500; margin-bottom: -2px; }
+.tabActive { color: #1e8449; font-weight: 700; border-bottom: 3px solid #1e8449; }

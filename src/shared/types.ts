@@ -535,6 +535,8 @@ export interface KotBoard {
   levels: KotTimeLevel[];
   kots: KotCard[];
 }
+/** The values order_items.status may hold (a check constraint in the database). */
+export const KOT_STATUS_CODES = ['new', 'cancelled', 'confirmed', 'preparing', 'ready', 'served'] as const;
 
 export interface KotWorkflowStep {
   /** Absent for a step that has not been saved yet. */

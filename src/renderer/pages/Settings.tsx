@@ -11,6 +11,7 @@ import type {
   ServerStatus,
 } from '../../shared/types';
 import { formatDateTime } from '../lib/format';
+import { KotWorkflow } from '../components/KotWorkflow';
 
 interface PrinterConfigs {
   [key: string]: string; // e.g., { printer_kitchen: "USB001", printer_cashier: "COM1" }
@@ -28,10 +29,12 @@ function roleKey(role: string): string {
   return `printer_${role.toLowerCase().trim().replace(/\s+/g, '_')}`;
 }
 
-
 export function Settings() {
-    const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const { can } = useAuth();
+  const canInvoicing = can('invoicing.manage');
+  const canDevices = can('users.manage');
+  const canKot = can('kot.manage');
+  const [tab, setTab] = useState<'general' | 'kot'>('general');
 
   const [invoiceStatus, setInvoiceStatus] = useState<InvoiceSequenceStatus | null>(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
@@ -65,11 +68,10 @@ export function Settings() {
   }, []);
 
   useEffect(() => {
-    if (!isAdmin) return;
-    loadInvoiceStatus();
-    void loadDevices();
+    if (canInvoicing) loadInvoiceStatus();
+    if (canDevices) void loadDevices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin]);
+  }, [canInvoicing, canDevices]);
 
   // Runs whenever the saved mapping or the OS printer list changes (initial
   // load, or after loadData() re-runs) — this is what makes "on app start,
@@ -199,7 +201,7 @@ export function Settings() {
     setPending({ ...pending, [roleKey(role)]: device });
   }
 
-   async function handleSave(role: string) {
+  async function handleSave(role: string) {
     const key = roleKey(role);
     const device = pending[key] ?? '';
     try {
@@ -251,11 +253,34 @@ export function Settings() {
       </div>
     );
   }
-  
+
   return (
-     <div className={pageStyles.page}>
+    <div className={pageStyles.page}>
+      <div className={styles.pageHeader}>
         <h1>Settings</h1>
-      <div className={styles.container}>
+      </div>
+
+      {canKot && (
+        <div className={styles.tabs}>
+          <button className={tab === 'general' ? styles.tabActive : styles.tab} onClick={() => setTab('general')}>
+            General
+          </button>
+          <button className={tab === 'kot' ? styles.tabActive : styles.tab} onClick={() => setTab('kot')}>
+            KOT workflow
+          </button>
+        </div>
+      )}
+
+      {tab === 'kot' && canKot && (
+        <div className={styles.container}>
+          <small className={styles.hint}>
+            Steps a KOT moves through, and how its card colour changes with waiting time. Applies to this outlet.
+          </small>
+          <KotWorkflow />
+        </div>
+      )}
+
+      <div className={styles.container} style={tab === 'kot' && canKot ? { display: 'none' } : undefined}>
         {/* Printers */}
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>
@@ -334,7 +359,7 @@ export function Settings() {
         {/* Invoicing — admin only; real enforcement is server-side by the
             get_invoice_sequence_status()/reset_invoice_sequence() RPCs, this
             just hides the panel for everyone else. */}
-        {isAdmin && (
+        {canInvoicing && (
           <div className={styles.section}>
             <h2 className={styles.sectionTitle}>
               <Icon name="print" size={20} />
@@ -377,8 +402,8 @@ export function Settings() {
           </div>
         )}
 
-        {/* Mobile devices — admin only. Each phone has its own token, shown once. */}
-        {isAdmin && (
+        {/* Mobile devices — needs users.manage. Each phone has its own token, shown once. */}
+        {canDevices && (
           <div className={styles.section}>
             <h2 className={styles.sectionTitle}>
               <Icon name="print" size={20} />
@@ -453,20 +478,6 @@ export function Settings() {
             </div>
           </div>
         )}
-
-            {/* About */}
-            <div className={styles.section}>
-              <h2 className={styles.sectionTitle}>
-                <Icon name="info" size={20} />
-                About
-              </h2>
-
-              <div className={styles.aboutContent}>
-                <p>
-                  <strong>Virunthagam v1.0</strong>
-                </p>
-              </div>
-            </div>
 
             {/* Messages */}
             {message && (
