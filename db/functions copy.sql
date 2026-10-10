@@ -2262,9 +2262,9 @@ grant execute on function live_order_table_ids(uuid) to authenticated;
 -- ============================================================================
 -- place_pickup_order(): New Order page, pickup orders
 -- ============================================================================
--- Mirrors place_order() (same item JSON: menu_item_id, unit_price,
--- total_price, quantity) but creates a table-less pickup order with optional
--- customer details, a note and the container charge.
+-- Thin wrapper over create_order_internal(): a table-less pickup order with
+-- optional customer details and a note (same item JSON as place_order:
+-- menu_item_id, unit_price, total_price, quantity).
 -- TAX IS CALCULATED HERE, not by the caller: p_subtotal, p_tax,
 -- p_container_charge and p_total are accepted only so existing callers keep
 -- working and are IGNORED. Each line is stamped with the rate in force now for
@@ -2289,46 +2289,9 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-  v_order_id    uuid;
-  v_waiter_name text;
 begin
-  if auth.uid() is null then
-    raise exception 'Not authenticated';
-  end if;
-  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
-    raise exception 'An order needs at least one item';
-  end if;
-
-  -- Must belong to the caller's own outlet and be an ordering role.
-  if not exists (
-    select 1 from profiles p
-     where p.user_id = auth.uid()
-       and p.outlet_id = p_outlet_id
-       and has_permission('orders.place')
-  ) then
-    raise exception 'Not allowed to place orders for this outlet';
-  end if;
-  perform assert_order_items_valid(p_items, p_outlet_id);
-
-  select first_name into v_waiter_name from profiles where user_id = auth.uid();
-
-  insert into orders (
-    table_id, order_type, status, waiter_id, waiter_name, outlet_id, order_number,
-    customer_name, customer_phone, special_notes,
-    subtotal_amount, tax_amount, container_charge_amount, total_amount, confirmed_at
-  ) values (
-    null, 'pickup', 'preparing', auth.uid(), v_waiter_name, p_outlet_id,
-    get_next_order_number(p_outlet_id),
-    nullif(btrim(p_customer_name), ''), nullif(btrim(p_customer_phone), ''), nullif(btrim(p_notes), ''),
-    0, 0, 0, 0, now()
-  )
-  returning id into v_order_id;
-
-  perform insert_order_items(v_order_id, p_outlet_id, p_items);
-  perform recompute_order_totals(v_order_id);
-
-  return v_order_id;
+  return create_order_internal('pickup', null::uuid, p_outlet_id, p_items,
+                               p_customer_name, p_customer_phone, p_notes);
 end;
 $$;
 
@@ -2398,15 +2361,92 @@ $$;
 revoke all on function insert_order_items(uuid, uuid, jsonb) from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
+-- create_order_internal(): the one place that creates an order
+-- ---------------------------------------------------------------------------
+-- Used by place_order() (dine-in, needs a table) and place_pickup_order()
+-- (pickup, no table). Checks: signed in, orders.place, the outlet is the
+-- caller's own (p_outlet_id may be null = own outlet), the table belongs to
+-- it (dine-in), every item is on its menu. Creates the order and its lines,
+-- calculates tax per rate (recompute_order_totals) and, for dine-in, marks the
+-- table occupied. Any client-supplied totals are never seen here.
+-- Internal helper: not callable by app users.
+create or replace function create_order_internal(
+  p_order_type     text,
+  p_table_id       uuid,
+  p_outlet_id      uuid,
+  p_items          jsonb,
+  p_customer_name  text default null,
+  p_customer_phone text default null,
+  p_notes          text default null
+) returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet      uuid;
+  v_waiter_name text;
+  v_order_id    uuid;
+  v_dine_in     boolean := (p_order_type = 'dine-in');
+begin
+  if p_order_type not in ('dine-in', 'pickup') then
+    raise exception 'Unknown order type';
+  end if;
+  if auth.uid() is null then
+    raise exception 'Not authenticated';
+  end if;
+  if not has_permission('orders.place') then
+    raise exception 'Not allowed to place orders';
+  end if;
+
+  select p.outlet_id, p.first_name into v_outlet, v_waiter_name
+    from profiles p
+   where p.user_id = auth.uid();
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  if p_outlet_id is not null and p_outlet_id <> v_outlet then
+    raise exception 'Not allowed to place orders for this outlet';
+  end if;
+
+  if v_dine_in and not exists (select 1 from tables t
+                                where t.id = p_table_id and t.outlet_id = v_outlet) then
+    raise exception 'Table not found in your outlet';
+  end if;
+
+  perform assert_order_items_valid(p_items, v_outlet);
+
+  insert into orders (
+    table_id, order_type, status, waiter_id, waiter_name, outlet_id, order_number,
+    customer_name, customer_phone, special_notes,
+    subtotal_amount, tax_amount, total_amount, confirmed_at
+  ) values (
+    case when v_dine_in then p_table_id end, p_order_type, 'preparing', auth.uid(), v_waiter_name,
+    v_outlet, get_next_order_number(v_outlet),
+    nullif(btrim(p_customer_name), ''), nullif(btrim(p_customer_phone), ''), nullif(btrim(p_notes), ''),
+    0, 0, 0, now()
+  )
+  returning id into v_order_id;
+
+  perform insert_order_items(v_order_id, v_outlet, p_items);
+  perform recompute_order_totals(v_order_id);
+
+  if v_dine_in then
+    update tables set status = 'occupied' where id = p_table_id;
+  end if;
+
+  return v_order_id;
+end;
+$$;
+revoke all on function create_order_internal(text, uuid, uuid, jsonb, text, text, text) from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
 -- place_order(): dine-in order for a table (also called by the Android app)
 -- ---------------------------------------------------------------------------
--- Same parameters as before, so existing callers keep working. Replaces the
--- version that trusted the client's tax: p_subtotal, p_tax and p_total are
--- IGNORED and the totals are calculated here per tax rate (see
--- recompute_order_totals). Checks: signed in, orders.place, the outlet is the
--- caller's own, the table belongs to it, every item is on its menu.
--- Based on the body of the function this replaces; if your live one has other
--- columns or side effects, merge them in before running.
+-- Same parameters as before, so existing callers keep working. p_subtotal,
+-- p_tax, p_total and p_created_by are IGNORED; everything happens in
+-- create_order_internal() (checks, order row, tax per rate, table occupied).
+-- If your live place_order has other columns or side effects, add them there.
 create or replace function public.place_order(
     p_table_id   uuid,
     p_items      jsonb,
@@ -2420,57 +2460,8 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-    v_order_id uuid;
-    v_waiter_name text;
-    v_outlet_id uuid;
 begin
-    if auth.uid() is null then
-        raise exception 'Not authenticated';
-    end if;
-    if not has_permission('orders.place') then
-        raise exception 'Not allowed to place orders';
-    end if;
-
-    select p.outlet_id into v_outlet_id
-      from public.profiles p
-     where p.user_id = auth.uid();
-    if v_outlet_id is null then
-        raise exception 'Your account has no outlet';
-    end if;
-    if p_outlet_id is not null and p_outlet_id <> v_outlet_id then
-        raise exception 'Not allowed to place orders for this outlet';
-    end if;
-
-    if not exists (select 1 from public.tables t
-                    where t.id = p_table_id and t.outlet_id = v_outlet_id) then
-        raise exception 'Table not found in your outlet';
-    end if;
-    perform assert_order_items_valid(p_items, v_outlet_id);
-
-    select first_name into v_waiter_name
-      from public.profiles
-     where user_id = auth.uid();
-
-    insert into public.orders (
-        table_id, status, waiter_id, waiter_name, outlet_id, order_number,
-        subtotal_amount, tax_amount, total_amount, confirmed_at
-    )
-    values (
-        p_table_id, 'preparing', auth.uid(), v_waiter_name, v_outlet_id,
-        get_next_order_number(v_outlet_id),
-        0, 0, 0, now()
-    )
-    returning id into v_order_id;
-
-    perform insert_order_items(v_order_id, v_outlet_id, p_items);
-    perform recompute_order_totals(v_order_id);
-
-    update public.tables
-       set status = 'occupied'
-     where id = p_table_id;
-
-    return v_order_id;
+  return create_order_internal('dine-in', p_table_id, p_outlet_id, p_items);
 end;
 $$;
 
@@ -2562,8 +2553,10 @@ begin
   if p_role is null or p_role not in ('staff', 'manager', 'owner', 'admin', 'editor') then
     raise exception 'Unknown role';
   end if;
-  if p_outlet_id is not null
-     and not exists (select 1 from outlets o where o.id = p_outlet_id and o.org_id = v_org) then
+  if p_outlet_id is null then
+    raise exception 'An outlet is required';
+  end if;
+  if not exists (select 1 from outlets o where o.id = p_outlet_id and o.org_id = v_org) then
     raise exception 'That outlet does not belong to your organization';
   end if;
   return v_org;
@@ -2743,3 +2736,365 @@ begin
 end;
 $$;
 grant execute on function delete_tax_rate(uuid) to authenticated;
+
+
+-- ============================================================================
+-- KOT BOARD (see the KOT BOARD section of db/schema.sql)
+-- ============================================================================
+
+-- (record_kot existed only in an unreleased draft: new items already start as
+-- 'new', and printing keeps using mark_kot_printed.)
+drop function if exists record_kot(uuid, uuid[]);
+drop function if exists move_kot(uuid, date, integer, uuid, uuid);
+drop function if exists move_kot(uuid, uuid, uuid);
+
+
+-- get_kot_board(): everything the board needs in one call, for the caller's
+-- outlet: the steps, the allowed moves, the waiting-time levels and the cards.
+-- A card = the items of one OPEN order that have the same order_items.status
+-- (hidden / final steps, and orders that are cancelled or already billed, are
+-- left out), with ALL its items. Needs kot.view.
+create or replace function get_kot_board()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not has_permission('kot.view') then
+    raise exception 'Not allowed to see the KOT board';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+
+  return jsonb_build_object(
+    'now', now(),
+    'statuses', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'id', s.id, 'code', s.code, 'name', s.name, 'color', s.color,
+               'action_label', s.action_label, 'sort_order', s.sort_order,
+               'is_initial', s.is_initial, 'is_final', s.is_final,
+               'show_on_board', s.show_on_board) order by s.sort_order), '[]'::jsonb)
+        from kot_statuses s where s.outlet_id = v_outlet),
+    'transitions', (
+      select coalesce(jsonb_agg(jsonb_build_object('from', t.from_status, 'to', t.to_status)), '[]'::jsonb)
+        from kot_transitions t join kot_statuses s on s.id = t.from_status
+       where s.outlet_id = v_outlet),
+    'levels', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'id', l.id, 'name', l.name, 'from_minutes', l.from_minutes, 'color', l.color)
+               order by l.from_minutes), '[]'::jsonb)
+        from kot_time_levels l where l.outlet_id = v_outlet),
+    'kots', (
+      select coalesce(jsonb_agg(g.card order by g.created_at), '[]'::jsonb)
+        from (
+          select coalesce(min(oi.created_at), min(oi.kot_printed_at), now()) as created_at,
+                 jsonb_build_object(
+                   'status_id', s.id,
+                   'created_at', coalesce(min(oi.created_at), min(oi.kot_printed_at), now()),
+                   'order_id', o.id,
+                   'order_number', o.order_number, 'order_type', o.order_type,
+                   'table_number', t.table_number, 'customer_name', o.customer_name,
+                   'notes', o.special_notes,
+                   'items', jsonb_agg(jsonb_build_object(
+                              'id', oi.id, 'name', coalesce(mi.name, 'Item'), 'quantity', oi.quantity,
+                              'note', oi.special_instructions, 'is_deleted', oi.is_deleted)
+                              order by oi.created_at nulls last, oi.id)
+                 ) as card
+            from order_items oi
+            join orders o on o.id = oi.order_id
+            join kot_statuses s on s.outlet_id = o.outlet_id and s.code = oi.status
+            left join menu_items mi on mi.id = oi.menu_item_id
+            left join tables t on t.id = o.table_id
+           where o.outlet_id = v_outlet
+             and s.show_on_board and not s.is_final
+             and o.status = 'open'
+           group by o.id, o.order_number, o.order_type, t.table_number, o.customer_name,
+                    o.special_notes, s.id
+        ) g)
+  );
+end;
+$$;
+grant execute on function get_kot_board() to authenticated;
+
+
+-- move_kot(order, to, from): sets order_items.status of the order's items that
+-- are in step `from` to step `to`, along ONE allowed transition (forward or
+-- back, as defined in kot_transitions), and writes ONE app_activity_log row:
+-- order_id, activity 'order.item.status.updated', changed_by = the user,
+-- changed_at = now(), order_details {status-from, status-to}. Needs kot.move;
+-- the order must belong to the caller's outlet. If nothing is in `from` any
+-- more (someone else just moved it) it fails with a clear message.
+create or replace function move_kot(p_order_id uuid, p_to_status uuid, p_from_status uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_from   text;
+  v_to     text;
+begin
+  if not has_permission('kot.move') then
+    raise exception 'Not allowed to move KOTs';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+
+  select code into v_from from kot_statuses where id = p_from_status and outlet_id = v_outlet;
+  select code into v_to   from kot_statuses where id = p_to_status   and outlet_id = v_outlet;
+  if v_from is null or v_to is null then
+    raise exception 'Unknown step';
+  end if;
+
+  -- Lock the items so two people cannot move the same card at once.
+  perform 1
+    from order_items oi join orders o on o.id = oi.order_id
+   where oi.order_id = p_order_id and oi.status = v_from and o.outlet_id = v_outlet
+     for update of oi;
+  if not found then
+    raise exception 'This KOT was just moved by someone else. Refresh the board.';
+  end if;
+  if not exists (select 1 from kot_transitions t where t.from_status = p_from_status and t.to_status = p_to_status) then
+    raise exception 'That move is not allowed';
+  end if;
+
+  update order_items set status = v_to where order_id = p_order_id and status = v_from;
+
+  insert into app_activity_log
+    (order_id, changed_by, changed_at, created_at, order_details, reason, activity)
+  values (p_order_id, auth.uid(), now(), now(),
+          jsonb_build_object('status-from', v_from, 'status-to', v_to)::json,
+          v_from || ' to ' || v_to, 'order.item.status.updated');
+end;
+$$;
+grant execute on function move_kot(uuid, uuid, uuid) to authenticated;
+
+
+-- get_kot_workflow(): the settings view. Steps in order with their button
+-- label, flags, how many KOTs sit in each, and "back_to" as the 1-based
+-- positions of the earlier steps a KOT may be moved back to; plus the levels.
+-- Needs kot.manage.
+create or replace function get_kot_workflow()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not has_permission('kot.manage') then
+    raise exception 'Only users with KOT access can view the workflow settings';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  --perform seed_kot_workflow(v_outlet);
+
+  return jsonb_build_object(
+    'steps', (
+      with pos as (
+        select s.id, s.sort_order, row_number() over (order by s.sort_order) as p
+          from kot_statuses s where s.outlet_id = v_outlet
+      )
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'id', s.id, 'code', s.code, 'name', s.name, 'color', s.color, 'action_label', s.action_label,
+               'show_on_board', s.show_on_board, 'is_initial', s.is_initial, 'is_final', s.is_final,
+               'kot_count', (select count(distinct oi.order_id) from order_items oi join orders oo on oo.id = oi.order_id where oo.outlet_id = s.outlet_id and oi.status = s.code),
+               'back_to', (select coalesce(jsonb_agg(tp.p order by tp.p), '[]'::jsonb)
+                             from kot_transitions t
+                             join pos tp on tp.id = t.to_status
+                            where t.from_status = s.id and tp.sort_order < s.sort_order)
+             ) order by s.sort_order), '[]'::jsonb)
+        from kot_statuses s where s.outlet_id = v_outlet),
+    'levels', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'name', l.name, 'from_minutes', l.from_minutes, 'color', l.color)
+               order by l.from_minutes), '[]'::jsonb)
+        from kot_time_levels l where l.outlet_id = v_outlet)
+  );
+end;
+$$;
+grant execute on function get_kot_workflow() to authenticated;
+
+
+-- save_kot_workflow(steps, levels): replaces the outlet's workflow in one
+-- transaction. steps = ordered array of {id?, name, color, action_label,
+-- show_on_board, back_to:[positions]}. Rules: 2 to 12 steps with distinct
+-- names; the first step is where KOTs start; the last is final (off the
+-- board); forward is always to the next step; back_to may name earlier steps
+-- only; a step that still holds KOTs cannot be removed. levels = array of
+-- {name, from_minutes, color}: the first starts at 0 and the rest ascend.
+-- Needs kot.manage.
+create or replace function save_kot_workflow(p_steps jsonb, p_levels jsonb)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  n        integer;
+  i        integer;
+  e        jsonb;
+  v_id     uuid;
+  v_ids    uuid[] := '{}';
+  v_name   text;
+  v_color  text;
+  v_code   text;
+  v_pos    integer;
+  v_prev   integer := -1;
+  m        integer;
+  lv       jsonb;
+begin
+  if not has_permission('kot.manage') then
+    raise exception 'Only users with KOT access can change the workflow';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  if p_steps is null or jsonb_typeof(p_steps) <> 'array' then
+    raise exception 'Steps are required';
+  end if;
+  if p_levels is null or jsonb_typeof(p_levels) <> 'array' then
+    raise exception 'Waiting-time levels are required';
+  end if;
+  n := jsonb_array_length(p_steps);
+  if n < 2 or n > 6 then
+    raise exception 'A workflow needs between 2 and 6 steps (one per status value)';
+  end if;
+
+  -- Names: present, short, distinct.
+  if exists (select 1 from jsonb_array_elements(p_steps) s
+              where char_length(btrim(coalesce(s->>'name', ''))) not between 1 and 30) then
+    raise exception 'Every step needs a name of 1 to 30 characters';
+  end if;
+  if (select count(distinct lower(btrim(s->>'name'))) from jsonb_array_elements(p_steps) s) <> n then
+    raise exception 'Step names must be different from each other';
+  end if;
+
+  -- A step that still holds KOTs cannot be removed.
+  if exists (
+    select 1 from kot_statuses ks
+     where ks.outlet_id = v_outlet
+       and ks.id not in (select nullif(s->>'id', '')::uuid from jsonb_array_elements(p_steps) s
+                          where nullif(s->>'id', '') is not null)
+       and exists (select 1 from order_items oi join orders oo on oo.id = oi.order_id
+                    where oo.outlet_id = ks.outlet_id and oi.status = ks.code)
+  ) then
+    raise exception 'A step that still has KOTs cannot be removed. Move those KOTs first';
+  end if;
+  delete from kot_statuses ks
+   where ks.outlet_id = v_outlet
+     and ks.id not in (select nullif(s->>'id', '')::uuid from jsonb_array_elements(p_steps) s
+                        where nullif(s->>'id', '') is not null);
+
+  update kot_statuses set is_initial = false, is_final = false where outlet_id = v_outlet;
+
+  for i in 1..n loop
+    e := p_steps -> (i - 1);
+    v_name := btrim(e->>'name');
+    v_color := coalesce(nullif(e->>'color', ''), '#7f8c8d');
+    if v_color !~ '^#[0-9a-fA-F]{6}$' then
+      raise exception 'Step "%" has an invalid colour', v_name;
+    end if;
+    v_id := nullif(e->>'id', '')::uuid;
+    if v_id is not null and not exists (select 1 from kot_statuses where id = v_id and outlet_id = v_outlet) then
+      raise exception 'Unknown step';
+    end if;
+
+    if v_id is null then
+      -- A new step maps to one of the values order_items.status may hold.
+      v_code := lower(btrim(coalesce(e->>'code', '')));
+      if v_code not in ('new', 'cancelled', 'confirmed', 'preparing', 'ready', 'served') then
+        raise exception 'Step "%" needs a status value: new, cancelled, confirmed, preparing, ready or served', v_name;
+      end if;
+      if exists (select 1 from kot_statuses where outlet_id = v_outlet and code = v_code) then
+        raise exception 'The status value "%" is already used by another step', v_code;
+      end if;
+      insert into kot_statuses (outlet_id, code, name, color, action_label, sort_order, is_initial, is_final, show_on_board)
+      values (v_outlet, v_code, v_name, v_color, nullif(btrim(e->>'action_label'), ''), i * 10,
+              i = 1, i = n,
+              case when i = n then false else coalesce((e->>'show_on_board')::boolean, true) end)
+      returning id into v_id;
+    else
+      update kot_statuses
+         set name = v_name, color = v_color,
+             action_label = nullif(btrim(e->>'action_label'), ''),
+             sort_order = i * 10,
+             is_initial = (i = 1), is_final = (i = n),
+             show_on_board = case when i = n then false else coalesce((e->>'show_on_board')::boolean, true) end
+       where id = v_id;
+    end if;
+    v_ids := v_ids || v_id;
+  end loop;
+
+  if (select code from kot_statuses where id = v_ids[1]) <> 'new' then
+    raise exception 'The first step must stay the "New" step: every new item starts there';
+  end if;
+  if (select code from kot_statuses where id = v_ids[n]) <> 'served' then
+    raise exception 'The last step must stay the "Served" step: it takes the card off the board';
+  end if;
+
+  delete from kot_transitions
+   where from_status in (select id from kot_statuses where outlet_id = v_outlet);
+  for i in 1..n loop
+    if i < n then
+      insert into kot_transitions (from_status, to_status) values (v_ids[i], v_ids[i + 1]);
+    end if;
+    e := p_steps -> (i - 1);
+    if jsonb_typeof(e->'back_to') = 'array' then
+      for v_pos in select (x)::integer from jsonb_array_elements_text(e->'back_to') x loop
+        if v_pos < 1 or v_pos >= i then
+          raise exception 'A step can only go back to an earlier step';
+        end if;
+        insert into kot_transitions (from_status, to_status) values (v_ids[i], v_ids[v_pos])
+        on conflict do nothing;
+      end loop;
+    end if;
+  end loop;
+
+  -- Waiting-time levels.
+  m := jsonb_array_length(p_levels);
+  if m < 1 or m > 8 then
+    raise exception 'Add between 1 and 8 waiting-time levels';
+  end if;
+  for i in 1..m loop
+    lv := p_levels -> (i - 1);
+    if char_length(btrim(coalesce(lv->>'name', ''))) not between 1 and 30 then
+      raise exception 'Every level needs a name of 1 to 30 characters';
+    end if;
+    if coalesce(lv->>'color', '') !~ '^#[0-9a-fA-F]{6}$' then
+      raise exception 'Level "%" has an invalid colour', lv->>'name';
+    end if;
+    if (lv->>'from_minutes') is null or (lv->>'from_minutes')::integer < 0 then
+      raise exception 'Level start times must be 0 or more minutes';
+    end if;
+    if i = 1 and (lv->>'from_minutes')::integer <> 0 then
+      raise exception 'The first level must start at 0 minutes';
+    end if;
+    if (lv->>'from_minutes')::integer <= v_prev then
+      raise exception 'Level start times must increase';
+    end if;
+    v_prev := (lv->>'from_minutes')::integer;
+  end loop;
+  delete from kot_time_levels where outlet_id = v_outlet;
+  insert into kot_time_levels (outlet_id, name, from_minutes, color)
+  select v_outlet, btrim(l->>'name'), (l->>'from_minutes')::integer, l->>'color'
+    from jsonb_array_elements(p_levels) l;
+end;
+$$;
+grant execute on function save_kot_workflow(jsonb, jsonb) to authenticated;
