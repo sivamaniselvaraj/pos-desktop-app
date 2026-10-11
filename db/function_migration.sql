@@ -794,8 +794,9 @@ as $$
          x.unit_price,
          round(x.unit_price * x.quantity, 2),
          x.quantity,
-         tr.rate,
-         tr.tax_name
+         case when mi.tax_rate_percent is not null then mi.tax_rate_percent else tr.rate end,
+         case when mi.tax_rate_percent is not null then mi.tax_name else tr.tax_name end,
+         case when mi.tax_rate_percent is not null then mi.price_includes_tax else false end
     from (select nullif(it->>'menu_item_id', '')::uuid as menu_item_id,
                  (it->>'unit_price')::numeric as unit_price,
                  (it->>'quantity')::int as quantity
@@ -851,17 +852,13 @@ begin
 
   -- Stamp lines that have no snapshot yet.
   update order_items oi
-     set tax_rate_percent = tr.rate,
-         tax_name = tr.tax_name
+     set tax_rate_percent = case when mi.tax_rate_percent is not null then mi.tax_rate_percent else tr.rate end,
+         tax_name = case when mi.tax_rate_percent is not null then mi.tax_name else tr.tax_name end,
+         price_includes_tax = case when mi.tax_rate_percent is not null then mi.price_includes_tax else false end
     from order_items x
     left join menu_items mi on mi.id = x.menu_item_id
     cross join lateral tax_rate_for(v_outlet_id, mi.category_id, v_created) tr
    where oi.id = x.id and x.order_id = p_order_id and x.tax_rate_percent is null;
-
-  select coalesce(sum(oi.quantity * oi.unit_price), 0)
-    into v_subtotal
-  from order_items oi
-  where oi.order_id = p_order_id and not oi.is_deleted;
 
   if v_order_type = 'takeaway' then
     select round(coalesce(sum(oi.quantity * oi.unit_price * coalesce(mi.container_charge, 0) / 100), 0), 2)
@@ -871,29 +868,50 @@ begin
     where oi.order_id = p_order_id and not oi.is_deleted;
   end if;
 
+  -- Per rate: lines priced before tax are taxed on top; lines priced with tax
+  -- included have their tax taken OUT of the price (gross * rate / (100 + rate)).
+  -- Packaging is always added on top and taxed at the line's rate. The
+  -- subtotal is the value before tax, so total = subtotal + container + tax
+  -- holds for every order.
   with lines as (
     select coalesce(oi.tax_name, 'GST') as name,
            coalesce(oi.tax_rate_percent, 0) as rate,
-           oi.quantity * oi.unit_price
-             + case when v_order_type = 'takeaway'
-                    then oi.quantity * oi.unit_price * coalesce(mi.container_charge, 0) / 100
-                    else 0 end as taxable
+           coalesce(oi.price_includes_tax, false) as incl,
+           oi.quantity * oi.unit_price as base,
+           case when v_order_type = 'takeaway'
+                then oi.quantity * oi.unit_price * coalesce(mi.container_charge, 0) / 100
+                else 0 end as pack
       from order_items oi
       left join menu_items mi on mi.id = oi.menu_item_id
      where oi.order_id = p_order_id and not oi.is_deleted
   ),
-  slabs as (
+  agg as (
     select name, rate,
-           round(sum(taxable), 2) as taxable,
-           round(sum(taxable) * rate / 100, 2) as tax
+           sum(case when incl then pack else base + pack end) as excl_taxable,
+           sum(case when incl then base else 0 end) as incl_gross,
+           sum(case when incl then 0 else base end) as excl_base
       from lines
      group by name, rate
+  ),
+  slabs as (
+    select name, rate,
+           round(incl_gross * rate / (100 + rate), 2) as incl_tax,
+           incl_gross, excl_taxable, excl_base
+      from agg
+  ),
+  final as (
+    select name, rate,
+           round(excl_taxable + incl_gross - incl_tax, 2) as taxable,
+           round(excl_taxable * rate / 100, 2) + incl_tax as tax,
+           excl_base + incl_gross - incl_tax as net_base
+      from slabs
   )
   select coalesce(jsonb_agg(jsonb_build_object('name', name, 'rate', rate, 'taxable', taxable, 'tax', tax)
                             order by rate, name), '[]'::jsonb),
-         coalesce(sum(tax), 0)
-    into v_breakdown, v_tax
-  from slabs;
+         coalesce(sum(tax), 0),
+         coalesce(sum(net_base), 0)
+    into v_breakdown, v_tax, v_subtotal
+  from final;
 
   update orders
      set subtotal_amount = v_subtotal,

@@ -70,10 +70,11 @@ export const kots: KotRepository = {
         color: str(s.color),
         actionLabel: str(s.action_label),
         showOnBoard: Boolean(s.show_on_board),
+        notifyWaiter: s.notify_waiter === true,
         backTo: Array.isArray(s.back_to) ? (s.back_to as unknown[]).map(Number) : [],
         kotCount: Number(s.kot_count ?? 0),
       })),
-      levels: list(d.levels).map((l) => ({ name: str(l.name), fromMinutes: Number(l.from_minutes ?? 0), color: str(l.color) })),
+      levels: list(d.levels).map((l) => ({ name: str(l.name), fromMinutes: Number(l.from_minutes ?? 0), color: str(l.color), notify: l.notify === true })),
     };
   },
 
@@ -86,9 +87,10 @@ export const kots: KotRepository = {
         color: s.color,
         action_label: s.actionLabel,
         show_on_board: s.showOnBoard,
+        notify_waiter: s.notifyWaiter,
         back_to: s.backTo,
       })),
-      p_levels: w.levels.map((l) => ({ name: l.name, from_minutes: l.fromMinutes, color: l.color })),
+      p_levels: w.levels.map((l) => ({ name: l.name, from_minutes: l.fromMinutes, color: l.color, notify: l.notify === true })),
     });
     if (error) throw new Error(error.message);
   },

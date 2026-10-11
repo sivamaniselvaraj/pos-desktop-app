@@ -97,11 +97,47 @@ export interface ApiDevice {
   name: string;
   createdAt: string;
   lastUsedAt?: string;
+  /** Login the phone is bound to. Missing = an old device that no longer works; revoke it and pair again. */
+  userName?: string;
+  valid: boolean;
 }
 
-/** Returned once at creation; the token is never stored or shown again. */
-export interface CreatedApiDevice extends ApiDevice {
-  token: string;
+/** A one-time code the phone types in to pair. Valid for a few minutes, once. */
+export interface PairingCode {
+  code: string;
+  /** ISO time the code stops working. */
+  expiresAt: string;
+}
+
+/** Who a login belongs to, as the database sees it (used when pairing a phone). */
+export interface DeviceOwner {
+  userId: string;
+  name: string;
+  outletId: string | null;
+  isActive: boolean;
+}
+
+// ---- Remote ordering (phone -> desktop) ----
+export interface RemoteOrderItem {
+  menuItemId: string;
+  quantity: number;
+}
+export interface RemoteOrderRequest {
+  orderType: 'dine-in' | 'takeaway';
+  /** Required for dine-in: the table's id from GET /api/tables. */
+  tableId?: string;
+  items: RemoteOrderItem[];
+  customerName?: string;
+  customerPhone?: string;
+  notes?: string;
+  /** A unique id the phone makes per order attempt. Resending the same id returns the same order. */
+  clientRequestId: string;
+}
+export interface RemoteOrderResult {
+  orderId: string;
+  orderNumber: number;
+  /** True when this request id had already been used: nothing new was created. */
+  duplicate: boolean;
 }
 
 // ---- HTTP contract (Android app -> local server) ----
@@ -418,6 +454,11 @@ export interface SaveMenuItemPayload {
   imageUrl?: string;
   isAvailable: boolean;
   isActive: boolean;
+  /** The item's own tax (required). Replaces the category rate for this item. */
+  taxName: string;
+  taxPercent: number;
+  /** false = the price is before tax and tax is added on top; true = the price already contains the tax. */
+  priceIncludesTax: boolean;
 }
 
 /** One cart line sent to place_order / place_pickup_order. */
@@ -505,6 +546,8 @@ export interface KotTimeLevel {
   name: string;
   fromMinutes: number;
   color: string;
+  /** Tell the phone that placed the order when it has waited this long (workflow settings only). */
+  notify?: boolean;
 }
 export interface KotCardItem {
   id: string;
@@ -547,6 +590,8 @@ export interface KotWorkflowStep {
   color: string;
   actionLabel: string;
   showOnBoard: boolean;
+  /** Tell the phone that placed the order when it reaches this step. */
+  notifyWaiter: boolean;
   /** 1-based positions of the earlier steps a KOT may go back to. */
   backTo: number[];
   /** Read-only: KOTs currently in this step. */
@@ -582,6 +627,29 @@ export interface SaveManagedTablePayload {
 }
 
 export type TableCardStatus = 'active' | 'settled' | 'available';
+
+/** One table as the HTTP API reports it (GET /api/tables, GET /api/tables/:id). */
+export interface ApiTable {
+  tableId: string;
+  tableNumber: string;
+  floor: string;
+  capacity: number | null;
+  /** What the table is doing now: available, occupied (has an open order), reserved or cleaning. */
+  status: ManagedTableStatus;
+  /** The status set by hand on the Tables page (before open orders are taken into account). */
+  manualStatus: ManagedTableStatus;
+  /** Bill state of the table's current sitting: active (being served), settled (done, payment pending) or available (nothing outstanding). */
+  billStatus: TableCardStatus;
+  /** True once every open order of the table has its payment recorded. */
+  paymentRecorded: boolean;
+  /** The table's open orders (rounds). Empty when nothing is outstanding. */
+  orders: { orderId: string; orderNumber: number }[];
+  invoiceNumber: string | null;
+  /** Sum of the open orders' totals. */
+  total: number;
+  /** When the current sitting started (ISO), or null. */
+  since: string | null;
+}
 
 export interface TableCard {
   tableId: string;
@@ -753,7 +821,8 @@ export const IpcChannels = {
   // server (renderer -> main, invoke)
   GET_SERVER_STATUS: 'get-server-status',
   LIST_API_DEVICES: 'list-api-devices',
-  CREATE_API_DEVICE: 'create-api-device',
+  CREATE_PAIRING_CODE: 'create-pairing-code',
+  CANCEL_PAIRING_CODE: 'cancel-pairing-code',
   REVOKE_API_DEVICE: 'revoke-api-device',
   // main -> renderer (send)
   ORDER_RECEIVED: 'order-received',
@@ -843,7 +912,8 @@ export interface ElectronApi {
   resetInvoiceSequence(): Promise<void>;
   getServerStatus(): Promise<ServerStatus>;
   listApiDevices(): Promise<ApiDevice[]>;
-  createApiDevice(name: string): Promise<CreatedApiDevice>;
+  createPairingCode(): Promise<PairingCode>;
+  cancelPairingCode(): Promise<void>;
   revokeApiDevice(id: string): Promise<void>;
   invoke(channel: string, ...args: unknown[]): Promise<unknown>;
   onOrderReceived(cb: (order: OrderWithStatus) => void): () => void;

@@ -213,10 +213,10 @@ export function MenuItemsPage() {
               Add Item
             </button>
           )}
-        <button className={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing}>
-          <Icon name="refresh" size={14} />
-          {refreshing ? 'Refreshing…' : 'Refresh from Database'}
-        </button>
+          <button className={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing}>
+            <Icon name="refresh" size={14} />
+            {refreshing ? 'Refreshing…' : 'Refresh from Database'}
+          </button>
         </div>
       </div>
 

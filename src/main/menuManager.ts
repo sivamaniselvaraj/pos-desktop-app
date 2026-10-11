@@ -38,6 +38,12 @@ export async function saveMenuItem(p: SaveMenuItemPayload): Promise<MenuCacheSna
   for (const [label, n] of [['Cooking time', cookingTime], ['Sort order', sortOrder]] as const) {
     if (n !== null && !Number.isInteger(n)) throw new Error(`${label} must be a whole number.`);
   }
+  const taxName = typeof p.taxName === 'string' ? p.taxName.trim() : '';
+  if (!taxName || taxName.length > 30) throw new Error('Choose a tax for this item.');
+  if (typeof p.taxPercent !== 'number' || !Number.isFinite(p.taxPercent) || p.taxPercent < 0 || p.taxPercent > 100) {
+    throw new Error('Choose a tax for this item.');
+  }
+  if (typeof p.priceIncludesTax !== 'boolean') throw new Error('Choose whether the price includes tax.');
   const imageUrl = p.imageUrl?.trim() || null;
   if (imageUrl && !/^https?:\/\//i.test(imageUrl)) throw new Error('Image URL must start with http:// or https://');
 
@@ -61,6 +67,9 @@ export async function saveMenuItem(p: SaveMenuItemPayload): Promise<MenuCacheSna
     imageUrl,
     isAvailable: p.isAvailable,
     isActive: p.isActive,
+    taxName,
+    taxPercent: Math.round(p.taxPercent * 100) / 100,
+    priceIncludesTax: p.priceIncludesTax,
   };
 
   if (p.id) {

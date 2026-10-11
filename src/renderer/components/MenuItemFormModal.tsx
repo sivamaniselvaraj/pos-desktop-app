@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { MenuCategory, MenuItemRecord, SaveMenuItemPayload } from '@shared/types';
 import styles from '../styles/MenuItemFormModal.module.css';
 import { currencySymbol } from '../lib/format';
@@ -11,6 +11,14 @@ export interface MenuItemFormModalProps {
   onSave: (payload: SaveMenuItemPayload) => Promise<void>;
   onClose: () => void;
 }
+
+interface TaxOption {
+  key: string;
+  name: string;
+  percent: number;
+}
+const taxKey = (name: string, percent: number) => `${name}|${percent}`;
+const pctText = (n: number) => `${Number.isInteger(n) ? n : Number(n.toFixed(2))}%`;
 
 const str = (v: unknown): string => (v === null || v === undefined ? '' : String(v));
 
@@ -41,8 +49,61 @@ export function MenuItemFormModal({ item, categories, onSave, onClose }: MenuIte
   const [imageUrl, setImageUrl] = useState(str(item?.image_url));
   const [isAvailable, setIsAvailable] = useState(item ? item.is_available !== false : true);
   const [isActive, setIsActive] = useState(item ? item.is_active !== false : true);
+  const itemTaxPercent =
+    item?.tax_rate_percent !== null && item?.tax_rate_percent !== undefined && item?.tax_rate_percent !== ''
+      ? Number(item.tax_rate_percent)
+      : null;
+  const [taxChoice, setTaxChoice] = useState(
+    itemTaxPercent !== null ? taxKey(str(item?.tax_name) || 'GST', itemTaxPercent) : '',
+  );
+  // false = price is before tax (the default); true = price already contains the tax.
+  const [priceIncludesTax, setPriceIncludesTax] = useState(item?.price_includes_tax === true);
+  const [rates, setRates] = useState<TaxOption[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The taxes on offer are the ones set up on the Tax rates screen, plus "No tax".
+  useEffect(() => {
+    let alive = true;
+    void window.api
+      .getTaxRate()
+      .then((r) => {
+        if (!alive) return;
+        const m = new Map<string, TaxOption>();
+        const add = (name: string, percent: number) => m.set(taxKey(name, percent), { key: taxKey(name, percent), name, percent });
+        if (r.defaultRate.configured) add(r.defaultRate.name, r.defaultRate.ratePercent);
+        for (const c of Object.values(r.byCategory)) add(c.name, c.ratePercent);
+        setRates([...m.values()].sort((a, b) => a.percent - b.percent || a.name.localeCompare(b.name)));
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const taxOptions = useMemo(() => {
+    const m = new Map(rates.map((o) => [o.key, o]));
+    m.set(taxKey('No tax', 0), { key: taxKey('No tax', 0), name: 'No tax', percent: 0 });
+    // Keep the item's current tax selectable even if it is no longer on the Tax rates screen.
+    if (itemTaxPercent !== null) {
+      const k = taxKey(str(item?.tax_name) || 'GST', itemTaxPercent);
+      if (!m.has(k)) m.set(k, { key: k, name: str(item?.tax_name) || 'GST', percent: itemTaxPercent });
+    }
+    return [...m.values()].sort((a, b) => a.percent - b.percent || a.name.localeCompare(b.name));
+  }, [rates, item, itemTaxPercent]);
+  const chosenTax = taxOptions.find((o) => o.key === taxChoice) ?? null;
+
+  const preview = useMemo(() => {
+    const p = Number(price);
+    if (!chosenTax || price.trim() === '' || !Number.isFinite(p) || p < 0) return null;
+    const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+    if (priceIncludesTax) {
+      const tax = r2((p * chosenTax.percent) / (100 + chosenTax.percent));
+      return `Price ${p.toFixed(2)} includes ${chosenTax.name} ${pctText(chosenTax.percent)} → customer pays ${p.toFixed(2)} (item ${r2(p - tax).toFixed(2)}, tax ${tax.toFixed(2)})`;
+    }
+    const tax = r2((p * chosenTax.percent) / 100);
+    return `Price ${p.toFixed(2)} + ${chosenTax.name} ${pctText(chosenTax.percent)} → customer pays ${r2(p + tax).toFixed(2)} (item ${p.toFixed(2)}, tax ${tax.toFixed(2)})`;
+  }, [chosenTax, price, priceIncludesTax]);
 
   async function submit() {
     if (saving) return;
@@ -52,6 +113,7 @@ export function MenuItemFormModal({ item, categories, onSave, onClose }: MenuIte
     if (price.trim() === '' || !Number.isFinite(priceN) || priceN < 0) {
       return setError('Price must be 0 or more');
     }
+    if (!chosenTax) return setError('Choose a tax for this item');
     const cc = numOrNull(containerCharge);
     if (cc !== null && (!Number.isFinite(cc) || cc < 0 || cc > 100)) {
       return setError('Container charge must be a percentage between 0 and 100');
@@ -81,6 +143,9 @@ export function MenuItemFormModal({ item, categories, onSave, onClose }: MenuIte
         imageUrl,
         isAvailable,
         isActive,
+        taxName: chosenTax.name,
+        taxPercent: chosenTax.percent,
+        priceIncludesTax,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
@@ -119,9 +184,36 @@ export function MenuItemFormModal({ item, categories, onSave, onClose }: MenuIte
             </select>
           </label>
           <label className={styles.formLabel}>
-            Price (₹) *
+            Price ({currencySymbol()}) *
             <input type="number" min={0} step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} />
           </label>
+        </div>
+
+        <div className={styles.taxBox}>
+          <label className={styles.formLabel}>
+            Tax *
+            <select value={taxChoice} onChange={(e) => setTaxChoice(e.target.value)} required>
+              <option value="">Select a tax…</option>
+              {taxOptions.map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.name === 'No tax' ? 'No tax (0%)' : `${o.name} ${pctText(o.percent)}`}
+                </option>
+              ))}
+            </select>
+            <small className={styles.hint}>Required. Replaces the category rate for this item. Options come from the Tax rates screen.</small>
+          </label>
+          <div className={styles.formLabel} role="radiogroup" aria-label="Price and tax">
+            Price is *
+            <label className={styles.radioRow}>
+              <input type="radio" name="priceTax" checked={!priceIncludesTax} onChange={() => setPriceIncludesTax(false)} />
+              <span>Exclusive of tax <small className={styles.hint}>– tax is added on top of the price</small></span>
+            </label>
+            <label className={styles.radioRow}>
+              <input type="radio" name="priceTax" checked={priceIncludesTax} onChange={() => setPriceIncludesTax(true)} />
+              <span>Inclusive of tax <small className={styles.hint}>– the price already contains the tax</small></span>
+            </label>
+          </div>
+          {preview && <div className={styles.taxPreview}>{preview}</div>}
         </div>
 
         <div className={styles.row2}>
@@ -164,7 +256,7 @@ export function MenuItemFormModal({ item, categories, onSave, onClose }: MenuIte
             <input type="number" step={1} value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} />
           </label>
           <label className={styles.formLabel}>
-            Cost price (₹)
+            Cost price ({currencySymbol()})
             <input type="number" min={0} step="0.01" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} />
           </label>
         </div>

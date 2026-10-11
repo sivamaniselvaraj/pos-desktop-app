@@ -421,6 +421,11 @@ create table if not exists public.menu_items (
   constraint menu_items_outlet_id_fkey foreign KEY (outlet_id) references outlets (id) on delete CASCADE
 );
 
+alter table menu_items add column if not exists tax_name text;
+alter table menu_items add column if not exists tax_rate_percent numeric(5,2);
+alter table menu_items add column if not exists price_includes_tax boolean not null default false;
+alter table order_items add column if not exists price_includes_tax boolean not null default false;
+
 create policy "authenticated read menu_items" on menu_items for select to authenticated using (true);
 
 create trigger update_menu_items_updated_at BEFORE
@@ -530,6 +535,15 @@ create table if not exists public.orders (
   )
 );
 
+
+-- Which phone placed the order, and the phone's own request id (a retry of the
+-- same request returns the same order instead of creating a second one).
+alter table orders
+  add column if not exists placed_via_device text,
+  add column if not exists client_request_id text;
+create unique index if not exists orders_client_request_uidx
+  on orders (outlet_id, client_request_id) where client_request_id is not null;
+
 create index IF not exists idx_orders_outlet_created_at on public.orders using btree (outlet_id, created_at desc) ;
 
 create index IF not exists idx_orders_outlet_invoice_number on public.orders using btree (outlet_id, invoice_number) 
@@ -612,6 +626,8 @@ create table public.order_items (
     )
   )
 );
+
+alter table order_items add column if not exists price_includes_tax boolean not null default false;
 
 create index IF not exists idx_order_items_order_id on public.order_items using btree (order_id) ;
 
@@ -747,4 +763,35 @@ create table if not exists kot_counters (
   last_no   integer not null default 0,
   primary key (outlet_id, kot_date)
 );
+
+-- ============================================================================
+-- REMOTE ORDERING (phones order through the desktop app; see place_order_as())
+-- ============================================================================
+-- Same check as has_permission(), for a named user instead of the signed-in
+-- one. Used to check the WAITER when the desktop places an order for a phone.
+create or replace function user_has_permission(p_user uuid, p_code text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from profiles p
+    where p.user_id = p_user
+      and coalesce(p.is_active, true)
+      and (
+        -- p.role = 'admin' or 
+        exists (select 1
+                     from user_group_members m
+                     join user_groups g       on g.id = m.group_id
+                     join group_permissions gp on gp.group_id = g.id
+                    where m.user_id = p.user_id
+                      and g.org_id = p.org_id
+                      and gp.permission_code = p_code)
+      )
+  );
+$$;
+revoke all on function user_has_permission(uuid, text) from public, anon, authenticated;
 

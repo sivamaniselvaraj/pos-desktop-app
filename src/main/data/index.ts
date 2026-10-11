@@ -59,6 +59,12 @@ export const db: DataProvider = {
   get tax() {
     return getProvider().tax;
   },
+  get remoteOrders() {
+    return getProvider().remoteOrders;
+  },
+  get devices() {
+    return getProvider().devices;
+  },
   get kots() {
     return getProvider().kots;
   },

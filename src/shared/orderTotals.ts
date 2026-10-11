@@ -1,7 +1,14 @@
 /**
  * Totals for the New Order page. Used by the renderer (live cart) and by the
- * main process (recomputed before the order is sent, so the numbers written
- * to the database never depend on what the renderer displayed).
+ * main process (recomputed before the order is sent). The database
+ * recalculates authoritatively when the order is placed; this mirrors it.
+ *
+ * Tax is per line (each line carries its own category rate). Lines are
+ * grouped by rate, the taxable amount of each rate is summed and tax is
+ * rounded ONCE per rate. Packaging is taxed at the item's own rate.
+ * A line whose price includes tax has the tax taken out of its price
+ * (gross * rate / (100 + rate)); the subtotal is always the value before tax,
+ * so total = subtotal + container charge + tax in both cases.
  */
 import type { TaxBreakdownLine } from './types';
 
@@ -12,6 +19,8 @@ export interface PricedLine {
   containerPercent: number;
   taxName: string;
   taxPercent: number;
+  /** The unit price already contains the tax. */
+  priceIncludesTax?: boolean;
 }
 
 export interface OrderTotals {
@@ -26,30 +35,45 @@ export interface OrderTotals {
 const r2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
 
 export function computeTotals(lines: PricedLine[], includeContainer: boolean): OrderTotals {
-  const subtotal = r2(lines.reduce((s, l) => s + l.unitPrice * l.quantity, 0));
   const containerCharge = includeContainer
     ? r2(lines.reduce((s, l) => s + (l.unitPrice * l.quantity * l.containerPercent) / 100, 0))
     : 0;
 
-  const slabs = new Map<string, { name: string; rate: number; taxable: number }>();
   let containerPercent = 0;
+
+  const slabs = new Map<
+    string,
+    { name: string; rate: number; exclTaxable: number; inclGross: number; exclBase: number }
+  >();
   for (const l of lines) {
-    const taxable =
-      l.unitPrice * l.quantity * (1 + (includeContainer ? l.containerPercent : 0) / 100);
+    const base = l.unitPrice * l.quantity;
+    const pack = includeContainer ? (base * l.containerPercent) / 100 : 0;
     const key = `${l.taxName}|${l.taxPercent}`;
-    const s = slabs.get(key) ?? { name: l.taxName, rate: l.taxPercent, taxable: 0 };
-    s.taxable += taxable;
+    const s = slabs.get(key) ?? { name: l.taxName, rate: l.taxPercent, exclTaxable: 0, inclGross: 0, exclBase: 0 };
+    if (l.priceIncludesTax) {
+      s.exclTaxable += pack;
+      s.inclGross += base;
+    } else {
+      s.exclTaxable += base + pack;
+      s.exclBase += base;
+    }
     slabs.set(key, s);
     containerPercent = includeContainer && l.containerPercent > 0 ? l.containerPercent : 0;
   }
+  let netBase = 0;
   const breakdown: TaxBreakdownLine[] = [...slabs.values()]
-    .map((s) => ({
-      name: s.name,
-      rate: s.rate,
-      taxable: r2(s.taxable),
-      tax: r2((s.taxable * s.rate) / 100),
-    }))
+    .map((s) => {
+      const inclTax = r2((s.inclGross * s.rate) / (100 + s.rate));
+      netBase += s.exclBase + s.inclGross - inclTax;
+      return {
+        name: s.name,
+        rate: s.rate,
+        taxable: r2(s.exclTaxable + s.inclGross - inclTax),
+        tax: r2(r2((s.exclTaxable * s.rate) / 100) + inclTax),
+      };
+    })
     .sort((a, b) => a.rate - b.rate || a.name.localeCompare(b.name));
+  const subtotal = r2(netBase);
   const tax = r2(breakdown.reduce((s, b) => s + b.tax, 0));
   return { subtotal, tax, containerCharge, total: r2(subtotal + tax + containerCharge), breakdown, containerPercent: containerPercent};
 }

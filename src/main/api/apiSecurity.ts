@@ -1,7 +1,8 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { config, type StoredApiDevice } from '../config';
-import type { ApiDevice, CreatedApiDevice } from '../../shared/types';
+import { db } from '../data';
+import type { ApiDevice, DeviceOwner } from '../../shared/types';
 
 /**
  * apiSecurity.ts
@@ -42,14 +43,22 @@ function sha256(value: string): Buffer {
 }
 
 function toPublic(d: StoredApiDevice): ApiDevice {
-  return { id: d.id, name: d.name, createdAt: d.createdAt, lastUsedAt: d.lastUsedAt };
+  return {
+    id: d.id,
+    name: d.name,
+    createdAt: d.createdAt,
+    lastUsedAt: d.lastUsedAt,
+    userName: d.userName,
+    valid: !!d.userId,
+  };
 }
 
 export function listDevices(): ApiDevice[] {
   return config.apiDevices.map(toPublic);
 }
 
-export function createDevice(name: string): CreatedApiDevice {
+/** Adds a phone bound to the staff user it paired with. Returns the token, shown to the phone once. */
+export function addPairedDevice(name: string, owner: DeviceOwner): { device: ApiDevice; token: string } {
   const clean = String(name ?? '').trim();
   if (clean.length < 1 || clean.length > 60) throw new Error('Device name must be 1 to 60 characters.');
   const devices = config.apiDevices;
@@ -65,9 +74,39 @@ export function createDevice(name: string): CreatedApiDevice {
     name: clean,
     tokenHash: sha256(secret).toString('hex'),
     createdAt: new Date().toISOString(),
+    userId: owner.userId,
+    userName: owner.name,
   };
   config.apiDevices = [...devices, stored];
-  return { ...toPublic(stored), token: `${TOKEN_PREFIX}${id}.${secret}` };
+  ownerAllowed.set(owner.userId, true);
+  return { device: toPublic(stored), token: `${TOKEN_PREFIX}${id}.${secret}` };
+}
+
+// ---------------------------------------------------------------------------
+// Owner re-check: a phone stops working when its user is deactivated or moves
+// to another outlet. Done in the background (the request path stays
+// synchronous); if the database cannot be reached the last known answer stands.
+// ---------------------------------------------------------------------------
+const OWNER_RECHECK_MS = 5 * 60_000;
+const ownerAllowed = new Map<string, boolean>();
+let recheckTimer: NodeJS.Timeout | null = null;
+
+export async function refreshOwners(): Promise<void> {
+  const ids = [...new Set(config.apiDevices.map((d) => d.userId).filter((v): v is string => !!v))];
+  if (ids.length === 0) return;
+  try {
+    const rows = await db.devices.ownerStatus(ids);
+    for (const r of rows) ownerAllowed.set(r.userId, r.isActive && r.inOutlet);
+  } catch (err) {
+    console.warn('[api] could not re-check paired users, keeping the last answer:', err instanceof Error ? err.message : err);
+  }
+}
+
+export function startOwnerRecheck(): void {
+  if (recheckTimer) return;
+  void refreshOwners();
+  recheckTimer = setInterval(() => void refreshOwners(), OWNER_RECHECK_MS);
+  recheckTimer.unref?.();
 }
 
 export function revokeDevice(id: string): void {
@@ -76,9 +115,16 @@ export function revokeDevice(id: string): void {
   config.apiDevices = devices.filter((d) => d.id !== id);
 }
 
+/** Counts a bad request (for example a wrong pairing code) against the client's lockout. */
+export function recordAuthFailure(req: Request): void {
+  recordFailure(clientKey(req));
+}
+
 interface Identity {
   id: string;
   name: string;
+  /** The staff user the device is paired to (absent only for the legacy shared key). */
+  userId?: string;
 }
 
 function identify(token: string): Identity | null {
@@ -103,9 +149,12 @@ function identify(token: string): Identity | null {
   const expected = device ? Buffer.from(device.tokenHash, 'hex') : sha256('no-such-device');
   const ok = timingSafeEqual(given, expected) && !!device;
   if (!ok || !device) return null;
+  // Devices paired before one-time codes have no user: no longer accepted.
+  if (!device.userId) return null;
+  if (ownerAllowed.get(device.userId) === false) return null;
 
   touch(device);
-  return { id: device.id, name: device.name };
+  return { id: device.id, name: device.name, userId: device.userId };
 }
 
 const lastWrite = new Map<string, number>();
@@ -191,6 +240,16 @@ export function hasValidToken(req: Request): boolean {
   return !!token && identify(token) !== null;
 }
 
+/** The staff user the authenticated device belongs to ('' for the legacy key). */
+export function deviceUserId(res: Response): string {
+  return String(res.locals.userId ?? '');
+}
+
+/** Id of the authenticated device. Set by `authenticate`. */
+export function deviceIdOf(res: Response): string {
+  return String(res.locals.deviceId ?? '');
+}
+
 /** Name of the authenticated device for the audit log. Set by `authenticate`. */
 export function deviceName(res: Response): string {
   return String(res.locals.deviceName ?? '-');
@@ -208,6 +267,7 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
   }
   res.locals.deviceId = who.id;
   res.locals.deviceName = who.name;
+  res.locals.userId = who.userId ?? '';
   next();
 }
 

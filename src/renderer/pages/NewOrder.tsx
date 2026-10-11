@@ -31,6 +31,9 @@ interface MenuEntry {
   isVeg: boolean;
   searchKey: string;
   containerPercent: number;
+  /** The item's own tax (replaces the category rate), or null for an older item without one. */
+  itemTax: { name: string; ratePercent: number } | null;
+  priceIncludesTax: boolean;
 }
 
 //const money = (n: number): string => `₹ ${n.toFixed(2)}`;
@@ -49,6 +52,11 @@ function toEntry(raw: Record<string, unknown>): MenuEntry | null {
     isVeg: raw.is_veg !== false,
     searchKey: raw.search_key ? String(raw.search_key).toLowerCase() : '',
     containerPercent: Number(raw.container_charge ?? 0) || 0,
+    itemTax:
+      raw.tax_rate_percent !== null && raw.tax_rate_percent !== undefined && Number.isFinite(Number(raw.tax_rate_percent))
+        ? { name: String(raw.tax_name ?? 'GST'), ratePercent: Number(raw.tax_rate_percent) }
+        : null,
+    priceIncludesTax: raw.price_includes_tax === true,
   };
 }
 
@@ -211,8 +219,9 @@ export function NewOrder() {
           unitPrice: l.item.price,
           quantity: l.qty,
           containerPercent: l.item.containerPercent,
-          taxName: (tax?.byCategory[l.item.categoryId] ?? tax?.defaultRate)?.name ?? 'GST',
-          taxPercent: (tax?.byCategory[l.item.categoryId] ?? tax?.defaultRate)?.ratePercent ?? 0,
+          taxName: (l.item.itemTax ?? tax?.byCategory[l.item.categoryId] ?? tax?.defaultRate)?.name ?? 'GST',
+          taxPercent: (l.item.itemTax ?? tax?.byCategory[l.item.categoryId] ?? tax?.defaultRate)?.ratePercent ?? 0,
+          priceIncludesTax: l.item.itemTax !== null && l.item.priceIncludesTax,
         })),
         orderType === PICK_UP_ORDER_TYPE,
       ),
@@ -378,55 +387,55 @@ export function NewOrder() {
             </div>
           </nav>
           <div className={styles.browseMain}>
-        <div className={styles.searchRow}>
-          <div className={`${styles.search} ${q ? styles.searchOn : ''}`}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <circle cx="11" cy="11" r="7" />
-              <path d="M20 20l-4-4" />
-            </svg>
-            <input
-              ref={searchRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder='Search by item name or keyword  (press "/")'
-              aria-label="Search menu"
-            />
-            {query && (
-              <button type="button" onClick={() => setQuery('')} aria-label="Clear search">
-                <Icon name="cancel" size={14} />
-              </button>
-            )}
-          </div>
-          <div className={styles.seg}>
-            {(['all', 'veg', 'nonveg'] as VegFilter[]).map((v) => (
-              <button key={v} type="button" className={veg === v ? styles.segOn : ''} onClick={() => setVeg(v)}>
-                {v !== 'all' && <span className={`${styles.dot} ${v === 'nonveg' ? styles.dotNv : ''}`} />}
-                {v === 'all' ? 'All' : v === 'veg' ? 'Veg' : 'Non-veg'}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {q && (
-          <div className={styles.muted} style={{ marginBottom: 10 }}>
-            {total} result{total === 1 ? '' : 's'} · name matches first, then keywords
-          </div>
-        )}
-
-        <div className={styles.scroll}>
-          {loading && menu.length === 0 && <div className={styles.muted}>Loading menu…</div>}
-          {!loading && total === 0 && (
-            <div className={styles.empty}>{q ? `Nothing matches "${query}".` : 'No items to show.'}</div>
-          )}
-          <div className={styles.grid}>{nameMatches.map((m) => renderCard(m))}</div>
-          {keywordMatches.length > 0 && (
-            <>
-              <div className={styles.label} style={{ margin: '18px 0 8px' }}>
-                Also matches keyword &ldquo;{query.trim()}&rdquo;
+            <div className={styles.searchRow}>
+              <div className={`${styles.search} ${q ? styles.searchOn : ''}`}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="M20 20l-4-4" />
+                </svg>
+                <input
+                  ref={searchRef}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder='Search by item name or keyword  (press "/")'
+                  aria-label="Search menu"
+                />
+                {query && (
+                  <button type="button" onClick={() => setQuery('')} aria-label="Clear search">
+                    <Icon name="cancel" size={14} />
+                  </button>
+                )}
               </div>
-              <div className={styles.grid}>{keywordMatches.map((m) => renderCard(m, true))}</div>
-            </>
-          )}
+              <div className={styles.seg}>
+                {(['all', 'veg', 'nonveg'] as VegFilter[]).map((v) => (
+                  <button key={v} type="button" className={veg === v ? styles.segOn : ''} onClick={() => setVeg(v)}>
+                    {v !== 'all' && <span className={`${styles.dot} ${v === 'nonveg' ? styles.dotNv : ''}`} />}
+                    {v === 'all' ? 'All' : v === 'veg' ? 'Veg' : 'Non-veg'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {q && (
+              <div className={styles.muted} style={{ marginBottom: 10 }}>
+                {total} result{total === 1 ? '' : 's'} · name matches first, then keywords
+              </div>
+            )}
+
+            <div className={styles.scroll}>
+              {loading && menu.length === 0 && <div className={styles.muted}>Loading menu…</div>}
+              {!loading && total === 0 && (
+                <div className={styles.empty}>{q ? `Nothing matches "${query}".` : 'No items to show.'}</div>
+              )}
+              <div className={styles.grid}>{nameMatches.map((m) => renderCard(m))}</div>
+              {keywordMatches.length > 0 && (
+                <>
+                  <div className={styles.label} style={{ margin: '18px 0 8px' }}>
+                    Also matches keyword &ldquo;{query.trim()}&rdquo;
+                  </div>
+                  <div className={styles.grid}>{keywordMatches.map((m) => renderCard(m, true))}</div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -499,7 +508,7 @@ export function NewOrder() {
             <span>Subtotal</span>
             <span>{money(totals.subtotal)}</span>
           </div>
-          {orderType === PICK_UP_ORDER_TYPE && (
+          {orderType === PICK_UP_ORDER_TYPE && totals.containerCharge > 0 && (
             <div className={styles.sum}>
               <span>Container charge {totals.containerPercent}%</span>
               <span>{money(totals.containerCharge)}</span>
@@ -546,7 +555,7 @@ export function NewOrder() {
               <span>Order no.</span>
               <b>{result.orderNumber ?? '—'}</b>
               <span>Invoice</span>
-              <b>{result.invoiceNumber ?? '—'}</b>
+              <b>{result.invoiceNumber?.slice(-5) ?? '—'}</b>
               <span>Order total</span>
               <b>{money(result.total)}</b>
             </div>

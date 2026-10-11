@@ -16,6 +16,9 @@ function toRow(v: MenuItemValues) {
     image_url: v.imageUrl,
     is_available: v.isAvailable,
     is_active: v.isActive,
+    tax_name: v.taxName,
+    tax_rate_percent: v.taxPercent,
+    price_includes_tax: v.priceIncludesTax,
   };
 }
 

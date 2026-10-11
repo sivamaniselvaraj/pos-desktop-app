@@ -42,8 +42,14 @@ export async function placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrder
     const qty = Math.floor(Number(l.quantity));
     if (!Number.isFinite(qty) || qty < 1 || qty > 99) throw new Error(`Invalid quantity for "${String(m.name)}".`);
     const unit = Number(m.price);
-    const rate = (m.category_id ? rates.byCategory[String(m.category_id)] : undefined) ?? rates.defaultRate;
+    // The item's own tax replaces the category rate; older items without one fall back to it.
+    const itemRate =
+      m.tax_rate_percent !== null && m.tax_rate_percent !== undefined && Number.isFinite(Number(m.tax_rate_percent))
+        ? { name: String(m.tax_name ?? 'GST'), ratePercent: Number(m.tax_rate_percent) }
+        : null;
+    const rate = itemRate ?? (m.category_id ? rates.byCategory[String(m.category_id)] : undefined) ?? rates.defaultRate;
     lines.push({
+      priceIncludesTax: itemRate !== null && m.price_includes_tax === true,
       unitPrice: unit,
       quantity: qty,
       containerPercent: Number(m.container_charge ?? 0) || 0,

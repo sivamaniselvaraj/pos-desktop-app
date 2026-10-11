@@ -22,6 +22,7 @@
  * ---------------------------------------------------------------------------
  */
 import type {
+  DeviceOwner,
   KotBoard,
   KotWorkflow,
   UserGroup,
@@ -251,6 +252,9 @@ export interface MenuItemValues {
   imageUrl: string | null;
   isAvailable: boolean;
   isActive: boolean;
+  taxName: string;
+  taxPercent: number;
+  priceIncludesTax: boolean;
 }
 
 export interface MenuRepository {
@@ -270,6 +274,32 @@ export interface MenuRepository {
 // ---------------------------------------------------------------------------
 // Tax rates (Tax rates screen). Authorized server-side (tax.manage).
 // ---------------------------------------------------------------------------
+export interface RemoteOrderRepository {
+  /** Places an order for the phone's user (place_order_as). Prices come from the menu in the database. */
+  placeOrderAs(p: {
+    waiterId: string;
+    orderType: 'dine-in' | 'pickup';
+    tableId: string | null;
+    items: { menuItemId: string; quantity: number }[];
+    customerName?: string;
+    customerPhone?: string;
+    notes?: string;
+    deviceName: string;
+    /** The paired device's id; the order's notifications go to that device. */
+    deviceId: string;
+    clientRequestId: string;
+  }): Promise<{ orderId: string; orderNumber: number; duplicate: boolean }>;
+  /** Open orders placed from phones, with their KOT state and the notification settings (get_phone_orders). */
+  listPhoneOrders(): Promise<import('../kotNotifierCore').PhoneSnapshot>;
+}
+
+export interface DevicePairingRepository {
+  /** Who a phone's login is. Null when the login is not valid. Uses the phone's own token, not the desktop's session. */
+  resolveOwner(accessToken: string): Promise<DeviceOwner | null>;
+  /** Are these users still active and in this outlet? Uses the desktop's signed-in session. */
+  ownerStatus(userIds: string[]): Promise<{ userId: string; isActive: boolean; inOutlet: boolean }[]>;
+}
+
 export interface KotRepository {
   getBoard(): Promise<KotBoard>;
   move(orderId: string, toStatusId: string, fromStatusId: string): Promise<void>;
@@ -335,6 +365,8 @@ export interface DataProvider {
   orderEntry: OrderEntryRepository;
   tax: TaxRepository;
   kots: KotRepository;
+  devices: DevicePairingRepository;
+  remoteOrders: RemoteOrderRepository;
   tables: TableRepository;
   menu: MenuRepository;
   users: UserRepository;

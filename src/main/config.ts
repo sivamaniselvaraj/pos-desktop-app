@@ -49,6 +49,10 @@ export interface StoredApiDevice {
   tokenHash: string;
   createdAt: string;
   lastUsedAt?: string;
+  /** The staff login the phone was paired with. Devices without it (paired before
+   *  one-time codes existed) are no longer accepted. */
+  userId?: string;
+  userName?: string;
 }
 
 let fileCache: PersistedSettings | null = null;

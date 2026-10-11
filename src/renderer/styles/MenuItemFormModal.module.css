@@ -173,3 +173,31 @@
   align-items: center;
   gap: 8px;
 }
+
+.taxBox {
+  border: 1px solid var(--border, #d5dbe1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.radioRow {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+  font-weight: 500;
+}
+.radioRow input {
+  margin-top: 3px;
+}
+.taxPreview {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(127, 127, 127, 0.12);
+  font-size: 12px;
+}
+.formLabel .radioRow input[type='radio'] {
+  padding: 0;
+  border: none;
+  width: auto;
+}

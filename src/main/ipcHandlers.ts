@@ -5,7 +5,8 @@ import { getPrinters, testPrint } from './printerManager';
 import { isServerRunning } from './api/httpServer';
 import { db } from './data';
 import { signIn, signOut, getCurrentUser } from './authManager';
-import { listDevices, createDevice, revokeDevice } from './api/apiSecurity';
+import { listDevices, revokeDevice } from './api/apiSecurity';
+import { cancelCode, createCode } from './pairingCodes';
 
 import { getAllPrinters, updatePrinter, removePrinter, getMaxPrinters } from './settingsManager';
 import { exportSalesReport } from './reportExport';
@@ -147,9 +148,13 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     await requireDeviceAdmin();
     return listDevices();
   });
-  ipcMain.handle(IpcChannels.CREATE_API_DEVICE, async (_e, name: string) => {
+  ipcMain.handle(IpcChannels.CREATE_PAIRING_CODE, async () => {
     await requireDeviceAdmin();
-    return createDevice(name);
+    return createCode();
+  });
+  ipcMain.handle(IpcChannels.CANCEL_PAIRING_CODE, async () => {
+    await requireDeviceAdmin();
+    cancelCode();
   });
   ipcMain.handle(IpcChannels.REVOKE_API_DEVICE, async (_e, id: string) => {
     await requireDeviceAdmin();
