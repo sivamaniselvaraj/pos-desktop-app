@@ -15,6 +15,11 @@ export interface OrderItem {
 
 export type OrderType = 'delivery' | 'pickup' | 'dine-in' | 'takeaway' | 'dine_in';
 
+/** Where an order was placed: the desktop app (POS), a paired phone, or (an invoice with rounds from both) mixed. */
+export type OrderSource = 'pos' | 'mobile' | 'mixed';
+
+export type OrderDiscountMode = 'percent' | 'amount' | 'complimentary' | 'none';
+
 export const DINE_IN_ORDER_TYPE = 'dine_in' as const;
 export const PICK_UP_ORDER_TYPE = 'takeaway' as const;
 
@@ -56,6 +61,8 @@ export interface FoodOrder {
   /** Pickup orders only; 0/undefined for dine-in and delivery. */
   containerCharge?: number;
   discount?: number;
+  /** Marked complimentary: the customer pays nothing; `discount` holds the value given away. */
+  isComplimentary?: boolean;
   orderType: OrderType;
   specialNotes?: string;
   createdAt: string;
@@ -162,6 +169,22 @@ export interface PrintOrderRequest {
   /** 'settle' reference for a TAKEAWAY order (with orderType: 'takeaway') — the order number, not a UUID. Settles standalone, no grouping. */
   orderNumber?: number;
   type?: PrintType;
+}
+
+/** An open order whose kitchen ticket has items that were never printed. */
+export interface UnprintedKot {
+  orderId: string;
+  orderNumber: number;
+  orderType: string;
+  tableNumber?: string;
+  customerName?: string;
+  waiterName?: string;
+  specialNotes?: string;
+  placedAt: string;
+  orderSource: 'pos' | 'mobile';
+  /** Name of the phone, when placed from mobile. */
+  deviceName?: string;
+  items: { name: string; quantity: number; note?: string }[];
 }
 
 export interface PrintOrderResponse {
@@ -273,7 +296,10 @@ export interface OutletOption {
 
 export type OrderListStatus = 'active' | 'completed' | 'cancelled';
 
+
+
 export interface OrderListRow {
+  orderSource: OrderSource;
   orderId: string;
   orderNumber: string;
   orderType: string;
@@ -370,6 +396,8 @@ export interface TableOrderDetail {
   orders: { id: string; orderNumber: number; status?: string }[];
   /** All orders' items, each tagged with orderId/orderNumber (see OrderDetailItem). */
   items: OrderDetailItem[];
+  /** Discount / complimentary details of the orders that have one. */
+  discounts?: OrderDiscountInfo[];
 }
 
 export interface OrderActivityLogEntry {
@@ -436,6 +464,51 @@ export interface MenuCategory {
 }
 
 /** Add (no id) or edit (id) a menu item. outlet_id is always this machine's outlet. */
+/** One row of Settings > Discounts. */
+export interface DiscountPreset {
+  percent: number;
+  isActive: boolean;
+}
+export interface DiscountSettings {
+  presets: DiscountPreset[];
+  /** The largest active percentage: the cap on discounts. */
+  maxPercent: number;
+}
+
+/** What the signed-in user may offer in the discount dialog (limits are kept in the database). */
+export interface DiscountOptions {
+  /** The discount percentages allowed, ascending. */
+  percents: number[];
+  /** The largest allowed percentage; a fixed amount may not exceed this share of the order value. */
+  maxPercent: number;
+  /** May mark an order complimentary. */
+  canComplimentary: boolean;
+}
+/** The discount (or complimentary) on one order, as shown on the order details screen. */
+export interface OrderDiscountInfo {
+  orderId: string;
+  orderNumber: number;
+  mode: 'percent' | 'amount' | 'complimentary';
+  /** The percentage or the amount entered; null for complimentary. */
+  value: number | null;
+  /** The money taken off (for complimentary: the whole value given away). */
+  amount: number;
+  reason: string;
+  byName: string;
+  /** ISO time the discount was given. */
+  at: string | null;
+}
+
+export interface SetOrderDiscountPayload {
+  /** The order, or every round of a table (they bill together). */
+  orderIds: string[];
+  mode: OrderDiscountMode;
+  /** The percentage (0-100] for 'percent'; the amount for 'amount' (one order only). */
+  value?: number;
+  /** Required for every mode except 'none'. */
+  reason?: string;
+}
+
 export interface SaveMenuItemPayload {
   id?: string;
   name: string;
@@ -628,6 +701,16 @@ export interface SaveManagedTablePayload {
 
 export type TableCardStatus = 'active' | 'settled' | 'available';
 
+/** GET /api/overdue-thresholds: how long an order may wait before it counts as late, and the kitchen steps. */
+export interface PhoneKotSettings {
+  /** Server time (ISO) when the settings were read; compare with the phone's clock to allow for a wrong clock. */
+  serverTime: string;
+  /** Waiting-time levels, lowest first. The first starts at 0. An order is in the highest level whose fromMinutes it has reached. */
+  levels: { name: string; fromMinutes: number; color: string; notify: boolean }[];
+  /** Kitchen steps in order (order_items.status values). */
+  steps: { code: string; name: string; color: string; sortOrder: number; isFinal: boolean; notifyWaiter: boolean }[];
+}
+
 /** One table as the HTTP API reports it (GET /api/tables, GET /api/tables/:id). */
 export interface ApiTable {
   tableId: string;
@@ -672,6 +755,8 @@ export interface TableCard {
   orderStatus?: string;
   orderCreatedAt?: string;
   orderTotalAmount?: number;
+  /** Sum of the discount (or complimentary value) across every order in the batch. */
+  orderDiscountAmount?: number;
   /** Derived client-side from orderStatus — 'available' when there's no recent order at all. */
   cardStatus: TableCardStatus;
   /** True once every order in the batch has payment_details set (transient — a fully-paid batch drops out of the next list). */
@@ -785,6 +870,10 @@ export const IpcChannels = {
   DELETE_ORDER_ITEM: 'delete-order-item',
   CANCEL_INVOICE_WITH_REASON: 'cancel-invoice-with-reason',
   CANCEL_ORDER_WITH_REASON: 'cancel-order-with-reason',
+  SET_ORDER_DISCOUNT: 'set-order-discount',
+  GET_DISCOUNT_OPTIONS: 'get-discount-options',
+  GET_DISCOUNT_SETTINGS: 'get-discount-settings',
+  SAVE_DISCOUNT_PRESETS: 'save-discount-presets',
   COMPLETE_ORDER: 'complete-order',
   REPRINT_ORDER: 'reprint-order',
   GET_MENU_ITEMS: 'get-menu-items',
@@ -794,6 +883,8 @@ export const IpcChannels = {
   LIST_TABLES: 'list-tables',
   LIST_MANAGED_TABLES: 'list-managed-tables',
   GET_KOT_BOARD: 'get-kot-board',
+  GET_UNPRINTED_KOTS: 'get-unprinted-kots',
+  PRINT_KOT_NOW: 'print-kot-now',
   MOVE_KOT: 'move-kot',
   GET_KOT_WORKFLOW: 'get-kot-workflow',
   SAVE_KOT_WORKFLOW: 'save-kot-workflow',
@@ -870,6 +961,13 @@ export interface ElectronApi {
   editOrderItem(payload: EditOrderItemPayload): Promise<void>;
   deleteOrderItem(orderItemId: string, reason: string, approval: EditorApproval): Promise<void>;
   cancelOrderWithReason(orderId: string, reason: string, approval: EditorApproval): Promise<void>;
+  /** Discount an order (or all rounds of a table) or mark it complimentary. Needs orders.discount. */
+  setOrderDiscount(payload: SetOrderDiscountPayload): Promise<void>;
+  /** The discount percentages and limits the user may use. */
+  getDiscountOptions(): Promise<DiscountOptions>;
+  /** Settings > Discounts (needs discount.manage). */
+  getDiscountSettings(): Promise<DiscountSettings>;
+  saveDiscountPresets(presets: DiscountPreset[]): Promise<void>;
   /** Cancel every round of a dine-in invoice at once (one editor approval). */
   cancelInvoiceWithReason(
     invoiceNumber: string,
@@ -886,6 +984,9 @@ export interface ElectronApi {
   listTables(): Promise<TableCard[]>;
   listManagedTables(): Promise<ManagedTable[]>;
   getKotBoard(): Promise<KotBoard>;
+  getUnprintedKots(): Promise<UnprintedKot[]>;
+  /** Print the order's unprinted kitchen items now. Rejects with the printer's message on failure. */
+  printKotNow(orderId: string): Promise<string>;
   moveKot(orderId: string, toStatusId: string, fromStatusId: string): Promise<void>;
   getKotWorkflow(): Promise<KotWorkflow>;
   saveKotWorkflow(workflow: KotWorkflow): Promise<void>;
