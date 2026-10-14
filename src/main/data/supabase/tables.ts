@@ -12,7 +12,7 @@ function toManagedStatus(value: unknown): ManagedTableStatus {
 }
 
 const DB_STATE: Record<ManagedTableStatus, string> = {
-  available: 'open', // 'open' is what settle/cancel already write for a free table
+  available: 'available', // 'open' is what settle/cancel already write for a free table
   occupied: 'occupied',
   reserved: 'reserved',
   cleaning: 'cleaning',
@@ -34,9 +34,9 @@ function friendlyDbError(error: { code?: string; message: string }, fallback: st
 function toRow(values: TableValues) {
   return {
     table_number: values.tableNumber,
-    floor: values.floorArea,
+    floor_area: values.floorArea,
     capacity: values.capacity,
-    state: DB_STATE[values.status],
+    status: DB_STATE[values.status],
   };
 }
 
@@ -107,7 +107,7 @@ export const tables: TableRepository = {
       return {
         tableId,
         tableNumber: String(row.table_number ?? ''),
-        floor: row.floor ? String(row.floor_area) : '',
+        floor: row.floor_area ? String(row.floor_area) : '',
         capacity: row.capacity != null ? Number(row.capacity) : null,
         status,
         effectiveStatus: active > 0 ? 'occupied' : status,

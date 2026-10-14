@@ -20,6 +20,7 @@ function mapListRow(row: Record<string, unknown>): OrderListRow {
     invoiceNumber: row.invoice_number ? String(row.invoice_number) : undefined,
     orderCount: Number(row.order_count ?? 1),
     cancelledCount: Number(row.cancelled_count ?? 0),
+    orderSource: row.order_source === 'mobile' ? 'mobile' : row.order_source === 'mixed' ? 'mixed' : 'pos',
   };
 }
 
@@ -190,6 +191,61 @@ export const orderAdmin: OrderAdminRepository = {
     });
     if (error) throw new Error(error.message);
     unwrapApprovalResult(data);
+  },
+
+  async getOrderDiscounts(orderIds) {
+    if (orderIds.length === 0) return [];
+    const { data, error } = await getAuthedClient().rpc('get_order_discounts', { p_order_ids: orderIds });
+    if (error) throw new Error(error.message);
+    return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+      orderId: String(r.order_id),
+      orderNumber: Number(r.order_number ?? 0),
+      mode: (r.mode === 'complimentary' ? 'complimentary' : r.mode === 'amount' ? 'amount' : 'percent') as 'percent' | 'amount' | 'complimentary',
+      value: r.value != null ? Number(r.value) : null,
+      amount: Number(r.amount ?? 0),
+      reason: String(r.reason ?? ''),
+      byName: String(r.by_name ?? ''),
+      at: r.at ? String(r.at) : null,
+    }));
+  },
+
+  async getDiscountSettings() {
+    const { data, error } = await getAuthedClient().rpc('get_discount_settings');
+    if (error) throw new Error(error.message);
+    const d = (data ?? {}) as { percents?: unknown; max_percent?: unknown };
+    const rows = Array.isArray(d.percents) ? (d.percents as Record<string, unknown>[]) : [];
+    return {
+      presets: rows.map((r) => ({ percent: Number(r.percent), isActive: r.is_active === true })),
+      maxPercent: Number(d.max_percent ?? 0),
+    };
+  },
+
+  async saveDiscountPresets(presets) {
+    const { error } = await getAuthedClient().rpc('save_discount_presets', {
+      p_rows: presets.map((p) => ({ percent: p.percent, is_active: p.isActive })),
+    });
+    if (error) throw new Error(error.message);
+  },
+
+  async getDiscountOptions() {
+    const { data, error } = await getAuthedClient().rpc('get_discount_options');
+    if (error) throw new Error(error.message);
+    const d = (data ?? {}) as { percents?: unknown; max_percent?: unknown; can_complimentary?: unknown };
+    return {
+      percents: Array.isArray(d.percents) ? d.percents.map(Number).filter((n) => Number.isFinite(n)) : [],
+      maxPercent: Number(d.max_percent ?? 0),
+      canComplimentary: d.can_complimentary === true,
+    };
+  },
+
+  async setOrderDiscount(a) {
+    const { error } = await getAuthedClient().rpc('set_order_discount', {
+      p_order_ids: a.orderIds,
+      p_mode: a.mode,
+      p_value: a.value,
+      p_reason: a.reason,
+    });
+    if (error) throw new Error(error.message);
   },
 
   async completeOrder(orderId) {

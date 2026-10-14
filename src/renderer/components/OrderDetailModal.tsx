@@ -1,7 +1,8 @@
 import { Fragment, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import type { OrderDetailItem, OrderActivityLogEntry, EditorApproval } from '@shared/types';
-import { DINE_IN_ORDER_TYPE } from '../../shared/types';
+import type { OrderDetailItem, OrderActivityLogEntry, EditorApproval, OrderDiscountMode, OrderDiscountInfo} from '@shared/types';
+import { DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE } from '../../shared/types';
+import { DiscountModal } from './DiscountModal';
 import { ApprovalModal } from './ApprovalModal';
 import styles from '../styles/OrderDetailModal.module.css';
 
@@ -65,6 +66,14 @@ export interface OrderDetailModalProps {
   ) => Promise<void>;
   /** Persist the removal (call deleteOrderItem, reload, refresh) — reason is already collected and validated non-empty by this component before it's called. */
   onDeleteItem: (item: OrderDetailItem, reason: string, approval: EditorApproval) => Promise<void>;
+  /** Give a discount / mark complimentary on these orders. Resolve when saved (the caller reloads); throw to show the message. Omit to hide the button. */
+  /** Discount / complimentary details per order (only orders that have one). Shown under the totals. */
+  discounts?: OrderDiscountInfo[];
+  /** When there is no `totals` (Dashboard), the figures the Discount dialog shows. */
+  discountSummary?: { discountAmount: number; totalAmount: number };
+  /** Dine-in: jump to New Order with this table preselected, to add another round of items. Omit to hide the button. */
+  onAddItems?: () => void;
+  onDiscount?: (orderIds: string[], mode: OrderDiscountMode, value: number | undefined, reason: string) => Promise<void>;
   /** Surface a validation message the same way the caller's own page does (e.g. its flash() banner). */
   onMessage: (type: 'success' | 'error', text: string) => void;
 }
@@ -98,6 +107,10 @@ export function OrderDetailModal({
   editable,
   onClose,
   onCancelRound,
+  onDiscount,
+  onAddItems,
+  discounts,
+  discountSummary,
   onEditItem,
   onDeleteItem,
   onMessage,
@@ -106,6 +119,11 @@ export function OrderDetailModal({
   const { can } = useAuth();
   const canEditItems = editable && can('orders.edit');
   const canCancelRound = editable && can('orders.cancel');
+  const discountFigures = totals
+    ? { discountAmount: totals.discountAmount, totalAmount: totals.totalAmount }
+    : discountSummary;
+  const canDiscount = editable && !!onDiscount && !!discountFigures && can('orders.discount');
+  const [discountOpen, setDiscountOpen] = useState(false);
   const [editing, setEditing] = useState<{
     id: string;
     mode: 'edit' | 'remove';
@@ -372,7 +390,7 @@ export function OrderDetailModal({
               <span>{formatCurrency(totals.subtotalAmount)}</span>
             </div>
 
-            {totals.orderType === 'pickup' || totals.orderType === 'takeaway' ? (
+            {totals.orderType === 'pickup' || totals.orderType === PICK_UP_ORDER_TYPE ? (
               <>
                 <div className={styles.breakdownRow}>
                   <span>Container Charge</span>
@@ -398,10 +416,55 @@ export function OrderDetailModal({
               </>
             )}
 
+            {totals.orderType === PICK_UP_ORDER_TYPE && totals.discountAmount > 0 && (
+              <div className={styles.breakdownRow}>
+                <span>Discount</span>
+                <span>-{formatCurrency(totals.discountAmount)}</span>
+              </div>
+            )}
+
             <div className={`${styles.breakdownRow} ${styles.breakdownTotal}`}>
               <span>Grand Total</span>
               <span>{formatCurrency(totals.totalAmount)}</span>
             </div>
+
+          </div>
+        )}
+
+        {!loading && discounts && discounts.length > 0 && (
+          <div className={styles.discountBox}>
+            <h4 className={styles.logHeading}>Discount</h4>
+            {discounts.map((d) => (
+              <div key={d.orderId} className={styles.discountRow}>
+                <div className={styles.discountHead}>
+                  <span>
+                    {grouped && <>Order #{d.orderNumber} · </>}
+                    {d.mode === 'complimentary' ? (
+                      <b className={styles.compBadge}>Complimentary</b>
+                    ) : d.mode === 'percent' ? (
+                      <b>{d.value}% discount</b>
+                    ) : (
+                      <b>Fixed discount</b>
+                    )}
+                  </span>
+                  <b>-{formatCurrency(d.amount)}</b>
+                </div>
+                <div className={styles.discountMeta}>
+                  {d.mode === 'complimentary' ? 'Value given away' : 'Taken off before tax'}
+                  {d.reason ? <> · Reason: {d.reason}</> : null}
+                  {d.byName ? <> · By {d.byName}</> : null}
+                  {d.at ? <> · {formatDateTime(d.at)}</> : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!loading && canDiscount && discountFigures && (
+          <div className={styles.modalActions}>
+            <button type="button" className={styles.smallBtn} onClick={() => setDiscountOpen(true)}>
+              {discountFigures.discountAmount > 0 ? 'Change discount' : 'Discount / Complimentary'}
+            </button>
           </div>
         )}
 
@@ -457,10 +520,34 @@ export function OrderDetailModal({
         )}
 
         <div className={styles.modalActions}>
+          {editable && onAddItems && (
+            <button className={styles.addItemsBtn} onClick={onAddItems}>
+              + Add items
+            </button>
+          )}
           <button className={styles.cancelBtn} onClick={onClose}>
             Close
           </button>
         </div>
+
+        {discountOpen && discountFigures && onDiscount && (
+          <DiscountModal
+            title={title}
+            orderIds={orders.filter((o) => o.status !== 'cancelled').map((o) => o.id)}
+            currentDiscount={discountFigures.discountAmount}
+            currentTotal={discountFigures.totalAmount}
+            onClose={() => setDiscountOpen(false)}
+            onApply={async (mode, value, reason) => {
+              await onDiscount(
+                orders.filter((o) => o.status !== 'cancelled').map((o) => o.id),
+                mode,
+                value,
+                reason,
+              );
+              setDiscountOpen(false);
+            }}
+          />
+        )}
 
         {pending && (
           <ApprovalModal

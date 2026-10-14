@@ -10,6 +10,8 @@ import type {
   OrderActivityLogEntry,
   PaymentMethod,
   EditorApproval,
+  OrderDiscountMode,
+  OrderDiscountInfo,
   SaveManagedTablePayload,
 } from '@shared/types';
 import styles from '../styles/TableDashboard.module.css';
@@ -23,6 +25,13 @@ const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
 ];
 
 
+function startedAt(createdAt: string | undefined): string {
+  if (!createdAt) return '';
+  const d = new Date(createdAt);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
 function elapsedMinutes(createdAt: string | undefined, now: number): number | null {
   if (!createdAt) return null;
   const started = new Date(createdAt).getTime();
@@ -30,7 +39,7 @@ function elapsedMinutes(createdAt: string | undefined, now: number): number | nu
   return Math.max(0, Math.round((now - started) / 60000));
 }
 
-export function Dashboard() {
+export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => void } = {}) {
   const { can } = useAuth();
   const [tables, setTables] = useState<TableCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,12 +53,15 @@ export function Dashboard() {
 
   const [showAddTable, setShowAddTable] = useState(false);
   const [floors, setFloors] = useState<string[]>([]);
+  const [tableMeta, setTableMeta] = useState<Record<string, { floor: string; capacity: number | null }>>({});
+  const [activeFloor, setActiveFloor] = useState<string>('all');
 
   const [viewTableId, setViewTableId] = useState<string | null>(null);
   const [viewInvoiceNumber, setViewInvoiceNumber] = useState<string | null>(null);
   const [viewOrders, setViewOrders] = useState<{ id: string; orderNumber: number }[]>([]);
   const [viewItems, setViewItems] = useState<OrderDetailItem[]>([]);
   const [viewLog, setViewLog] = useState<OrderActivityLogEntry[]>([]);
+  const [viewDiscounts, setViewDiscounts] = useState<OrderDiscountInfo[]>([]);
   const [viewLoading, setViewLoading] = useState(false);
 
   const [payingTable, setPayingTable] = useState<TableCard | null>(null);
@@ -61,6 +73,7 @@ export function Dashboard() {
 
   useEffect(() => {
     load();
+    loadMeta();
     const tick = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(tick);
   }, []);
@@ -75,6 +88,18 @@ export function Dashboard() {
       setError(err instanceof Error ? err.message : 'Failed to load tables');
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Best-effort: floor + seats per table for the floor tabs / footer. Never blocks the page.
+  async function loadMeta() {
+    try {
+      const all = await window.api.listManagedTables();
+      const meta: Record<string, { floor: string; capacity: number | null }> = {};
+      for (const t of all) meta[t.tableId] = { floor: t.floor || '', capacity: t.capacity };
+      setTableMeta(meta);
+    } catch {
+      setTableMeta({});
     }
   }
 
@@ -118,7 +143,6 @@ export function Dashboard() {
     Math.round(partPaymentSum * 100) === Math.round((payingTable.orderTotalAmount ?? 0) * 100);
 
   async function handleSavePayment() {
-    console.log(payingTable)
     if (!payingTable?.invoiceNumber) return;
 
     if (paymentMethod === 'part-payment' && !partPaymentMatches) {
@@ -178,6 +202,7 @@ export function Dashboard() {
     await window.api.saveManagedTable(payload); // throws -> shown inside the modal
     setShowAddTable(false);
     flash('success', `Table ${payload.tableNumber} added`);
+    void loadMeta();
     try {
       await load();
     } catch (err) {
@@ -194,6 +219,7 @@ export function Dashboard() {
     ]);
     setViewOrders(detail.orders);
     setViewItems(detail.items);
+    setViewDiscounts(detail.discounts ?? []);
     setViewLog(log);
   }
 
@@ -222,6 +248,7 @@ export function Dashboard() {
     setViewOrders([]);
     setViewItems([]);
     setViewLog([]);
+    setViewDiscounts([]);
   }
 
   async function refreshView() {
@@ -251,6 +278,17 @@ export function Dashboard() {
     await refreshAfterWrite();
   }
 
+  async function handleDiscount(
+    orderIds: string[],
+    mode: OrderDiscountMode,
+    value: number | undefined,
+    reason: string,
+  ): Promise<void> {
+    await window.api.setOrderDiscount({ orderIds, mode, value, reason });
+    flash('success', mode === 'none' ? 'Discount removed' : mode === 'complimentary' ? 'Marked complimentary' : 'Discount applied');
+    await refreshAfterWrite();
+  }
+
   async function handleDeleteItem(
     item: OrderDetailItem,
     reason: string,
@@ -266,94 +304,199 @@ export function Dashboard() {
     [tables, viewTableId],
   );
 
+  const floorTabs = useMemo(
+    () => Array.from(new Set(tables.map((t) => tableMeta[t.tableId]?.floor).filter(Boolean) as string[])).sort(),
+    [tables, tableMeta],
+  );
+  const visibleTables = useMemo(
+    () =>
+      activeFloor === 'all'
+        ? tables
+        : tables.filter((t) => tableMeta[t.tableId]?.floor === activeFloor),
+    [tables, tableMeta, activeFloor],
+  );
+  // Footer stats for the visible floor.
+  const occupiedCount = visibleTables.filter((t) => t.cardStatus !== 'available').length;
+  const totalSeats = visibleTables.reduce((n, t) => n + (tableMeta[t.tableId]?.capacity ?? 0), 0);
+  const takenSeats = visibleTables
+    .filter((t) => t.cardStatus !== 'available')
+    .reduce((n, t) => n + (tableMeta[t.tableId]?.capacity ?? 0), 0);
+  const occupancyPct = visibleTables.length
+    ? Math.round((occupiedCount / visibleTables.length) * 100)
+    : 0;
+
+  function statusOf(t: TableCard): { key: string; label: string } {
+    if (t.cardStatus === 'active') return { key: 'active', label: 'Ordered' };
+    if (t.cardStatus === 'settled') {
+      return t.paymentRecorded
+        ? { key: 'settled', label: 'Paid' }
+        : { key: 'settled', label: 'Occupied' };
+    }
+    // if (t.manualStatus !== 'available') {
+    //   return { key: 'manual_' + t.manualStatus, label: t.manualStatus };
+    // }
+    return { key: 'available', label: 'Available' };
+  }
+
   return (
     <div className={styles.page}>
-      <div className={styles.header}>
-        <h2>Dashboard</h2>
-        </div>
+      <div className={styles.main}>
+        <div className={styles.header}>
+          <h2>Dining</h2>
+        
         <div className={styles.actionButtons}>
           <button className={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing}>
           <Icon name="refresh" size={16} />
           {refreshing ? 'Refreshing…' : 'Refresh Tables'}
         </button>
-         {can('tables.manage') && (
-        <button className={styles.addBtn} onClick={openAddTable}>
-          <Icon name="plus" size={16} />
-          Add Table
-        </button>
-        )}
+          {can('tables.manage') && (
+            <button className={styles.addBtn} onClick={openAddTable}>
+              <Icon name="plus" size={16} />
+              Add Table
+            </button>
+          )}
+        </div>
         </div>
 
-      <Toast message={message} />
-      {error && <p className={styles.error}>{error}</p>}
-      {loading && <p className={styles.muted}>Loading tables…</p>}
+        <div className={styles.toolbar}>
+          <div className={styles.floorTabs}>
+            <button
+              className={`${styles.floorTab} ${activeFloor === 'all' ? styles.floorTabOn : ''}`}
+              onClick={() => setActiveFloor('all')}
+            >
+              All
+            </button>
+            {floorTabs.map((f) => (
+              <button
+                key={f}
+                className={`${styles.floorTab} ${activeFloor === f ? styles.floorTabOn : ''}`}
+                onClick={() => setActiveFloor(f)}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+          <div className={styles.legend}>
+            <span><i className={`${styles.dot} ${styles.dotAvailable}`} />Available</span>
+            <span><i className={`${styles.dot} ${styles.dotActive}`} />Ordered</span>
+            <span><i className={`${styles.dot} ${styles.dotSettled}`} />Occupied</span>
+            <span><i className={`${styles.dot} ${styles.dotReserved}`} />Reserved</span>
+          </div>
+        </div>
+        <Toast message={message} />
+        {error && <p className={styles.error}>{error}</p>}
+        {loading && <p className={styles.muted}>Loading tables…</p>}
 
-      {!loading && !error && tables.length === 0 && (
-        <p className={styles.muted}>No tables yet — add one to get started.</p>
-      )}
+        {!loading && !error && tables.length === 0 && (
+          <p className={styles.muted}>No tables yet — add one to get started.</p>
+        )}
 
+      <div className={styles.canvas}>
       <div className={styles.grid}>
-        {tables.map((table) => {
-          const mins = elapsedMinutes(table.orderCreatedAt, now);
-          const busy = busyTableId === table.tableId;
+        {visibleTables.map((table) => {
+            const mins = elapsedMinutes(table.orderCreatedAt, now);
+            const st = statusOf(table);
+            const cap = tableMeta[table.tableId]?.capacity ?? 0;
+            const busy = busyTableId === table.tableId;
           return (
-            <div key={table.tableId} className={`${styles.card} ${styles[table.cardStatus]} ${styles[table.tableState]}`}>
-              {table.tableState === 'available' ? (
-                <div className={styles.availableBody}>
-                  <div className={styles.tableNumber}>{table.tableNumber}</div>
-                  <div className={styles.availableLabel}>Available</div>
-                </div>
-              ) : (
-                <>
-                  <div className={styles.cardTop}>
-                    {mins !== null && <div className={styles.minutes}>{mins} Min</div>}
-                    <div className={styles.tableNumber}>Table {table.tableNumber}</div>
-                    <div className={styles.tableNumber}>{table.tableState}</div>
-                    <div className={styles.amount}>{formatCurrency(table.orderTotalAmount ?? 0)}</div>
+            <div
+                  key={table.tableId}
+                  className={`${styles.card} ${styles[st.key] ?? ''}`}
+                >
+                  <span className={styles.accent} />
+                  <div className={styles.cardTopRow}>
+                    <div className={styles.cardName}>{table.tableNumber}</div>
+                    {cap > 0 && (
+                      <div className={styles.seatDots} title={`${cap} seats`} aria-label={`${cap} seats`}>
+                        {Array.from({ length: Math.min(cap, 12) }, (_, i) => (
+                          <i
+                            key={i}
+                            className={`${styles.seat} ${table.cardStatus !== 'available' ? styles.seatTaken : ''}`}
+                          />
+                        ))}
+                        {cap > 12 && <span className={styles.seatMore}>+{cap - 12}</span>}
+                      </div>
+                    )}
                   </div>
-
-                  {table.orderNumbers && table.orderNumbers.length > 1 && (
-                    <div className={styles.orderNumbers}>
-                      Orders: {table.orderNumbers.join(', ')}
-                    </div>
-                  )}
-
+                  <div className={styles.cardBottom}>
+                    <div className={styles.cardStatus}>{st.label}</div>
+                    {table.cardStatus !== 'available' && (
+                      <div className={styles.cardTime}>
+                        {startedAt(table.orderCreatedAt)}
+                        {mins !== null ? ` · ${mins} min` : ''}
+                      </div>
+                    )}
+                    {table.cardStatus !== 'available' && (
+                      <div className={styles.cardAmount}>{formatCurrency(table.orderTotalAmount ?? 0)}</div>
+                    )}
+                  </div>
                   <div className={styles.cardActions}>
-                    <button
-                      className={styles.iconBtn}
-                      title={table.cardStatus === 'settled' ? 'Print Duplicate Bill' : 'Print Bill'}
-                      onClick={() => handlePrint(table)}
-                      disabled={busy}
-                    >
-                      <Icon name="print" size={18} />
-                    </button>
-                    {table.cardStatus === 'active' && (
-                      <button
-                        className={styles.iconBtn}
-                        title="View Items"
-                        onClick={() => openView(table)}
-                        disabled={busy}
-                      >
-                        <Icon name="view" size={18} />
-                      </button>
-                    )}
-                    {table.cardStatus === 'settled' && !table.paymentRecorded && can('orders.complete') && (
-                      <button
-                        className={styles.iconBtn}
-                        title="Record Payment (required to release this table)"
-                        onClick={() => openPaymentDialog(table)}
-                        disabled={busy}
-                      >
-                        <Icon name="save" size={18} />
-                      </button>
+                    {table.cardStatus === 'available' ? (
+                      onAddItems && (
+                        <button
+                          className={styles.iconBtn}
+                          title="Add items (new order)"
+                          onClick={() => onAddItems(table.tableId)}
+                        >
+                          <Icon name="plus" size={16} />
+                        </button>
+                      )
+                    ) : (
+                      <>
+                      {table.cardStatus}
+                        <button
+                          className={styles.iconBtn}
+                          title={table.cardStatus === 'settled' ? 'Print Duplicate Bill' : 'Print Bill'}
+                          onClick={() => handlePrint(table)}
+                          disabled={busyTableId === table.tableId}
+                        >
+                          <Icon name="print" size={16} />
+                        </button>
+                        {table.cardStatus === 'active' && (
+                        <button
+                          className={styles.iconBtn}
+                          title="View details"
+                          onClick={() => openView(table)}
+                          disabled={busyTableId === table.tableId}
+                        >
+                          <Icon name="view" size={16} />
+                        </button>
+                        )}
+                        {table.cardStatus === 'settled' && !table.paymentRecorded && can('orders.complete') && (
+                          <button
+                            className={styles.iconBtn}
+                            title="Record Payment (required to release this table)"
+                            onClick={() => openPaymentDialog(table)}
+                            disabled={busyTableId === table.tableId}
+                          >
+                            <Icon name="save" size={16} />
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
-                </>
-              )}
-            </div>
-          );
-        })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className={styles.footer}>
+          <span>
+            <b>{occupiedCount}</b> / {visibleTables.length} tables occupied
+          </span>
+          {totalSeats > 0 && (
+            <span>
+              <b>{takenSeats}</b> / {totalSeats} seats
+            </span>
+          )}
+          <div className={styles.progress}>
+            <div className={styles.progressFill} style={{ width: `${occupancyPct}%` }} />
+          </div>
+          <span className={styles.pct}>{occupancyPct}%</span>
+        </div>
       </div>
+
 
       {showAddTable && (
         <TableFormModal
@@ -361,7 +504,7 @@ export function Dashboard() {
           onSave={handleAddTable}
           onClose={() => setShowAddTable(false)}
         />
-          )}
+      )}
 
       {payingTable && (
         <div className={styles.modalOverlay} onClick={closePaymentDialog}>
@@ -446,11 +589,20 @@ export function Dashboard() {
           title={`Table ${viewingTable?.tableNumber ?? ''}`}
           headerAmount={viewingTable?.orderTotalAmount ?? 0}
           orders={viewOrders}
+          discounts={viewDiscounts}
           items={viewItems}
           log={viewLog}
           loading={viewLoading}
           editable
           onClose={closeView}
+          onDiscount={handleDiscount}
+          onAddItems={
+            onAddItems && viewingTable ? () => onAddItems(viewingTable.tableId) : undefined
+          }
+          discountSummary={{
+            discountAmount: viewingTable?.orderDiscountAmount ?? 0,
+            totalAmount: viewingTable?.orderTotalAmount ?? 0,
+          }}
           onEditItem={handleEditItem}
           onDeleteItem={handleDeleteItem}
           onMessage={flash}

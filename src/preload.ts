@@ -3,6 +3,8 @@ import { IpcChannels } from './shared/types';
 import type {
   AuthResult,
   AuthUser,
+  DiscountOptions,
+  DiscountSettings,
   ElectronApi,
   OrderWithStatus,
   PrinterInfo,
@@ -24,6 +26,7 @@ import type {
   TableCard,
   ManagedTable,
   KotBoard,
+  UnprintedKot,
   KotWorkflow,
   TaxRates,
   TaxRateRow,
@@ -110,6 +113,10 @@ const api: ElectronApi = {
       reason,
       approval,
     ) as Promise<void>,
+  getDiscountSettings: () => ipcRenderer.invoke(IpcChannels.GET_DISCOUNT_SETTINGS) as Promise<DiscountSettings>,
+  saveDiscountPresets: (presets) => ipcRenderer.invoke(IpcChannels.SAVE_DISCOUNT_PRESETS, presets) as Promise<void>,
+  getDiscountOptions: () => ipcRenderer.invoke(IpcChannels.GET_DISCOUNT_OPTIONS) as Promise<DiscountOptions>,
+  setOrderDiscount: (payload) => ipcRenderer.invoke(IpcChannels.SET_ORDER_DISCOUNT, payload) as Promise<void>,
   cancelOrderWithReason: (orderId, reason, approval) =>
     ipcRenderer.invoke(
       IpcChannels.CANCEL_ORDER_WITH_REASON,
@@ -147,6 +154,9 @@ const api: ElectronApi = {
   saveMenuItem: (payload) =>
     ipcRenderer.invoke(IpcChannels.SAVE_MENU_ITEM, payload) as Promise<MenuCacheSnapshot>,
   getMyAccess: () => ipcRenderer.invoke(IpcChannels.GET_MY_ACCESS) as Promise<MyAccess | null>,
+  getUnprintedKots: () => ipcRenderer.invoke(IpcChannels.GET_UNPRINTED_KOTS) as Promise<UnprintedKot[]>,
+  printKotNow: (orderId: string) =>
+    ipcRenderer.invoke(IpcChannels.PRINT_KOT_NOW, orderId) as Promise<string>,
   getKotBoard: () => ipcRenderer.invoke(IpcChannels.GET_KOT_BOARD) as Promise<KotBoard>,
   moveKot: (orderId: string, toStatusId: string, fromStatusId: string) =>
     ipcRenderer.invoke(IpcChannels.MOVE_KOT, orderId, toStatusId, fromStatusId) as Promise<void>,

@@ -53,4 +53,27 @@ export const remoteOrders: RemoteOrderRepository = {
         })),
     };
   },
+  async getKotSettings() {
+    const { data, error } = await getAuthedClient().rpc('get_kot_settings');
+    if (error) throw new Error(error.message);
+    const d = (data ?? {}) as Record<string, unknown>;
+    const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
+    return {
+      serverTime: String(d.now ?? new Date().toISOString()),
+      levels: arr(d.levels).map((l) => ({
+        name: String(l.name),
+        fromMinutes: Number(l.from_minutes ?? 0),
+        color: String(l.color ?? ''),
+        notify: l.notify === true,
+      })),
+      steps: arr(d.steps).map((s) => ({
+        code: String(s.code),
+        name: String(s.name),
+        color: String(s.color ?? ''),
+        sortOrder: Number(s.sort_order ?? 0),
+        isFinal: s.is_final === true,
+        notifyWaiter: s.notify_waiter === true,
+      })),
+    };
+  },
 };

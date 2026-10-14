@@ -3,7 +3,7 @@ import { supabaseSettings } from './settings';
 import { getAnonClient, getAuthedClient } from './sessionClient';
 import { aggregateItems } from '../helpers';
 import type { OrderRepository, TableBatch } from '../ports';
-import type { FoodOrder, OrderItem, OutletInfo, OrderType } from '../../../shared/types';
+import type { FoodOrder, OrderItem, OutletInfo, OrderType, UnprintedKot } from '../../../shared/types';
 
 const ITEMS_TABLE = 'order_items';
 const ORDER_RPC = 'get_order_with_items';
@@ -77,6 +77,7 @@ function mapRow(row: Record<string, unknown>): FoodOrder {
     // rather than silently-wrong: the printed "Discount:" line only appears
     // when > 0, so an always-undefined value just meant it never printed.
     discount: row.discount_amount != null ? Number(row.discount_amount) : undefined,
+    isComplimentary: row.is_complimentary === true,
     orderType: (row.order_type as OrderType) ?? 'pickup',
     tableNumber:
       row.table_number != null ? (row.table_number as string | number) : undefined,
@@ -534,6 +535,37 @@ async function findOrdersWithPendingKot(): Promise<{ orderId: string; orderType:
   }));
 }
 
+async function listUnprintedKots(): Promise<UnprintedKot[]> {
+  const { data, error } = await getAuthedClient().rpc('get_unprinted_kots');
+  if (error) throw new Error(error.message);
+  type Row = {
+    order_id: string;
+    order_number: number;
+    order_type: string;
+    table_number: string | null;
+    customer_name: string | null;
+    waiter_name: string | null;
+    special_notes: string | null;
+    placed_at: string;
+    order_source: string | null;
+    device_name: string | null;
+    items: { name: string; quantity: number; note: string | null }[] | null;
+  };
+  return ((data ?? []) as Row[]).map((r) => ({
+    orderId: String(r.order_id),
+    orderNumber: r.order_number,
+    orderType: r.order_type,
+    tableNumber: r.table_number ?? undefined,
+    customerName: r.customer_name ?? undefined,
+    waiterName: r.waiter_name ?? undefined,
+    specialNotes: r.special_notes ?? undefined,
+    placedAt: r.placed_at,
+    orderSource: r.order_source === 'mobile' ? 'mobile' : 'pos',
+    deviceName: r.device_name ?? undefined,
+    items: (r.items ?? []).map((i) => ({ name: i.name, quantity: i.quantity, note: i.note ?? undefined })),
+  }));
+}
+
 export const orders: OrderRepository = {
   isReachable,
   fetchOrderById,
@@ -549,6 +581,7 @@ export const orders: OrderRepository = {
   fetchOrdersByNumbers,
   markOrdersCompleted,
   findOrdersWithPendingKot,
+  listUnprintedKots,
   claimUnprintedItems,
   releaseKotClaim,
 };

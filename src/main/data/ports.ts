@@ -129,6 +129,8 @@ export interface OrderRepository {
   markOrdersCompleted(orderIds: string[]): Promise<void>;
   /** Orders of one outlet whose kitchen items are still unprinted. */
   findOrdersWithPendingKot(): Promise<{ orderId: string; orderType: string }[]>;
+  /** Open orders with kitchen items not yet printed, with those items (get_unprinted_kots). */
+  listUnprintedKots(): Promise<import('../../shared/types').UnprintedKot[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +168,12 @@ export interface OrderAdminRepository {
     approval: EditorApproval;
   }): Promise<void>;
   completeOrder(orderId: string): Promise<void>;
+  /** set_order_discount: percent / amount / complimentary / none on one or more orders. */
+  getOrderDiscounts(orderIds: string[]): Promise<import('../../shared/types').OrderDiscountInfo[]>;
+  getDiscountSettings(): Promise<import('../../shared/types').DiscountSettings>;
+  saveDiscountPresets(presets: import('../../shared/types').DiscountPreset[]): Promise<void>;
+  getDiscountOptions(): Promise<import('../../shared/types').DiscountOptions>;
+  setOrderDiscount(args: { orderIds: string[]; mode: string; value: number | null; reason: string | null }): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +299,8 @@ export interface RemoteOrderRepository {
   }): Promise<{ orderId: string; orderNumber: number; duplicate: boolean }>;
   /** Open orders placed from phones, with their KOT state and the notification settings (get_phone_orders). */
   listPhoneOrders(): Promise<import('../kotNotifierCore').PhoneSnapshot>;
+  /** The outlet's overdue (waiting-time) levels and kitchen steps for phones (get_kot_settings). */
+  getKotSettings(): Promise<import('../../shared/types').PhoneKotSettings>;
 }
 
 export interface DevicePairingRepository {

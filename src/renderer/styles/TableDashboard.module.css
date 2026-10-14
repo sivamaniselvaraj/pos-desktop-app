@@ -1,7 +1,17 @@
 .page {
   flex: 1;
-  overflow-y: auto;
-  padding: 28px;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 24px 16px;
+  overflow: hidden;
 }
 
 .header {
@@ -57,7 +67,74 @@
   font-size: 13px;
 }
 
-/* Table cards grid */
+/* Toolbar: floor tabs + legend */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.floorTabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.floorTab {
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--gray);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.floorTabOn {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+.legend {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--gray);
+}
+
+.legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dotAvailable { background: #6cc04a; }
+.dotActive { background: #e8696b; }
+.dotSettled { background: #f0c05a; }
+.dotReserved { background: #2563eb; }
+
+/* Floor canvas */
+.canvas {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -65,91 +142,108 @@
 }
 
 .card {
-  border-radius: 12px;
-  padding: 16px 14px;
+  position: relative;
+  text-align: left;
+  font: inherit;
+  border-radius: 6px;
+  padding: 12px 12px 10px 16px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  min-height: 140px;
-  justify-content: center;
-  border: 2px dashed transparent;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 104px;
+  border: 1px solid #cfd8d3;
+  background: #eaf3ee;
+  cursor: pointer;
+  overflow: hidden;
 }
 
-.active {
-  background: #f4e84a;
-  border-color: #d4c500;
+.card:hover {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
 }
 
-.settled {
-  background: #8bc34a;
-  border-color: #689f38;
+.cardSelected {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
 }
 
-.available {
-  background: #f2f2f2;
-  border: 2px dashed #ccc;
+.accent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: #6cc04a;
 }
 
-.cardTop {
+/* Available (green) is the default look */
+.available { background: #eaf3ee; border-color: #cfdcd4; }
+.available .accent { background: #6cc04a; }
+
+/* Ordered (red) */
+.active { background: #fce8e8; border-color: #efc4c4; }
+.active .accent { background: #e8696b; }
+
+/* Occupied / billed (amber) */
+.settled { background: #fdf1da; border-color: #f0dcae; }
+.settled .accent { background: #f0c05a; }
+
+.manual_reserved { background: #eff6ff; border-color: #c7dcf7; }
+.manual_reserved .accent { background: #2563eb; }
+.manual_cleaning { background: #f3f4f6; border-color: #d9dce1; }
+.manual_cleaning .accent { background: #9ca3af; }
+.manual_occupied { background: #fdf1da; border-color: #f0dcae; }
+.manual_occupied .accent { background: #f0c05a; }
+
+.cardTopRow {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  text-align: center;
+  align-items: flex-start;
+  justify-content: space-between;
 }
 
-.minutes {
+.cardName {
   font-size: 15px;
   font-weight: 700;
-  color: #3a3a1f;
+  color: var(--dark);
 }
 
-.settled .minutes {
-  color: #1b3a0f;
+.seatDots {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 3px;
+  max-width: 64px;
 }
 
-.tableNumber {
-  font-size: 22px;
-  font-weight: 800;
-  color: #2a2a15;
+.seat {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid #3f9b2f;
+  background: white;
 }
 
-.settled .tableNumber {
-  color: #16300a;
+.seatTaken {
+  background: #3f9b2f;
 }
 
-.available .tableNumber {
-  color: #666;
-}
-
-.amount {
-  font-size: 17px;
-  font-weight: 700;
-  color: #2a2a15;
-}
-
-.settled .amount {
-  color: #16300a;
-}
-
-.orderNumbers {
-  font-size: 11px;
-  color: #666;
-  margin: -4px 0 6px;
+.seatMore {
+  font-size: 10px;
+  color: var(--gray);
 }
 
 .cardActions {
   display: flex;
-  gap: 10px;
+  gap: 6px;
+  margin-top: 4px;
 }
 
 .iconBtn {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.55);
-  border: 1px solid rgba(0, 0, 0, 0.25);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.18);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -158,7 +252,7 @@
 }
 
 .iconBtn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.85);
+  background: white;
 }
 
 .iconBtn:disabled {
@@ -166,18 +260,60 @@
   cursor: not-allowed;
 }
 
-.availableBody {
+.cardBottom {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 6px;
+  gap: 2px;
 }
 
-.availableLabel {
+.cardStatus {
+  font-size: 11px;
+  font-weight: 700;
+  color: #374151;
+  text-transform: capitalize;
+}
+
+.cardTime {
+  font-size: 11px;
+  color: var(--gray);
+}
+
+.cardAmount {
   font-size: 12px;
-  color: #999;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-weight: 700;
+  color: var(--dark);
+}
+
+/* Footer */
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--gray);
+}
+
+.footer b {
+  color: var(--dark);
+}
+
+.progress {
+  flex: 1;
+  height: 8px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--primary);
+}
+
+.pct {
+  font-weight: 700;
+  color: var(--dark);
 }
 
 /* Modals */

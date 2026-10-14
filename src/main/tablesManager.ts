@@ -22,12 +22,6 @@ const TABLES_NAME = 'tables';
  * ---------------------------------------------------------------------------
  */
 
-function deriveCardStatus(orderStatus: string | undefined): TableCardStatus {
-  if (!orderStatus || orderStatus === 'cancelled') return 'available';
-  if (orderStatus === 'completed') return 'settled';
-  return 'active'; // 'open'
-}
-
 export function listTables(): Promise<TableCard[]> {
   return db.tables.listCards();
 }

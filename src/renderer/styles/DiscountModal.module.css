@@ -1,0 +1,106 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+.modal {
+  background: white;
+  border-radius: 10px;
+  padding: 22px;
+  width: 440px;
+  max-width: 92vw;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+}
+.modal h3 {
+  margin: 0 0 4px;
+}
+.muted {
+  color: #666;
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+.modes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.mode {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 14px;
+}
+.mode small {
+  color: #777;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.field input {
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 14px;
+}
+.note {
+  display: block;
+  color: #777;
+  margin-bottom: 8px;
+}
+.error {
+  color: #c0392b;
+  font-size: 13px;
+  margin: 6px 0;
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+}
+.cancel,
+.save {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  background: white;
+  cursor: pointer;
+  font-size: 14px;
+}
+.save {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: white;
+}
+.save:disabled,
+.cancel:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.chip {
+  padding: 8px 18px;
+  border-radius: 20px;
+  border: 1px solid #ccc;
+  background: white;
+  cursor: pointer;
+  font-size: 14px;
+}
+.chipOn {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: white;
+}

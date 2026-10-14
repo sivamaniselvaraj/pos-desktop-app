@@ -270,11 +270,13 @@ returns table (
   table_id uuid,
   table_number text,
   table_state text,
-  order_id uuid,
+  order_ids uuid[],
+  order_numbers text[],
   invoice_number text,
   order_status text,
   order_created_at timestamptz,
-  order_total_amount numeric
+  order_total_amount numeric,
+  payment_recorded boolean
 )
 language sql
 stable
@@ -285,31 +287,32 @@ as $$
     t.id as table_id,
     t.table_number::text as table_number,
     t.status as table_state,
-    o.id as order_id,
-    o.invoice_number as invoice_number,
-    o.status as order_status,
-    o.created_at as order_created_at,
-    o.total_amount as order_total_amount
+    batch.order_ids,
+    batch.order_numbers,
+    batch.invoice_number,
+    batch.order_status,
+    batch.order_created_at,
+    batch.order_total_amount,
+    batch.payment_recorded
   from tables t
   join profiles p on p.user_id = auth.uid()
-  -- Most recent order per table, any status — this is what actually
-  -- distinguishes "active" (yellow) from "just paid" (green) from "no
-  -- recent order" (empty/available). tables.state alone can't do this: it
-  -- flips back to 'open' (free) the MOMENT an order settles, so a purely
-  -- state-based query couldn't tell "just paid, still worth showing a
-  -- reprint option" apart from "been empty for hours."
   left join lateral (
-    select ord.*
+    select
+      array_agg(ord.id) as order_ids,
+      array_agg(ord.order_number order by ord.order_number) as order_numbers,
+      max(ord.invoice_number) as invoice_number, -- one per sitting (assign_invoice_number() reuses it)
+      case when bool_or(ord.status <> 'completed') then 'open' else 'completed' end as order_status,
+      min(ord.created_at) as order_created_at,
+      sum(ord.total_amount) as order_total_amount,
+      bool_and(ord.payment_details is not null) as payment_recorded
     from orders ord
     where ord.table_id = t.id
-    order by ord.created_at desc
-    limit 1
-  ) o on true
-  where
-   --p.role in ('manager', 'owner', 'admin')
-   has_permission('tables.view')
+      and ord.status <> 'cancelled'
+      and not (ord.status = 'completed' and ord.payment_details is not null)
+  ) batch on batch.order_ids is not null
+  where has_permission('dashboard.view')
     and t.outlet_id = p.outlet_id
-  order by t.table_number, o.order_number;
+  order by t.table_number;
 $$;
 
 grant execute on function list_tables_for_outlet() to authenticated;
