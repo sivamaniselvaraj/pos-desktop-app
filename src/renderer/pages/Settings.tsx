@@ -4,14 +4,15 @@ import styles from '../styles/Settings.module.css';
 import pageStyles from '../styles/Page.module.css';
 import { useAuth } from '../context/AuthContext';
 import type {
+  PairingCode,
   PrinterInfo,
   InvoiceSequenceStatus,
   ApiDevice,
-  CreatedApiDevice,
   ServerStatus,
 } from '../../shared/types';
 import { formatDateTime } from '../lib/format';
-import { KotWorkflow } from '../components/KotWorkflow';
+import { KotWorkflow } from '../components/KotWorkflowSettings';
+import { DiscountSettings } from '../components/DiscountSettings';
 
 interface PrinterConfigs {
   [key: string]: string; // e.g., { printer_kitchen: "USB001", printer_cashier: "COM1" }
@@ -34,7 +35,8 @@ export function Settings() {
   const canInvoicing = can('invoicing.manage');
   const canDevices = can('users.manage');
   const canKot = can('kot.manage');
-  const [tab, setTab] = useState<'general' | 'kot'>('general');
+  const canDiscounts = can('discount.manage');
+  const [tab, setTab] = useState<'general' | 'kot' | 'discounts'>('general');
 
   const [invoiceStatus, setInvoiceStatus] = useState<InvoiceSequenceStatus | null>(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
@@ -42,13 +44,13 @@ export function Settings() {
 
   // Paired phones (admin only; the main process re-checks the permission).
   const [devices, setDevices] = useState<ApiDevice[]>([]);
-  const [deviceName, setDeviceName] = useState('');
   const [pairing, setPairing] = useState(false);
-  const [newDevice, setNewDevice] = useState<CreatedApiDevice | null>(null);
+  const [pairCode, setPairCode] = useState<PairingCode | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState(0);
   const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
 
   const [configs, setConfigs] = useState<PrinterConfigs>({});
-    // Separate from `configs` (the SAVED mapping) — this is what the dropdowns
+  // Separate from `configs` (the SAVED mapping) — this is what the dropdowns
   // actually display and what the user edits. Kept apart so a selection
   // isn't persisted until the operator explicitly clicks Save (see the
   // effect below for why this also needs a stale-printer fallback).
@@ -136,22 +138,50 @@ export function Settings() {
   async function handlePairDevice() {
     setPairing(true);
     try {
-      const created = await window.api.createApiDevice(deviceName);
-      setNewDevice(created);
-      setDeviceName('');
-      await loadDevices();
+      setPairCode(await window.api.createPairingCode());
     } catch (err) {
-      flash('error', err instanceof Error ? err.message : 'Could not pair the device');
+      flash('error', err instanceof Error ? err.message : 'Could not create a pairing code');
     } finally {
       setPairing(false);
     }
   }
 
+  async function handleCancelCode() {
+    setPairCode(null);
+    await window.api.cancelPairingCode().catch(() => undefined);
+  }
+
+  // While a code is showing: count down, and watch for the phone pairing.
+  useEffect(() => {
+    if (!pairCode) return;
+    const known = devices.length;
+    const tick = setInterval(async () => {
+      const left = Math.round((new Date(pairCode.expiresAt).getTime() - Date.now()) / 1000);
+      setSecondsLeft(Math.max(0, left));
+      if (left <= 0) {
+        setPairCode(null);
+        return;
+      }
+      try {
+        const list = await window.api.listApiDevices();
+        if (list.length > known) {
+          setDevices(list);
+          setPairCode(null);
+          flash('success', 'Phone paired.');
+        }
+      } catch {
+        /* keep showing the code */
+      }
+    }, 2000);
+    setSecondsLeft(Math.max(0, Math.round((new Date(pairCode.expiresAt).getTime() - Date.now()) / 1000)));
+    return () => clearInterval(tick);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pairCode]);
+
   async function handleRevokeDevice(device: ApiDevice) {
     if (!window.confirm(`Revoke "${device.name}"? That phone will stop working until it is paired again.`)) return;
     try {
       await window.api.revokeApiDevice(device.id);
-      if (newDevice?.id === device.id) setNewDevice(null);
       await loadDevices();
       flash('success', `"${device.name}" was revoked.`);
     } catch (err) {
@@ -227,6 +257,8 @@ export function Settings() {
   }
 
   async function handleTestPrint(role: string) {
+    // Tests whatever's currently shown in the dropdown, even if not yet
+    // saved — lets the operator verify before committing to it.
     const device = pending[roleKey(role)];
     if (!device) {
       flash('error', `Select a printer for ${role} first`);
@@ -260,14 +292,21 @@ export function Settings() {
         <h1>Settings</h1>
       </div>
 
-      {canKot && (
+      {(canKot || canDiscounts) && (
         <div className={styles.tabs}>
           <button className={tab === 'general' ? styles.tabActive : styles.tab} onClick={() => setTab('general')}>
             General
           </button>
-          <button className={tab === 'kot' ? styles.tabActive : styles.tab} onClick={() => setTab('kot')}>
-            KOT workflow
-          </button>
+          {canKot && (
+            <button className={tab === 'kot' ? styles.tabActive : styles.tab} onClick={() => setTab('kot')}>
+              KOT workflow
+            </button>
+          )}
+          {canDiscounts && (
+            <button className={tab === 'discounts' ? styles.tabActive : styles.tab} onClick={() => setTab('discounts')}>
+              Discounts
+            </button>
+          )}
         </div>
       )}
 
@@ -280,7 +319,19 @@ export function Settings() {
         </div>
       )}
 
-      <div className={styles.container} style={tab === 'kot' && canKot ? { display: 'none' } : undefined}>
+      {tab === 'discounts' && canDiscounts && (
+        <div className={styles.container}>
+          <small className={styles.hint}>
+            The discount percentages staff can choose when giving a discount on an order. Applies to this outlet.
+          </small>
+          <DiscountSettings />
+        </div>
+      )}
+
+      <div
+        className={styles.container}
+        style={(tab === 'kot' && canKot) || (tab === 'discounts' && canDiscounts) ? { display: 'none' } : undefined}
+      >
         {/* Printers */}
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>
@@ -410,49 +461,33 @@ export function Settings() {
               Mobile devices
             </h2>
             <small className={styles.hint}>
-              Only paired phones can place prints or read the menu. Each phone gets its own token; revoke a phone
-              that is lost.
+              Only paired phones can place prints or read the menu. On the phone: sign in, enter this server
+              address and the 6-digit code shown here. The code works once and expires after 5 minutes. Each phone
+              is tied to the user who signed in on it and stops working if that user is deactivated.
               {serverStatus
                 ? ` Server address: ${serverStatus.ipAddress || serverStatus.host}:${serverStatus.port}.`
                 : ''}
             </small>
 
-            <div className={styles.deviceForm}>
-              <input
-                className={styles.textInput}
-                value={deviceName}
-                maxLength={60}
-                placeholder="Device name, for example Waiter phone 1"
-                onChange={(e) => setDeviceName(e.target.value)}
-              />
-              <button
-                className={styles.saveBtn}
-                onClick={handlePairDevice}
-                disabled={pairing || deviceName.trim() === ''}
-              >
-                {pairing ? 'Pairing…' : 'Pair device'}
-              </button>
-            </div>
-
-            {newDevice && (
+            {pairCode ? (
               <div className={styles.tokenBox} role="alert">
-                <strong>Token for {newDevice.name}</strong>
-                <code>{newDevice.token}</code>
+                <strong>Pairing code</strong>
+                <code style={{ fontSize: 32, letterSpacing: 8, textAlign: 'center' }}>{pairCode.code}</code>
                 <small className={styles.hint}>
-                  Copy it into the phone now. It is shown only once and cannot be recovered; pair again if lost. The
-                  phone sends it as the header Authorization: Bearer &lt;token&gt;.
+                  Expires in {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')}. Waiting for
+                  the phone...
                 </small>
                 <div>
-                  <button
-                    className={styles.saveBtn}
-                    onClick={() => void navigator.clipboard.writeText(newDevice.token)}
-                  >
-                    Copy token
-                  </button>{' '}
-                  <button className={styles.saveBtn} onClick={() => setNewDevice(null)}>
-                    Done
+                  <button className={styles.saveBtn} onClick={() => void handleCancelCode()}>
+                    Cancel
                   </button>
                 </div>
+              </div>
+            ) : (
+              <div className={styles.deviceForm}>
+                <button className={styles.saveBtn} onClick={() => void handlePairDevice()} disabled={pairing}>
+                  {pairing ? 'Creating code…' : 'Pair a phone'}
+                </button>
               </div>
             )}
 
@@ -463,7 +498,15 @@ export function Settings() {
                 devices.map((d) => (
                   <div key={d.id} className={styles.printerCard}>
                     <div className={styles.printerInfo}>
-                      <div className={styles.printerName}>{d.name}</div>
+                      <div className={styles.printerName}>
+                        {d.name}
+                        {d.userName ? ` (${d.userName})` : ''}
+                      </div>
+                      {!d.valid && (
+                        <small className={styles.hint}>
+                          Paired the old way and no longer accepted. Revoke it and pair the phone again.
+                        </small>
+                      )}
                       <small className={styles.hint}>
                         Paired {formatDateTime(d.createdAt)}
                         {d.lastUsedAt ? `, last used ${formatDateTime(d.lastUsedAt)}` : ', never used'}

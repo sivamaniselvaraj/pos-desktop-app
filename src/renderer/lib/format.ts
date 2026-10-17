@@ -21,6 +21,10 @@ export function setOrgFormat(next: OrgSettings | null): void {
   org = next ?? DEFAULTS;
 }
 
+export function displayInvoiceNumber(invoiceNumber?: string): string {
+  return invoiceNumber?.slice(-5) ?? '-';
+}
+
 /** The currency symbol for the organization's currency, e.g. "₹". */
 export function currencySymbol(): string {
   try {

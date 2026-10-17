@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import type { UnprintedKot } from '@shared/types';
-import styles from './UnprintedKots.module.css';
+import { DINE_IN_ORDER_TYPE } from '../../shared/types';
+import styles from '../styles/UnprintedKots.module.css';
 
 const POLL_MS = 10_000;
 
@@ -117,7 +118,7 @@ export function UnprintedKotsPage() {
       <div className={styles.list}>
         {rows.map((k) => {
           const isBusy = busy.has(k.orderId);
-          const where = k.orderType === 'dine-in' ? `Table ${k.tableNumber ?? '—'}` : 'Takeaway';
+          const where = k.orderType === DINE_IN_ORDER_TYPE ? `Table ${k.tableNumber ?? '—'}` : 'Takeaway';
           return (
             <div key={k.orderId} className={styles.card}>
               <div className={styles.cardHead}>

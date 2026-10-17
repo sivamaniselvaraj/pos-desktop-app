@@ -2,19 +2,23 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import { OrderDetailModal } from '../components/OrderDetailModal';
+import { useAuth } from '../context/AuthContext';
 import { ApprovalModal } from '../components/ApprovalModal';
+import { DiscountModal } from '../components/DiscountModal';
 import type {
   OrderListRow,
   OrderListStatus,
   OrderDetailItem,
   OrderActivityLogEntry,
   EditorApproval,
+  OrderDiscountMode,
+  OrderDiscountInfo,
 } from '@shared/types';
 import { DINE_IN_ORDER_TYPE } from '../../shared/types';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/OrdersList.module.css';
-import { formatMoney as formatCurrency, formatDateTime } from '../lib/format';
-import { useAuth } from '../context/AuthContext';
+import { formatMoney as formatCurrency, formatDateTime, displayInvoiceNumber } from '../lib/format';
+
 
 const PAGE_SIZE = 25;
 // list_orders() no longer counts the outlet's whole history (that count was
@@ -77,6 +81,9 @@ export function OrdersList() {
   
   const [detailItems, setDetailItems] = useState<OrderDetailItem[]>([]);
   const [detailLog, setDetailLog] = useState<OrderActivityLogEntry[]>([]);
+  const [detailDiscounts, setDetailDiscounts] = useState<OrderDiscountInfo[]>([]);
+  // Discount entered straight from the grid (no need to open the item view).
+  const [discountRow, setDiscountRow] = useState<{ row: OrderListRow; orderIds: string[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
   // Cancel-reason modal
@@ -175,12 +182,35 @@ export function OrdersList() {
     }
   }
 
-  async function handleComplete(row: OrderListRow) {
-    if (!confirm('Mark this order# ' +row.orderNumber + ' as completed?')) return;
+  // Completion is by invoice number: every open round on the invoice is completed
+  // together, for dine-in and takeaway alike. Only an old order created before
+  // invoice numbers existed falls back to its own id.
+  async function handleComplete(r: OrderListRow) {
+    const what = r.orderCount > 1 ? `all active orders on invoice ${displayInvoiceNumber(r.invoiceNumber)}` : r.invoiceNumber ? `invoice ${displayInvoiceNumber(r.invoiceNumber)}` : 'this order';
+    if (!confirm(`Mark ${what} as completed?`)) return;
+    const orderId = r.orderId;
     try {
-      setBusyOrderId(row.orderId);
-      await window.api.completeOrder(row.orderId);
+      setBusyOrderId(orderId);
+      if (r.invoiceNumber) await window.api.completeInvoice(r.invoiceNumber);
+      else await window.api.completeOrder(orderId);
+      flash('success', r.orderCount > 1 ? 'Invoice completed' : 'Order completed');
+      await load();
+    } catch (err) {
+      flash('error', err instanceof Error ? err.message : 'Failed to complete order');
+    } finally {
+      setBusyOrderId(null);
+    }
+  }
+
+  async function completeOrder(orderId: string, title: string, summary = '') {
+    //setCompleteTarget({ scope: 'order', orderId, title, summary });
+    if (!confirm(title)) return;
+     try {
+      setBusyOrderId(orderId);
+      await window.api.completeOrder(orderId);
       flash('success', 'Order completed');
+      // If the detail view is open (cancel-this-round), refresh it too.
+      if (detailInvoiceNumber) await reloadDetail();
       await load();
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Failed to complete order');
@@ -230,9 +260,9 @@ export function OrdersList() {
       await window.api.cancelOrderWithReason(cancelTarget.orderId, reason, approval);
       flash('success', 'Order cancelled');
     }
-setCancelApproval(false);
-      setCancelTarget(null);
-try {
+    setCancelApproval(false);
+    setCancelTarget(null);
+    try {
       // If the detail view is open (cancel-this-round), refresh it too.
       if (detailInvoiceNumber) await reloadDetail();
       await load();
@@ -245,13 +275,14 @@ try {
   // order type. A dine-in invoice returns every round; a pickup/delivery
   // invoice returns its single order.
   async function fetchDetail(invoiceNumber: string) {
-        const [detail, log] = await Promise.all([
-          window.api.getInvoiceOrderDetail(invoiceNumber),
-          window.api.getInvoiceActivityLog(invoiceNumber),
-        ]);
-        setDetailOrders(detail.orders);
-        setDetailItems(detail.items);
-        setDetailLog(log);
+    const [detail, log] = await Promise.all([
+      window.api.getInvoiceOrderDetail(invoiceNumber),
+      window.api.getInvoiceActivityLog(invoiceNumber),
+    ]);
+    setDetailOrders(detail.orders);
+    setDetailItems(detail.items);
+    setDetailDiscounts(detail.discounts ?? []);
+    setDetailLog(log);
   }
 
   async function openDetail(row: OrderListRow) {
@@ -285,6 +316,7 @@ try {
     setDetailOrders([]);
     setDetailItems([]);
     setDetailLog([]);
+    setDetailDiscounts([]);
   }
 
     async function refreshAfterWrite(): Promise<void> {
@@ -303,7 +335,36 @@ try {
     approval: EditorApproval,
   ): Promise<void> {
     await window.api.editOrderItem({ orderItemId, quantity, reason, approval });
-      flash('success', 'Item updated');
+    flash('success', 'Item updated');
+    await refreshAfterWrite();
+  }
+
+  async function openDiscountRow(row: OrderListRow) {
+    try {
+      setBusyOrderId(row.orderId);
+      // A dine-in invoice can hold several rounds; the discount covers every live one.
+      const orderIds = row.invoiceNumber
+        ? (await window.api.getInvoiceOrderDetail(row.invoiceNumber)).orders
+            .filter((o) => o.status !== 'cancelled')
+            .map((o) => o.id)
+        : [row.orderId];
+      if (orderIds.length === 0) throw new Error('This invoice has no live orders to discount.');
+      setDiscountRow({ row, orderIds });
+    } catch (err) {
+      flash('error', err instanceof Error ? err.message : 'Could not open the discount dialog');
+    } finally {
+      setBusyOrderId(null);
+    }
+  }
+
+  async function handleDiscount(
+    orderIds: string[],
+    mode: OrderDiscountMode,
+    value: number | undefined,
+    reason: string,
+  ): Promise<void> {
+    await window.api.setOrderDiscount({ orderIds, mode, value, reason });
+    flash('success', mode === 'none' ? 'Discount removed' : mode === 'complimentary' ? 'Marked complimentary' : 'Discount applied');
     await refreshAfterWrite();
   }
 
@@ -325,7 +386,7 @@ try {
   return (
     <div className={pageStyles.page}>
       <h2>Orders</h2>
-            <div className={styles.searchRow}>
+      <div className={styles.searchRow}>
         <input
           type="text"
           className={styles.searchInput}
@@ -418,8 +479,10 @@ try {
                 <th>Order / Table</th>
                 <th>Invoice No.</th>
                 <th>Type</th>
+                <th>Device</th>
                 <th>Created On</th>
                 <th>Items</th>
+                <th>Discount</th>
                 <th>Total</th>
                 <th>Status</th>
                 <th>Actions</th>
@@ -428,7 +491,7 @@ try {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className={pageStyles.muted}>
+                  <td colSpan={10} className={pageStyles.muted}>
                     No orders match this filter.
                   </td>
                 </tr>
@@ -457,65 +520,82 @@ try {
                         </span>
                       )}
                     </td>
-                    <td>{r.invoiceNumber ?? '—'}</td>
+                    <td>{displayInvoiceNumber(r.invoiceNumber)}</td>
                     <td>{r.orderType === DINE_IN_ORDER_TYPE ? 'Dine In' : 'Takeaway'}</td>
-                    <td>{new Date(r.createdAt).toLocaleString('en-IN', {day:'2-digit', month: '2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', hour12:true})}</td>
-                    <td>{r.itemCount}</td>
-                    <td>{formatCurrency(r.totalAmount)}</td>
                     <td>
-                      <span className={`${styles.statusBadge} ${statusClass(r.status)}`}>
-                        {statusLabel(r.status)}
-                      </span>
-                    </td>
-                    <td>
-                      <div className={styles.actions}>
-                        <button
-                          className={styles.iconBtn}
-                          title="Print / Reprint"
-                          onClick={() => handlePrint(r)}
-                          disabled={busyOrderId === r.orderId}
+                        <span
+                          className={`${styles.sourceBadge} ${
+                            r.orderSource === 'mobile' ? styles.sourceMobile : r.orderSource === 'mixed' ? styles.sourceMixed : styles.sourcePos
+                          }`}
+                          title={r.orderSource === 'mixed' ? 'Rounds on this invoice were placed from both the POS and a phone' : undefined}
                         >
-                          <Icon name="print" size={16} />
-                        </button>
-                        <button
-                          className={styles.iconBtn}
-                            title={canEditItems && r.status === 'preparing' ? 'View / Edit Items' : 'View Items'}
-                          onClick={() => openDetail(r)}
-                          disabled={busyOrderId === r.orderId}
-                        >
-                            <Icon name={canEditItems && r.status === 'preparing' ? 'edit' : 'view'} size={16} />
-                        </button>
-                        {r.status === 'open' && (
-                          <>
+                          {r.orderSource === 'mobile' ? 'Mobile' : r.orderSource === 'mixed' ? 'POS + Mobile' : 'POS'}
+                        </span>
+                      </td>
+                      <td>{new Date(r.createdAt).toLocaleString('en-IN', {day:'2-digit', month: '2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', hour12:true})}</td>
+                      <td>{r.itemCount}</td>
+                      <td>{r.discountAmount > 0 ? `− ${formatCurrency(r.discountAmount)}` : '—'}</td>
+                      <td>{formatCurrency(r.totalAmount)}</td>
+                      <td>
+                        <span className={`${styles.statusBadge} ${statusClass(r.status)}`}>
+                          {statusLabel(r.status)}
+                        </span>
+                      </td>
+                      <td>
+                        <div className={styles.actions}>
+                          <button
+                            className={styles.iconBtn}
+                            title="Print / Reprint"
+                            onClick={() => handlePrint(r)}
+                            disabled={busyOrderId === r.orderId}
+                          >
+                            <Icon name="print" size={16} />
+                          </button>
+                          <button
+                            className={styles.iconBtn}
+                            title={canEditItems && r.status === 'open' ? 'View / Edit Items' : 'View Items'}
+                            onClick={() => openDetail(r)}
+                            disabled={busyOrderId === r.orderId}
+                          >
+                            <Icon name={canEditItems && r.status === 'open' ? 'edit' : 'view'} size={16} />
+                          </button>
+                          {r.status === 'open' && (
+                            <>
                               {can('orders.complete') && (
-                            <button
-                              className={styles.iconBtn}
-                                title={
-                                  grouped
-                                    ? 'This invoice has multiple orders — complete each round from the item view'
-                                    : 'Complete'
-                                }
-                              onClick={() => handleComplete(r)}
-                                disabled={busyOrderId === r.orderId || grouped}
-                            >
-                              <Icon name="check" size={16} />
-                            </button>
+                              <button
+                                className={styles.iconBtn}
+                                title={grouped ? `Complete all ${r.orderCount} orders on this invoice` : 'Complete'}
+                                onClick={() => handleComplete(r)}
+                                disabled={busyOrderId === r.orderId}
+                              >
+                                <Icon name="check" size={16} />
+                              </button>
+                              )}
+                              {can('orders.discount') && (
+                              <button
+                                className={styles.iconBtn}
+                                title={r.discountAmount > 0 ? 'Change discount' : 'Discount / Complimentary'}
+                                onClick={() => void openDiscountRow(r)}
+                                disabled={busyOrderId === r.orderId}
+                              >
+                                <span className={styles.pctIcon}>%</span>
+                              </button>
                               )}
                               {can('orders.cancel') && (
-                            <button
-                              className={styles.iconBtn}
+                              <button
+                                className={styles.iconBtn}
                                 title={grouped ? `Cancel all ${r.orderCount} orders` : 'Cancel'}
                                 onClick={() => openCancelRow(r)}
-                              disabled={busyOrderId === r.orderId}
-                            >
-                              <Icon name="cancel" size={16} />
-                            </button>
+                                disabled={busyOrderId === r.orderId}
+                              >
+                                <Icon name="cancel" size={16} />
+                              </button>
                               )}
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
                   );
                 })
               )}
@@ -545,6 +625,30 @@ try {
         </>
       )}
 
+      {discountRow && (
+        <DiscountModal
+          title={
+            discountRow.row.orderType === 'dine-in'
+              ? `Table ${discountRow.row.tableNumber ?? '—'}`
+              : `Invoice ${discountRow.row.invoiceNumber ?? discountRow.row.orderId.slice(0, 8)}`
+          }
+          orderIds={discountRow.orderIds}
+          currentDiscount={discountRow.row.discountAmount}
+          currentTotal={discountRow.row.totalAmount}
+          currentDiscountPercent={discountRow.row.discountValue}
+          onClose={() => setDiscountRow(null)}
+          onApply={async (mode, value, reason) => {
+            await window.api.setOrderDiscount({ orderIds: discountRow.orderIds, mode, value, reason });
+            flash(
+              'success',
+              mode === 'none' ? 'Discount removed' : mode === 'complimentary' ? 'Marked complimentary' : 'Discount applied',
+            );
+            setDiscountRow(null);
+            await load();
+          }}
+        />
+      )}
+
       {/* View / Edit items modal */}
       {detailOrderId && (
         <OrderDetailModal
@@ -555,6 +659,7 @@ try {
           }
           headerAmount={detailOrder?.totalAmount}
           orders={detailOrders}
+          discounts={detailDiscounts}
           meta={
             detailOrder
               ? {
@@ -572,6 +677,7 @@ try {
                   taxAmount: detailOrder.taxAmount,
                   containerChargeAmount: detailOrder.containerChargeAmount,
                   discountAmount: detailOrder.discountAmount,
+                  discountValue: detailOrder.discountValue,
                   totalAmount: detailOrder.totalAmount,
                   orderType: detailOrder.orderType,
                 }
@@ -580,8 +686,18 @@ try {
           items={detailItems}
           log={detailLog}
           loading={detailLoading}
-          editable={detailOrder?.status === 'open'}
+          editable={canEditItems}
           onClose={closeDetail}
+          onCompleteRound={
+            detailIsDineIn
+              ? (round) =>
+                  completeOrder(
+                    round.id,
+                    `Complete order #${round.orderNumber}`,
+                    'Only this order is Completed; the other orders on the table stay as they are.',
+                  )
+              : undefined
+          }
           onCancelRound={
             detailIsDineIn
               ? (round) =>
@@ -592,6 +708,7 @@ try {
                   )
               : undefined
           }
+          onDiscount={handleDiscount}
           onEditItem={handleEditItem}
           onDeleteItem={handleDeleteItem}
           onMessage={flash}

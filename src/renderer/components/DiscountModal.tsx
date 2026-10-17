@@ -12,16 +12,17 @@ export interface DiscountModalProps {
   currentDiscount: number;
   /** Grand total now, for the reader's reference. */
   currentTotal: number;
+  currentDiscountPercent: number;
   /** Persist. Throw to show the message in the dialog and keep it open. */
   onApply: (mode: OrderDiscountMode, value: number | undefined, reason: string) => Promise<void>;
   onClose: () => void;
 }
 
 /** Discount (percent or fixed amount) or complimentary, with a required reason. */
-export function DiscountModal({ title, orderIds, currentDiscount, currentTotal, onApply, onClose }: DiscountModalProps) {
+export function DiscountModal({ title, orderIds, currentDiscount, currentTotal, currentDiscountPercent, onApply, onClose }: DiscountModalProps) {
   const several = orderIds.length > 1;
   const [mode, setMode] = useState<OrderDiscountMode>('percent');
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState(currentDiscountPercent? String(currentDiscountPercent) : '');
   const [options, setOptions] = useState<DiscountOptions | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
 
@@ -85,7 +86,7 @@ export function DiscountModal({ title, orderIds, currentDiscount, currentTotal, 
         <h3>Discount · {title}</h3>
         <p className={styles.muted}>
           Total now {formatMoney(currentTotal)}
-          {currentDiscount > 0 ? ` (includes a discount of ${formatMoney(currentDiscount)})` : ''}
+          {currentDiscount > 0 ? ` (includes a discount of ${currentDiscountPercent}% - ${formatMoney(currentDiscount)})` : ''}
           {several ? `. Applies to all ${orderIds.length} orders on this table.` : ''}
         </p>
 

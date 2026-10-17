@@ -13,6 +13,7 @@ function mapListRow(row: Record<string, unknown>): OrderListRow {
     taxAmount: Number(row.tax_amount ?? 0),
     containerChargeAmount: Number(row.container_charge_amount ?? 0),
     discountAmount: Number(row.discount_amount ?? 0),
+    discountValue: Number(row.discount_value ?? 0),
     totalAmount: Number(row.total_amount ?? 0),
     status: String(row.status ?? ''),
     tableId: row.table_id ? String(row.table_id) : undefined,
@@ -246,6 +247,12 @@ export const orderAdmin: OrderAdminRepository = {
       p_reason: a.reason,
     });
     if (error) throw new Error(error.message);
+  },
+
+  async completeInvoice(invoiceNumber) {
+    const { data, error } = await getAuthedClient().rpc('complete_invoice', { p_invoice_number: invoiceNumber });
+    if (error) throw new Error(error.message);
+    return Number(data ?? 0);
   },
 
   async completeOrder(orderId) {

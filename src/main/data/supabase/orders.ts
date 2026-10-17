@@ -77,6 +77,7 @@ function mapRow(row: Record<string, unknown>): FoodOrder {
     // rather than silently-wrong: the printed "Discount:" line only appears
     // when > 0, so an always-undefined value just meant it never printed.
     discount: row.discount_amount != null ? Number(row.discount_amount) : undefined,
+    discountValue: row.discount_value != null ? Number(row.discount_value) : undefined,
     isComplimentary: row.is_complimentary === true,
     orderType: (row.order_type as OrderType) ?? 'pickup',
     tableNumber:

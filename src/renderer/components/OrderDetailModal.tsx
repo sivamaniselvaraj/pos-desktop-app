@@ -6,7 +6,7 @@ import { DiscountModal } from './DiscountModal';
 import { ApprovalModal } from './ApprovalModal';
 import styles from '../styles/OrderDetailModal.module.css';
 
-import { formatMoney as formatCurrency, formatDateTime, taxLabel } from '../lib/format';
+import { displayInvoiceNumber, formatMoney as formatCurrency, formatDateTime, taxLabel } from '../lib/format';
 
 function statusLabel(status: string): string {
   if (status === 'open') return 'Active';
@@ -36,6 +36,7 @@ export interface OrderDetailModalTotals {
   taxAmount: number;
   containerChargeAmount: number;
   discountAmount: number;
+  discountValue: number;
   totalAmount: number;
   orderType: string;
 }
@@ -55,6 +56,8 @@ export interface OrderDetailModalProps {
   /** Whether the Edit/Remove actions render at all — false for a locked (completed/cancelled) order. */
   editable: boolean;
   onClose: () => void;
+  /** Dine-in only: complete just this one round. */
+  onCompleteRound?: (round: { id: string; orderNumber: number }) => void;
   /** Dine-in only: cancel just this one round. The caller owns the reason/approval flow. Omit to hide the buttons. */
   onCancelRound?: (round: { id: string; orderNumber: number }) => void;
   /** Persist the edit (call the editOrderItem IPC, reload, refresh the caller's own list) — quantity/reason are already validated non-empty/positive by this component before it's called. */
@@ -70,7 +73,7 @@ export interface OrderDetailModalProps {
   /** Discount / complimentary details per order (only orders that have one). Shown under the totals. */
   discounts?: OrderDiscountInfo[];
   /** When there is no `totals` (Dashboard), the figures the Discount dialog shows. */
-  discountSummary?: { discountAmount: number; totalAmount: number };
+  discountSummary?: { discountAmount: number; totalAmount: number,  discountPercent: number};
   /** Dine-in: jump to New Order with this table preselected, to add another round of items. Omit to hide the button. */
   onAddItems?: () => void;
   onDiscount?: (orderIds: string[], mode: OrderDiscountMode, value: number | undefined, reason: string) => Promise<void>;
@@ -106,6 +109,7 @@ export function OrderDetailModal({
   loading,
   editable,
   onClose,
+  onCompleteRound,
   onCancelRound,
   onDiscount,
   onAddItems,
@@ -119,8 +123,9 @@ export function OrderDetailModal({
   const { can } = useAuth();
   const canEditItems = editable && can('orders.edit');
   const canCancelRound = editable && can('orders.cancel');
+  const canCompleteRound = editable && can('orders.complete');
   const discountFigures = totals
-    ? { discountAmount: totals.discountAmount, totalAmount: totals.totalAmount }
+    ? { discountAmount: totals.discountAmount, totalAmount: totals.totalAmount, discountPercent: totals.discountValue }
     : discountSummary;
   const canDiscount = editable && !!onDiscount && !!discountFigures && can('orders.discount');
   const [discountOpen, setDiscountOpen] = useState(false);
@@ -230,7 +235,7 @@ export function OrderDetailModal({
         {meta && (
           <div className={styles.modalSubheader}>
             <span>Type: {meta.orderType === DINE_IN_ORDER_TYPE ? 'Dine In' : 'Takeaway'}</span>
-            {meta.invoiceNumber && <span>Invoice No.: {meta.invoiceNumber}</span>}
+            {meta.invoiceNumber && <span>Invoice No.: {displayInvoiceNumber(meta.invoiceNumber)}</span>}
             <span className={`${styles.statusBadge} ${statusClass(meta.status)}`}>
               {statusLabel(meta.status)}
             </span>
@@ -274,18 +279,36 @@ export function OrderDetailModal({
                           {(() => {
                             const round = orders.find((o) => o.orderNumber === item.orderNumber);
                             if (!round) return null;
+                            if (round.status === 'completed') {
+                              return <span className={styles.tag}>completed</span>;
+                            }
                             if (round.status === 'cancelled') {
                               return <span className={styles.tag}>cancelled</span>;
                             }
-                            return onCancelRound && canCancelRound ? (
-                              <button
-                                className={styles.smallBtnDanger}
-                                style={{ float: 'right' }}
-                                onClick={() => onCancelRound({ id: round.id, orderNumber: round.orderNumber })}
-                              >
-                                Cancel this order
-                              </button>
-                            ) : null;
+                            
+                            return (
+                              <>
+                              { onCompleteRound && canCompleteRound &&(
+                                <button
+                                  className={styles.smallBtn}
+                                  style={{ float: 'right', marginLeft: '8px' }}
+                                  onClick={() => onCompleteRound({ id: round.id, orderNumber: round.orderNumber })}
+                                >
+                                  Complete this order
+                                </button>
+                              )}
+
+                             { onCancelRound && canCancelRound && (
+                                <button
+                                  className={styles.smallBtnDanger}
+                                  style={{ float: 'right' }}
+                                  onClick={() => onCancelRound({ id: round.id, orderNumber: round.orderNumber })}
+                                >
+                                  Cancel this order
+                                </button>
+                             )}
+                            </>
+                          )
                           })()}
                         </td>
                       </tr>
@@ -389,39 +412,24 @@ export function OrderDetailModal({
               <span>Subtotal</span>
               <span>{formatCurrency(totals.subtotalAmount)}</span>
             </div>
+            {totals.discountAmount > 0 && (
+              <div className={styles.breakdownRow}>
+                <span>Discount {totals.discountValue}%</span>
+                <span>-{formatCurrency(totals.discountAmount)}</span>
+              </div>
+            )}
 
-            {totals.orderType === 'pickup' || totals.orderType === PICK_UP_ORDER_TYPE ? (
-              <>
+            {totals.orderType === 'pickup' || totals.orderType === PICK_UP_ORDER_TYPE && (  
                 <div className={styles.breakdownRow}>
                   <span>Container Charge</span>
                   <span>{formatCurrency(totals.containerChargeAmount)}</span>
                 </div>
-                <div className={styles.breakdownRow}>
-                  <span>{taxLabel()}</span>
-                  <span>{formatCurrency(totals.taxAmount)}</span>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className={styles.breakdownRow}>
-                  <span>{taxLabel()}</span>
-                  <span>{formatCurrency(totals.taxAmount)}</span>
-                </div>
-                {totals.discountAmount > 0 && (
-                  <div className={styles.breakdownRow}>
-                    <span>Discount</span>
-                    <span>-{formatCurrency(totals.discountAmount)}</span>
-                  </div>
-                )}
-              </>
             )}
 
-            {totals.orderType === PICK_UP_ORDER_TYPE && totals.discountAmount > 0 && (
-              <div className={styles.breakdownRow}>
-                <span>Discount</span>
-                <span>-{formatCurrency(totals.discountAmount)}</span>
-              </div>
-            )}
+            <div className={styles.breakdownRow}>
+              <span>{taxLabel()}</span>
+              <span>{formatCurrency(totals.taxAmount)}</span>
+            </div>
 
             <div className={`${styles.breakdownRow} ${styles.breakdownTotal}`}>
               <span>Grand Total</span>
@@ -463,7 +471,7 @@ export function OrderDetailModal({
         {!loading && canDiscount && discountFigures && (
           <div className={styles.modalActions}>
             <button type="button" className={styles.smallBtn} onClick={() => setDiscountOpen(true)}>
-              {discountFigures.discountAmount > 0 ? 'Change discount' : 'Discount / Complimentary'}
+              {discountFigures.discountAmount > 0 || (discounts && discounts.length > 0) ? 'Change discount' : 'Discount / Complimentary'}
             </button>
           </div>
         )}
@@ -536,6 +544,7 @@ export function OrderDetailModal({
             orderIds={orders.filter((o) => o.status !== 'cancelled').map((o) => o.id)}
             currentDiscount={discountFigures.discountAmount}
             currentTotal={discountFigures.totalAmount}
+            currentDiscountPercent={discountFigures.discountPercent}
             onClose={() => setDiscountOpen(false)}
             onApply={async (mode, value, reason) => {
               await onDiscount(

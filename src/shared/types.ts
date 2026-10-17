@@ -61,6 +61,7 @@ export interface FoodOrder {
   /** Pickup orders only; 0/undefined for dine-in and delivery. */
   containerCharge?: number;
   discount?: number;
+  discountValue?: number;
   /** Marked complimentary: the customer pays nothing; `discount` holds the value given away. */
   isComplimentary?: boolean;
   orderType: OrderType;
@@ -309,6 +310,7 @@ export interface OrderListRow {
   taxAmount: number;
   containerChargeAmount: number;
   discountAmount: number;
+  discountValue: number;
   totalAmount: number;
   status: string;
   hasEdits?: boolean;
@@ -751,9 +753,11 @@ export interface TableCard {
   orderIds?: string[];
   /** Order numbers for orderIds, in the same grouping — shown on cards/dialogs instead of a single order#. */
   orderNumbers?: number[];
+  /** First order id in the batch, kept for convenience since the payment RPC only needs one to resolve the whole table. */
   orderId?: string;
   orderStatus?: string;
   orderCreatedAt?: string;
+  /** Sum of total_amount across every order in the batch. */
   orderTotalAmount?: number;
   /** Sum of the discount (or complimentary value) across every order in the batch. */
   orderDiscountAmount?: number;
@@ -875,6 +879,7 @@ export const IpcChannels = {
   GET_DISCOUNT_SETTINGS: 'get-discount-settings',
   SAVE_DISCOUNT_PRESETS: 'save-discount-presets',
   COMPLETE_ORDER: 'complete-order',
+  COMPLETE_INVOICE: 'complete-invoice',
   REPRINT_ORDER: 'reprint-order',
   GET_MENU_ITEMS: 'get-menu-items',
   REFRESH_MENU_CACHE: 'refresh-menu-cache',
@@ -975,6 +980,8 @@ export interface ElectronApi {
     approval: EditorApproval,
   ): Promise<void>;
   completeOrder(orderId: string): Promise<void>;
+  /** Complete every open round of an invoice. Resolves with how many orders were completed. */
+  completeInvoice(invoiceNumber: string): Promise<number>;
   reprintOrder(orderId: string): Promise<void>;
   getMenuItems(): Promise<MenuCacheSnapshot>;
   refreshMenuCache(): Promise<MenuCacheSnapshot>;

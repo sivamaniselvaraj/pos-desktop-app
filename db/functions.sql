@@ -155,6 +155,69 @@ $$;
 
 grant execute on function find_orders_with_pending_kot() to authenticated;
 
+-- ============================================================================
+-- RPC: get_unprinted_kots()
+-- ============================================================================
+-- The "Unprinted KOTs" page: every open order of the caller's outlet that has
+-- live line items not yet sent to the kitchen, with those items. Same scope
+-- and permission as find_orders_with_pending_kot() (orders.view, own outlet).
+-- Oldest order first so the longest-waiting ticket is on top.
+drop function if exists get_unprinted_kots();
+create or replace function get_unprinted_kots()
+returns table (
+  order_id uuid,
+  order_number integer,
+  order_type text,
+  table_number text,
+  customer_name text,
+  waiter_name text,
+  special_notes text,
+  placed_at timestamptz,
+  order_source text,
+  device_name text,
+  items jsonb
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select o.id,
+         o.order_number,
+         o.order_type,
+         t.table_number,
+         o.customer_name,
+         o.waiter_name,
+         o.special_notes,
+         coalesce(o.created_at, now()),
+         o.order_source,
+         o.placed_via_device,
+         (select jsonb_agg(jsonb_build_object(
+                   'name', coalesce(mi.name, 'Item'),
+                   'quantity', oi.quantity,
+                   'note', oi.special_instructions)
+                 order by oi.created_at nulls last, oi.id)
+            from order_items oi
+            left join menu_items mi on mi.id = oi.menu_item_id
+           where oi.order_id = o.id
+             and not oi.is_deleted
+             and not oi.kot_printed)
+  from orders o
+  join profiles p on p.user_id = auth.uid()
+                 and coalesce(p.is_active, true)
+                 and p.outlet_id = o.outlet_id
+  left join tables t on t.id = o.table_id
+  where has_permission('orders.view')
+    and o.status = 'open'
+    and exists (select 1 from order_items oi
+                 where oi.order_id = o.id
+                   and not oi.is_deleted
+                   and not oi.kot_printed)
+  order by coalesce(o.created_at, now()), o.order_number;
+$$;
+
+grant execute on function get_unprinted_kots() to authenticated;
+
 -- Supports the pending-items lookup.
 create index if not exists idx_order_items_pending
   on order_items (order_id) where kot_printed = false;
@@ -922,6 +985,7 @@ returns table (
   invoice_number text,
   order_count integer,
   cancelled_count integer,
+  order_source text,
   total_rows bigint
 )
 language sql
@@ -1007,6 +1071,7 @@ as $$
       coalesce(sum(m.tax_amount) filter (where m.status <> 'cancelled'), 0) as tax_amount,
       coalesce(sum(m.container_charge_amount) filter (where m.status <> 'cancelled'), 0) as container_charge_amount,
       coalesce(sum(m.discount_amount) filter (where m.status <> 'cancelled'), 0) as discount_amount,
+      case when count(distinct m.order_source) = 1 then min(m.order_source) else 'mixed' end as order_source,
       coalesce(sum(items.qty) filter (where m.status <> 'cancelled'), 0) as item_count
     from paged p
     join orders m
@@ -1037,6 +1102,7 @@ as $$
     p.invoice_number,
     p.order_count,
     p.cancelled_count,
+    coalesce(t.order_source, 'pos') as order_source,
     p.fetched::bigint as total_rows
   from paged p
   left join totals t on t.anchor_id = p.order_id
@@ -1050,7 +1116,8 @@ grant execute on function list_orders(uuid, text, text, date, date, integer, int
 -- ============================================================================
 -- recompute_order_totals(): shared tax/container-charge/total formula
 -- ============================================================================
--- Prices are tax-exclusive. For every non-deleted line:
+-- Prices are tax-exclusive unless the line was priced with tax included
+-- (order_items.price_includes_tax; see ITEM TAX in schema.sql). For every non-deleted line:
 --   base      = quantity * unit_price
 --   packaging = pickup orders only: base * menu_items.container_charge / 100
 --               (read from the menu at recompute time, as before)
@@ -1065,8 +1132,9 @@ grant execute on function list_orders(uuid, text, text, date, date, integer, int
 -- tax_amount = sum of those; tax_breakdown = [{name, rate, taxable, tax}] by
 -- rate; total_amount = subtotal + container charge + tax_amount.
 --
--- Deliberately excludes any "discount" column (never confirmed to exist on
--- the real orders table).
+-- A discount or complimentary flag on the order (orders.discount_type / value,
+-- is_complimentary; see ORDER DISCOUNT in schema.sql) is applied here:
+-- total = subtotal + container charge - discount + tax, tax on the discounted value.
 --
 -- Internal helper only: EXECUTE is revoked from public below so it cannot be
 -- called directly, bypassing the auth checks that edit_order_item /
@@ -1085,25 +1153,29 @@ declare
   v_container numeric := 0;
   v_tax numeric;
   v_breakdown jsonb;
+  v_slabs jsonb;
+  v_pre numeric;
+  v_disc_type text;
+  v_disc_value numeric;
+  v_comp boolean;
+  v_discount numeric := 0;
+  v_f numeric := 0;
 begin
-  select o.order_type, o.outlet_id, coalesce(o.created_at, now())
-    into v_order_type, v_outlet_id, v_created
+  select o.order_type, o.outlet_id, coalesce(o.created_at, now()),
+         o.discount_type, o.discount_value, coalesce(o.is_complimentary, false)
+    into v_order_type, v_outlet_id, v_created, v_disc_type, v_disc_value, v_comp
   from orders o
   where o.id = p_order_id;
 
   -- Stamp lines that have no snapshot yet.
   update order_items oi
-     set tax_rate_percent = tr.rate,
-         tax_name = tr.tax_name
+     set tax_rate_percent = case when mi.tax_rate_percent is not null then mi.tax_rate_percent else tr.rate end,
+         tax_name = case when mi.tax_rate_percent is not null then mi.tax_name else tr.tax_name end,
+         price_includes_tax = case when mi.tax_rate_percent is not null then mi.price_includes_tax else false end
     from order_items x
     left join menu_items mi on mi.id = x.menu_item_id
     cross join lateral tax_rate_for(v_outlet_id, mi.category_id, v_created) tr
    where oi.id = x.id and x.order_id = p_order_id and x.tax_rate_percent is null;
-
-  select coalesce(sum(oi.quantity * oi.unit_price), 0)
-    into v_subtotal
-  from order_items oi
-  where oi.order_id = p_order_id and not oi.is_deleted;
 
   if v_order_type = 'pickup' then
     select round(coalesce(sum(oi.quantity * oi.unit_price * coalesce(mi.container_charge, 0) / 100), 0), 2)
@@ -1113,35 +1185,81 @@ begin
     where oi.order_id = p_order_id and not oi.is_deleted;
   end if;
 
+  -- Per rate: lines priced before tax are taxed on top; lines priced with tax
+  -- included have their tax taken OUT of the price (gross * rate / (100 + rate)).
+  -- Packaging is always added on top and taxed at the line's rate. The
+  -- subtotal is the value before tax, so total = subtotal + container + tax
+  -- holds for every order.
   with lines as (
     select coalesce(oi.tax_name, 'GST') as name,
            coalesce(oi.tax_rate_percent, 0) as rate,
-           oi.quantity * oi.unit_price
-             + case when v_order_type = 'pickup'
-                    then oi.quantity * oi.unit_price * coalesce(mi.container_charge, 0) / 100
-                    else 0 end as taxable
+           coalesce(oi.price_includes_tax, false) as incl,
+           oi.quantity * oi.unit_price as base,
+           case when v_order_type = 'pickup'
+                then oi.quantity * oi.unit_price * coalesce(mi.container_charge, 0) / 100
+                else 0 end as pack
       from order_items oi
       left join menu_items mi on mi.id = oi.menu_item_id
      where oi.order_id = p_order_id and not oi.is_deleted
   ),
-  slabs as (
+  agg as (
     select name, rate,
-           round(sum(taxable), 2) as taxable,
-           round(sum(taxable) * rate / 100, 2) as tax
+           sum(case when incl then pack else base + pack end) as excl_taxable,
+           sum(case when incl then base else 0 end) as incl_gross,
+           sum(case when incl then 0 else base end) as excl_base
       from lines
      group by name, rate
+  ),
+  slabs as (
+    select name, rate,
+           round(incl_gross * rate / (100 + rate), 2) as incl_tax,
+           incl_gross, excl_taxable, excl_base
+      from agg
+  ),
+  final as (
+    select name, rate,
+           round(excl_taxable + incl_gross - incl_tax, 2) as taxable,
+           round(excl_taxable * rate / 100, 2) + incl_tax as tax,
+           excl_base + incl_gross - incl_tax as net_base
+      from slabs
   )
   select coalesce(jsonb_agg(jsonb_build_object('name', name, 'rate', rate, 'taxable', taxable, 'tax', tax)
                             order by rate, name), '[]'::jsonb),
-         coalesce(sum(tax), 0)
-    into v_breakdown, v_tax
-  from slabs;
+         coalesce(sum(taxable), 0),
+         coalesce(sum(net_base), 0)
+    into v_slabs, v_pre, v_subtotal
+  from final;
+
+  -- Discount: taken off the value before tax; tax is then worked out on what is
+  -- left, rate by rate. Complimentary = the whole value, no tax.
+  if v_comp then
+    v_discount := v_subtotal + v_container;
+  elsif v_disc_type = 'percent' and v_disc_value > 0 then
+    v_discount := round((v_subtotal + v_container) * least(v_disc_value, 100) / 100, 2);
+  elsif v_disc_type = 'amount' and v_disc_value > 0 then
+    v_discount := least(v_disc_value, v_subtotal + v_container);
+  end if;
+
+  if v_discount > 0 and v_pre > 0 then
+    v_f := least(v_discount / v_pre, 1);
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'name', x.name, 'rate', x.rate,
+             'taxable', case when v_comp then 0 else round(x.taxable * (1 - v_f), 2) end,
+             'tax', case when v_comp then 0 else round(x.taxable * (1 - v_f) * x.rate / 100, 2) end)
+             order by x.rate, x.name), '[]'::jsonb)
+      into v_breakdown
+      from jsonb_to_recordset(v_slabs) as x(name text, rate numeric, taxable numeric, tax numeric);
+  else
+    v_breakdown := v_slabs;
+  end if;
+  select coalesce(sum((b->>'tax')::numeric), 0) into v_tax from jsonb_array_elements(v_breakdown) b;
 
   update orders
      set subtotal_amount = v_subtotal,
          tax_amount = v_tax,
          container_charge_amount = v_container,
-         total_amount = v_subtotal + v_container + v_tax,
+         discount_amount = v_discount,
+         total_amount = v_subtotal + v_container - v_discount + v_tax,
          tax_breakdown = v_breakdown
    where id = p_order_id;
 end;
@@ -1736,6 +1854,7 @@ set search_path = public
 as $$
 declare
   v_table_id uuid;
+  v_invoice text;
 begin
   select o.table_id into v_table_id
   from orders o
@@ -1748,7 +1867,16 @@ begin
     raise exception 'Not authorized, or order not found';
   end if;
 
-  if v_table_id is not null then
+  select o.invoice_number into v_invoice from orders o where o.id = p_order_id;
+  if v_invoice is not null then
+    -- Complete by invoice: every open round of this sitting, nothing else on the table.
+    update orders
+       set status = 'completed',
+           settled_at = coalesce(settled_at, now())
+     where invoice_number = v_invoice
+       and outlet_id = (select outlet_id from orders where id = p_order_id)
+       and status not in ('completed', 'cancelled');
+  elsif v_table_id is not null then
     update orders
        set status = 'completed',
            settled_at = coalesce(settled_at, now())
@@ -1764,6 +1892,51 @@ end;
 $$;
 
 grant execute on function complete_order(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- complete_invoice(): complete EVERY open round of one invoice in one step.
+-- Works the same for dine-in (several rounds share an invoice) and takeaway
+-- (one order per invoice). Authorised by orders.complete and the caller's own
+-- outlet; cancelled rounds are left alone and already completed ones are not
+-- touched again. Returns how many orders were completed.
+-- ---------------------------------------------------------------------------
+create or replace function complete_invoice(p_invoice_number text)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_count integer;
+begin
+  if p_invoice_number is null or btrim(p_invoice_number) = '' then
+    raise exception 'An invoice number is required';
+  end if;
+
+  select p.outlet_id into v_outlet
+    from profiles p
+   where p.user_id = auth.uid()
+     and coalesce(p.is_active, true)
+     and has_permission('orders.complete');
+  if v_outlet is null
+     or not exists (select 1 from orders o
+                     where o.invoice_number = p_invoice_number and o.outlet_id = v_outlet) then
+    raise exception 'Not authorized, or invoice not found';
+  end if;
+
+  update orders
+     set status = 'completed',
+         settled_at = coalesce(settled_at, now())
+   where outlet_id = v_outlet
+     and invoice_number = p_invoice_number
+     and status not in ('completed', 'cancelled');
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+
+grant execute on function complete_invoice(text) to authenticated;
 
 
 -- ---------------------------------------------------------------------------
@@ -1973,6 +2146,7 @@ grant execute on function get_order_activity_log(uuid) to authenticated;
 -- fully-paid batch immediately drops out of the query).
 drop function if exists list_tables_for_outlet();
 
+drop function if exists list_tables_for_outlet();
 create or replace function list_tables_for_outlet()
 returns table (
   table_id uuid,
@@ -1984,7 +2158,8 @@ returns table (
   order_status text,
   order_created_at timestamptz,
   order_total_amount numeric,
-  payment_recorded boolean
+  payment_recorded boolean,
+  order_discount_amount numeric
 )
 language sql
 stable
@@ -2001,7 +2176,8 @@ as $$
     batch.order_status,
     batch.order_created_at,
     batch.order_total_amount,
-    batch.payment_recorded
+    batch.payment_recorded,
+    batch.order_discount_amount
   from tables t
   join profiles p on p.user_id = auth.uid()
   left join lateral (
@@ -2012,7 +2188,8 @@ as $$
       case when bool_or(ord.status <> 'completed') then 'open' else 'completed' end as order_status,
       min(ord.created_at) as order_created_at,
       sum(ord.total_amount) as order_total_amount,
-      bool_and(ord.payment_details is not null) as payment_recorded
+      bool_and(ord.payment_details is not null) as payment_recorded,
+      sum(coalesce(ord.discount_amount, 0)) as order_discount_amount
     from orders ord
     where ord.table_id = t.id
       and ord.status <> 'cancelled'
@@ -2262,9 +2439,9 @@ grant execute on function live_order_table_ids(uuid) to authenticated;
 -- ============================================================================
 -- place_pickup_order(): New Order page, pickup orders
 -- ============================================================================
--- Mirrors place_order() (same item JSON: menu_item_id, unit_price,
--- total_price, quantity) but creates a table-less pickup order with optional
--- customer details, a note and the container charge.
+-- Thin wrapper over create_order_internal(): a table-less pickup order with
+-- optional customer details and a note (same item JSON as place_order:
+-- menu_item_id, unit_price, total_price, quantity).
 -- TAX IS CALCULATED HERE, not by the caller: p_subtotal, p_tax,
 -- p_container_charge and p_total are accepted only so existing callers keep
 -- working and are IGNORED. Each line is stamped with the rate in force now for
@@ -2289,46 +2466,9 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-  v_order_id    uuid;
-  v_waiter_name text;
 begin
-  if auth.uid() is null then
-    raise exception 'Not authenticated';
-  end if;
-  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
-    raise exception 'An order needs at least one item';
-  end if;
-
-  -- Must belong to the caller's own outlet and be an ordering role.
-  if not exists (
-    select 1 from profiles p
-     where p.user_id = auth.uid()
-       and p.outlet_id = p_outlet_id
-       and has_permission('orders.place')
-  ) then
-    raise exception 'Not allowed to place orders for this outlet';
-  end if;
-  perform assert_order_items_valid(p_items, p_outlet_id);
-
-  select first_name into v_waiter_name from profiles where user_id = auth.uid();
-
-  insert into orders (
-    table_id, order_type, status, waiter_id, waiter_name, outlet_id, order_number,
-    customer_name, customer_phone, special_notes,
-    subtotal_amount, tax_amount, container_charge_amount, total_amount, confirmed_at
-  ) values (
-    null, 'pickup', 'preparing', auth.uid(), v_waiter_name, p_outlet_id,
-    get_next_order_number(p_outlet_id),
-    nullif(btrim(p_customer_name), ''), nullif(btrim(p_customer_phone), ''), nullif(btrim(p_notes), ''),
-    0, 0, 0, 0, now()
-  )
-  returning id into v_order_id;
-
-  perform insert_order_items(v_order_id, p_outlet_id, p_items);
-  perform recompute_order_totals(v_order_id);
-
-  return v_order_id;
+  return create_order_internal('pickup', null::uuid, p_outlet_id, p_items,
+                               p_customer_name, p_customer_phone, p_notes);
 end;
 $$;
 
@@ -2380,14 +2520,15 @@ language sql
 security definer
 set search_path = public
 as $$
-  insert into order_items (order_id, menu_item_id, unit_price, total_price, quantity, tax_rate_percent, tax_name)
+  insert into order_items (order_id, menu_item_id, unit_price, total_price, quantity, tax_rate_percent, tax_name, price_includes_tax)
   select p_order_id,
          x.menu_item_id,
          x.unit_price,
          round(x.unit_price * x.quantity, 2),
          x.quantity,
-         tr.rate,
-         tr.tax_name
+         case when mi.tax_rate_percent is not null then mi.tax_rate_percent else tr.rate end,
+         case when mi.tax_rate_percent is not null then mi.tax_name else tr.tax_name end,
+         case when mi.tax_rate_percent is not null then mi.price_includes_tax else false end
     from (select nullif(it->>'menu_item_id', '')::uuid as menu_item_id,
                  (it->>'unit_price')::numeric as unit_price,
                  (it->>'quantity')::int as quantity
@@ -2398,15 +2539,128 @@ $$;
 revoke all on function insert_order_items(uuid, uuid, jsonb) from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
+-- create_order_internal(): the one place that creates an order
+-- ---------------------------------------------------------------------------
+-- Used by place_order() (dine-in, needs a table) and place_pickup_order()
+-- (pickup, no table). Checks: signed in, orders.place, the outlet is the
+-- caller's own (p_outlet_id may be null = own outlet), the table belongs to
+-- it (dine-in), every item is on its menu. Creates the order and its lines,
+-- calculates tax per rate (recompute_order_totals) and, for dine-in, marks the
+-- table occupied. Any client-supplied totals are never seen here.
+-- Internal helper: not callable by app users.
+-- create_order_for(): the one place that creates an order, FOR a given user
+-- (the waiter). create_order_internal() calls it for the signed-in user;
+-- place_order_as() calls it for a phone's user on behalf of the desktop.
+-- Internal helper: not callable by app users.
+drop function if exists create_order_for(uuid, text, uuid, uuid, jsonb, text, text, text, text, text);
+create or replace function create_order_for(
+  p_actor          uuid,
+  p_order_type     text,
+  p_table_id       uuid,
+  p_outlet_id      uuid,
+  p_items          jsonb,
+  p_customer_name  text default null,
+  p_customer_phone text default null,
+  p_notes          text default null,
+  p_device_name    text default null,
+  p_request_id     text default null,
+  p_device_id      text default null
+) returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet      uuid;
+  v_waiter_name text;
+  v_order_id    uuid;
+  v_dine_in     boolean := (p_order_type = 'dine-in');
+begin
+  if p_order_type not in ('dine-in', 'pickup') then
+    raise exception 'Unknown order type';
+  end if;
+  if p_actor is null then
+    raise exception 'Not authenticated';
+  end if;
+  if not user_has_permission(p_actor, 'orders.place') then
+    raise exception 'Not allowed to place orders';
+  end if;
+
+  select p.outlet_id, p.first_name into v_outlet, v_waiter_name
+    from profiles p
+   where p.user_id = p_actor;
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  if p_outlet_id is not null and p_outlet_id <> v_outlet then
+    raise exception 'Not allowed to place orders for this outlet';
+  end if;
+
+  if v_dine_in and not exists (select 1 from tables t
+                                where t.id = p_table_id and t.outlet_id = v_outlet) then
+    raise exception 'Table not found in your outlet';
+  end if;
+
+  perform assert_order_items_valid(p_items, v_outlet);
+
+  insert into orders (
+    table_id, order_type, status, waiter_id, waiter_name, outlet_id, order_number,
+    customer_name, customer_phone, special_notes,
+    subtotal_amount, tax_amount, total_amount, confirmed_at,
+    placed_via_device, client_request_id, placed_via_device_id, order_source
+  ) values (
+    case when v_dine_in then p_table_id end, p_order_type, 'preparing', p_actor, v_waiter_name,
+    v_outlet, get_next_order_number(v_outlet),
+    nullif(btrim(p_customer_name), ''), nullif(btrim(p_customer_phone), ''), nullif(btrim(p_notes), ''),
+    0, 0, 0, now(),
+    nullif(btrim(p_device_name), ''), nullif(btrim(p_request_id), ''),
+    nullif(btrim(p_device_id), ''),
+    case when nullif(btrim(p_device_id), '') is not null or nullif(btrim(p_device_name), '') is not null
+         then 'mobile' else 'pos' end
+  )
+  returning id into v_order_id;
+
+  perform insert_order_items(v_order_id, v_outlet, p_items);
+  perform recompute_order_totals(v_order_id);
+
+  if v_dine_in then
+    update tables set status = 'occupied' where id = p_table_id;
+  end if;
+
+  return v_order_id;
+end;
+$$;
+
+revoke all on function create_order_for(uuid, text, uuid, uuid, jsonb, text, text, text, text, text, text) from public, anon, authenticated;
+
+create or replace function create_order_internal(
+  p_order_type     text,
+  p_table_id       uuid,
+  p_outlet_id      uuid,
+  p_items          jsonb,
+  p_customer_name  text default null,
+  p_customer_phone text default null,
+  p_notes          text default null
+) returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return create_order_for(auth.uid(), p_order_type, p_table_id, p_outlet_id, p_items,
+                          p_customer_name, p_customer_phone, p_notes, null, null);
+end;
+$$;
+revoke all on function create_order_internal(text, uuid, uuid, jsonb, text, text, text) from public, anon, authenticated;
+
+
+-- ---------------------------------------------------------------------------
 -- place_order(): dine-in order for a table (also called by the Android app)
 -- ---------------------------------------------------------------------------
--- Same parameters as before, so existing callers keep working. Replaces the
--- version that trusted the client's tax: p_subtotal, p_tax and p_total are
--- IGNORED and the totals are calculated here per tax rate (see
--- recompute_order_totals). Checks: signed in, orders.place, the outlet is the
--- caller's own, the table belongs to it, every item is on its menu.
--- Based on the body of the function this replaces; if your live one has other
--- columns or side effects, merge them in before running.
+-- Same parameters as before, so existing callers keep working. p_subtotal,
+-- p_tax, p_total and p_created_by are IGNORED; everything happens in
+-- create_order_internal() (checks, order row, tax per rate, table occupied).
+-- If your live place_order has other columns or side effects, add them there.
 create or replace function public.place_order(
     p_table_id   uuid,
     p_items      jsonb,
@@ -2420,57 +2674,8 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-    v_order_id uuid;
-    v_waiter_name text;
-    v_outlet_id uuid;
 begin
-    if auth.uid() is null then
-        raise exception 'Not authenticated';
-    end if;
-    if not has_permission('orders.place') then
-        raise exception 'Not allowed to place orders';
-    end if;
-
-    select p.outlet_id into v_outlet_id
-      from public.profiles p
-     where p.user_id = auth.uid();
-    if v_outlet_id is null then
-        raise exception 'Your account has no outlet';
-    end if;
-    if p_outlet_id is not null and p_outlet_id <> v_outlet_id then
-        raise exception 'Not allowed to place orders for this outlet';
-    end if;
-
-    if not exists (select 1 from public.tables t
-                    where t.id = p_table_id and t.outlet_id = v_outlet_id) then
-        raise exception 'Table not found in your outlet';
-    end if;
-    perform assert_order_items_valid(p_items, v_outlet_id);
-
-    select first_name into v_waiter_name
-      from public.profiles
-     where user_id = auth.uid();
-
-    insert into public.orders (
-        table_id, status, waiter_id, waiter_name, outlet_id, order_number,
-        subtotal_amount, tax_amount, total_amount, confirmed_at
-    )
-    values (
-        p_table_id, 'preparing', auth.uid(), v_waiter_name, v_outlet_id,
-        get_next_order_number(v_outlet_id),
-        0, 0, 0, now()
-    )
-    returning id into v_order_id;
-
-    perform insert_order_items(v_order_id, v_outlet_id, p_items);
-    perform recompute_order_totals(v_order_id);
-
-    update public.tables
-       set status = 'occupied'
-     where id = p_table_id;
-
-    return v_order_id;
+  return create_order_internal('dine-in', p_table_id, p_outlet_id, p_items);
 end;
 $$;
 
@@ -2562,8 +2767,10 @@ begin
   if p_role is null or p_role not in ('staff', 'manager', 'owner', 'admin', 'editor') then
     raise exception 'Unknown role';
   end if;
-  if p_outlet_id is not null
-     and not exists (select 1 from outlets o where o.id = p_outlet_id and o.org_id = v_org) then
+  if p_outlet_id is null then
+    raise exception 'An outlet is required';
+  end if;
+  if not exists (select 1 from outlets o where o.id = p_outlet_id and o.org_id = v_org) then
     raise exception 'That outlet does not belong to your organization';
   end if;
   return v_org;
@@ -2743,3 +2950,925 @@ begin
 end;
 $$;
 grant execute on function delete_tax_rate(uuid) to authenticated;
+
+
+-- ============================================================================
+-- KOT BOARD (see the KOT BOARD section of db/schema.sql)
+-- ============================================================================
+
+-- (record_kot existed only in an unreleased draft: new items already start as
+-- 'new', and printing keeps using mark_kot_printed.)
+drop function if exists record_kot(uuid, uuid[]);
+drop function if exists move_kot(uuid, date, integer, uuid, uuid);
+drop function if exists move_kot(uuid, uuid, uuid);
+
+
+-- get_kot_board(): everything the board needs in one call, for the caller's
+-- outlet: the steps, the allowed moves, the waiting-time levels and the cards.
+-- A card = the items of one LIVE order (not cancelled, not billed; new orders are 'preparing') that have the same order_items.status
+-- (hidden / final steps, and orders that are cancelled or already billed, are
+-- left out), with ALL its items. Needs kot.view.
+create or replace function get_kot_board()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not has_permission('kot.view') then
+    raise exception 'Not allowed to see the KOT board';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+
+  return jsonb_build_object(
+    'now', now(),
+    'statuses', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'id', s.id, 'code', s.code, 'name', s.name, 'color', s.color,
+               'action_label', s.action_label, 'sort_order', s.sort_order,
+               'is_initial', s.is_initial, 'is_final', s.is_final,
+               'show_on_board', s.show_on_board) order by s.sort_order), '[]'::jsonb)
+        from kot_statuses s where s.outlet_id = v_outlet),
+    'transitions', (
+      select coalesce(jsonb_agg(jsonb_build_object('from', t.from_status, 'to', t.to_status)), '[]'::jsonb)
+        from kot_transitions t join kot_statuses s on s.id = t.from_status
+       where s.outlet_id = v_outlet),
+    'levels', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'id', l.id, 'name', l.name, 'from_minutes', l.from_minutes, 'color', l.color)
+               order by l.from_minutes), '[]'::jsonb)
+        from kot_time_levels l where l.outlet_id = v_outlet),
+    'kots', (
+      select coalesce(jsonb_agg(g.card order by g.created_at), '[]'::jsonb)
+        from (
+          select coalesce(min(oi.created_at), min(oi.kot_printed_at), now()) as created_at,
+                 jsonb_build_object(
+                   'status_id', s.id,
+                   'created_at', coalesce(min(oi.created_at), min(oi.kot_printed_at), now()),
+                   'order_id', o.id,
+                   'order_number', o.order_number, 'order_type', o.order_type,
+                   'table_number', t.table_number, 'customer_name', o.customer_name,
+                   'notes', o.special_notes,
+                   'items', jsonb_agg(jsonb_build_object(
+                              'id', oi.id, 'name', coalesce(mi.name, 'Item'), 'quantity', oi.quantity,
+                              'note', oi.special_instructions, 'is_deleted', oi.is_deleted)
+                              order by oi.created_at nulls last, oi.id)
+                 ) as card
+            from order_items oi
+            join orders o on o.id = oi.order_id
+            join kot_statuses s on s.outlet_id = o.outlet_id and s.code = oi.status
+            left join menu_items mi on mi.id = oi.menu_item_id
+            left join tables t on t.id = o.table_id
+           where o.outlet_id = v_outlet
+             and s.show_on_board and not s.is_final
+             and o.status not in ('cancelled', 'completed')
+           group by o.id, o.order_number, o.order_type, t.table_number, o.customer_name,
+                    o.special_notes, s.id
+        ) g)
+  );
+end;
+$$;
+grant execute on function get_kot_board() to authenticated;
+
+
+-- move_kot(order, to, from): sets order_items.status of the order's items that
+-- are in step `from` to step `to`, along ONE allowed transition (forward or
+-- back, as defined in kot_transitions), and writes ONE app_activity_log row:
+-- order_id, activity 'order.item.status.updated', changed_by = the user,
+-- changed_at = now(), order_details {status-from, status-to}. Needs kot.move;
+-- the order must belong to the caller's outlet. If nothing is in `from` any
+-- more (someone else just moved it) it fails with a clear message.
+create or replace function move_kot(p_order_id uuid, p_to_status uuid, p_from_status uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_from   text;
+  v_to     text;
+begin
+  if not has_permission('kot.move') then
+    raise exception 'Not allowed to move KOTs';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+
+  select code into v_from from kot_statuses where id = p_from_status and outlet_id = v_outlet;
+  select code into v_to   from kot_statuses where id = p_to_status   and outlet_id = v_outlet;
+  if v_from is null or v_to is null then
+    raise exception 'Unknown step';
+  end if;
+
+  -- Lock the items so two people cannot move the same card at once.
+  perform 1
+    from order_items oi join orders o on o.id = oi.order_id
+   where oi.order_id = p_order_id and oi.status = v_from and o.outlet_id = v_outlet
+     for update of oi;
+  if not found then
+    raise exception 'This KOT was just moved by someone else. Refresh the board.';
+  end if;
+  if not exists (select 1 from kot_transitions t where t.from_status = p_from_status and t.to_status = p_to_status) then
+    raise exception 'That move is not allowed';
+  end if;
+
+  update order_items set status = v_to where order_id = p_order_id and status = v_from;
+
+  insert into app_activity_log
+    (order_id, changed_by, changed_at, created_at, order_details, reason, activity)
+  values (p_order_id, auth.uid(), now(), now(),
+          jsonb_build_object('status-from', v_from, 'status-to', v_to)::json,
+          v_from || ' to ' || v_to, 'order.item.status.updated');
+end;
+$$;
+grant execute on function move_kot(uuid, uuid, uuid) to authenticated;
+
+
+-- get_kot_workflow(): the settings view. Steps in order with their button
+-- label, flags, how many KOTs sit in each, and "back_to" as the 1-based
+-- positions of the earlier steps a KOT may be moved back to; plus the levels.
+-- Needs kot.manage.
+create or replace function get_kot_workflow()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not has_permission('kot.manage') then
+    raise exception 'Only users with KOT access can view the workflow settings';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  perform seed_kot_workflow(v_outlet);
+
+  return jsonb_build_object(
+    'steps', (
+      with pos as (
+        select s.id, s.sort_order, row_number() over (order by s.sort_order) as p
+          from kot_statuses s where s.outlet_id = v_outlet
+      )
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'id', s.id, 'code', s.code, 'name', s.name, 'color', s.color, 'action_label', s.action_label,
+               'show_on_board', s.show_on_board, 'is_initial', s.is_initial, 'is_final', s.is_final,
+               'notify_waiter', s.notify_waiter,
+               'kot_count', (select count(distinct oi.order_id) from order_items oi join orders oo on oo.id = oi.order_id where oo.outlet_id = s.outlet_id and oi.status = s.code),
+               'back_to', (select coalesce(jsonb_agg(tp.p order by tp.p), '[]'::jsonb)
+                             from kot_transitions t
+                             join pos tp on tp.id = t.to_status
+                            where t.from_status = s.id and tp.sort_order < s.sort_order)
+             ) order by s.sort_order), '[]'::jsonb)
+        from kot_statuses s where s.outlet_id = v_outlet),
+    'levels', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'name', l.name, 'from_minutes', l.from_minutes, 'color', l.color, 'notify', l.notify)
+               order by l.from_minutes), '[]'::jsonb)
+        from kot_time_levels l where l.outlet_id = v_outlet)
+  );
+end;
+$$;
+grant execute on function get_kot_workflow() to authenticated;
+
+
+-- save_kot_workflow(steps, levels): replaces the outlet's workflow in one
+-- transaction. steps = ordered array of {id?, name, color, action_label,
+-- show_on_board, back_to:[positions]}. Rules: 2 to 12 steps with distinct
+-- names; the first step is where KOTs start; the last is final (off the
+-- board); forward is always to the next step; back_to may name earlier steps
+-- only; a step that still holds KOTs cannot be removed. levels = array of
+-- {name, from_minutes, color}: the first starts at 0 and the rest ascend.
+-- Needs kot.manage.
+create or replace function save_kot_workflow(p_steps jsonb, p_levels jsonb)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  n        integer;
+  i        integer;
+  e        jsonb;
+  v_id     uuid;
+  v_ids    uuid[] := '{}';
+  v_name   text;
+  v_color  text;
+  v_code   text;
+  v_pos    integer;
+  v_prev   integer := -1;
+  m        integer;
+  lv       jsonb;
+begin
+  if not has_permission('kot.manage') then
+    raise exception 'Only users with KOT access can change the workflow';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  if p_steps is null or jsonb_typeof(p_steps) <> 'array' then
+    raise exception 'Steps are required';
+  end if;
+  if p_levels is null or jsonb_typeof(p_levels) <> 'array' then
+    raise exception 'Waiting-time levels are required';
+  end if;
+  n := jsonb_array_length(p_steps);
+  if n < 2 or n > 6 then
+    raise exception 'A workflow needs between 2 and 6 steps (one per status value)';
+  end if;
+
+  -- Names: present, short, distinct.
+  if exists (select 1 from jsonb_array_elements(p_steps) s
+              where char_length(btrim(coalesce(s->>'name', ''))) not between 1 and 30) then
+    raise exception 'Every step needs a name of 1 to 30 characters';
+  end if;
+  if (select count(distinct lower(btrim(s->>'name'))) from jsonb_array_elements(p_steps) s) <> n then
+    raise exception 'Step names must be different from each other';
+  end if;
+
+  -- A step that still holds KOTs cannot be removed.
+  if exists (
+    select 1 from kot_statuses ks
+     where ks.outlet_id = v_outlet
+       and ks.id not in (select nullif(s->>'id', '')::uuid from jsonb_array_elements(p_steps) s
+                          where nullif(s->>'id', '') is not null)
+       and exists (select 1 from order_items oi join orders oo on oo.id = oi.order_id
+                    where oo.outlet_id = ks.outlet_id and oi.status = ks.code)
+  ) then
+    raise exception 'A step that still has KOTs cannot be removed. Move those KOTs first';
+  end if;
+  delete from kot_statuses ks
+   where ks.outlet_id = v_outlet
+     and ks.id not in (select nullif(s->>'id', '')::uuid from jsonb_array_elements(p_steps) s
+                        where nullif(s->>'id', '') is not null);
+
+  update kot_statuses set is_initial = false, is_final = false where outlet_id = v_outlet;
+
+  for i in 1..n loop
+    e := p_steps -> (i - 1);
+    v_name := btrim(e->>'name');
+    v_color := coalesce(nullif(e->>'color', ''), '#7f8c8d');
+    if v_color !~ '^#[0-9a-fA-F]{6}$' then
+      raise exception 'Step "%" has an invalid colour', v_name;
+    end if;
+    v_id := nullif(e->>'id', '')::uuid;
+    if v_id is not null and not exists (select 1 from kot_statuses where id = v_id and outlet_id = v_outlet) then
+      raise exception 'Unknown step';
+    end if;
+
+    if v_id is null then
+      -- A new step maps to one of the values order_items.status may hold.
+      v_code := lower(btrim(coalesce(e->>'code', '')));
+      if v_code not in ('new', 'cancelled', 'confirmed', 'preparing', 'ready', 'served') then
+        raise exception 'Step "%" needs a status value: new, cancelled, confirmed, preparing, ready or served', v_name;
+      end if;
+      if exists (select 1 from kot_statuses where outlet_id = v_outlet and code = v_code) then
+        raise exception 'The status value "%" is already used by another step', v_code;
+      end if;
+      insert into kot_statuses (outlet_id, code, name, color, action_label, sort_order, is_initial, is_final, show_on_board, notify_waiter)
+      values (v_outlet, v_code, v_name, v_color, nullif(btrim(e->>'action_label'), ''), i * 10,
+              i = 1, i = n,
+              case when i = n then false else coalesce((e->>'show_on_board')::boolean, true) end,
+              coalesce((e->>'notify_waiter')::boolean, false))
+      returning id into v_id;
+    else
+      update kot_statuses
+         set name = v_name, color = v_color,
+             action_label = nullif(btrim(e->>'action_label'), ''),
+             sort_order = i * 10,
+             is_initial = (i = 1), is_final = (i = n),
+             show_on_board = case when i = n then false else coalesce((e->>'show_on_board')::boolean, true) end,
+             notify_waiter = coalesce((e->>'notify_waiter')::boolean, false)
+       where id = v_id;
+    end if;
+    v_ids := v_ids || v_id;
+  end loop;
+
+  if (select code from kot_statuses where id = v_ids[1]) <> 'new' then
+    raise exception 'The first step must stay the "New" step: every new item starts there';
+  end if;
+  if (select code from kot_statuses where id = v_ids[n]) <> 'served' then
+    raise exception 'The last step must stay the "Served" step: it takes the card off the board';
+  end if;
+
+  delete from kot_transitions
+   where from_status in (select id from kot_statuses where outlet_id = v_outlet);
+  for i in 1..n loop
+    if i < n then
+      insert into kot_transitions (from_status, to_status) values (v_ids[i], v_ids[i + 1]);
+    end if;
+    e := p_steps -> (i - 1);
+    if jsonb_typeof(e->'back_to') = 'array' then
+      for v_pos in select (x)::integer from jsonb_array_elements_text(e->'back_to') x loop
+        if v_pos < 1 or v_pos >= i then
+          raise exception 'A step can only go back to an earlier step';
+        end if;
+        insert into kot_transitions (from_status, to_status) values (v_ids[i], v_ids[v_pos])
+        on conflict do nothing;
+      end loop;
+    end if;
+  end loop;
+
+  -- Waiting-time levels.
+  m := jsonb_array_length(p_levels);
+  if m < 1 or m > 8 then
+    raise exception 'Add between 1 and 8 waiting-time levels';
+  end if;
+  for i in 1..m loop
+    lv := p_levels -> (i - 1);
+    if char_length(btrim(coalesce(lv->>'name', ''))) not between 1 and 30 then
+      raise exception 'Every level needs a name of 1 to 30 characters';
+    end if;
+    if coalesce(lv->>'color', '') !~ '^#[0-9a-fA-F]{6}$' then
+      raise exception 'Level "%" has an invalid colour', lv->>'name';
+    end if;
+    if (lv->>'from_minutes') is null or (lv->>'from_minutes')::integer < 0 then
+      raise exception 'Level start times must be 0 or more minutes';
+    end if;
+    if i = 1 and (lv->>'from_minutes')::integer <> 0 then
+      raise exception 'The first level must start at 0 minutes';
+    end if;
+    if (lv->>'from_minutes')::integer <= v_prev then
+      raise exception 'Level start times must increase';
+    end if;
+    v_prev := (lv->>'from_minutes')::integer;
+  end loop;
+  delete from kot_time_levels where outlet_id = v_outlet;
+  insert into kot_time_levels (outlet_id, name, from_minutes, color, notify)
+  select v_outlet, btrim(l->>'name'), (l->>'from_minutes')::integer, l->>'color',
+         coalesce((l->>'notify')::boolean, false)
+    from jsonb_array_elements(p_levels) l;
+end;
+$$;
+grant execute on function save_kot_workflow(jsonb, jsonb) to authenticated;
+
+
+-- ============================================================================
+-- MOBILE DEVICE PAIRING (see docs/DEVICE_PAIRING.md)
+-- ============================================================================
+-- get_device_owner(): called by the desktop app WITH THE PHONE'S LOGIN when a
+-- phone pairs with a one-time code. Returns who that login is, so the desktop
+-- can bind the new device to them. No permission needed: it only tells a user
+-- about themselves.
+create or replace function get_device_owner()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+           'user_id', p.user_id,
+           'name', coalesce(nullif(btrim(p.full_name), ''), p.email, 'User'),
+           'outlet_id', p.outlet_id,
+           'is_active', coalesce(p.is_active, true))
+    from profiles p
+   where p.user_id = auth.uid();
+$$;
+grant execute on function get_device_owner() to authenticated;
+
+-- device_owner_status(user ids): called periodically by the desktop app (signed
+-- in as a user with users.manage) to learn whether the owners of paired phones
+-- are still active and still in the caller's outlet. Unknown ids are reported
+-- as inactive. Needs users.manage; only the caller's own outlet is considered.
+create or replace function device_owner_status(p_user_ids uuid[])
+returns table (user_id uuid, is_active boolean, in_outlet boolean)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not has_permission('users.manage') then
+    raise exception 'Only users who manage users can check paired devices';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  return query
+    select u.id,
+           coalesce(p.is_active, true) and p.user_id is not null,
+           p.outlet_id is not distinct from v_outlet and p.user_id is not null
+      from unnest(p_user_ids) as u(id)
+      left join profiles p on p.user_id = u.id;
+end;
+$$;
+grant execute on function device_owner_status(uuid[]) to authenticated;
+
+
+
+-- ============================================================================
+-- REMOTE ORDERING: phones place orders THROUGH the desktop app
+-- ============================================================================
+-- place_order_as(): called by the desktop app (signed in as a user with
+-- users.manage) for the staff member whose phone sent the order. The waiter
+-- must be active, in the caller's outlet and allowed to place orders, so the
+-- desktop can never place an order for someone in another outlet or for a user
+-- without the permission. Prices come from the menu here, never from the phone;
+-- items that are switched off are refused. p_client_request_id makes a retry of
+-- the same request safe: it returns the order already created instead of a
+-- second one.
+-- p_items: [{ "menu_item_id": uuid, "quantity": 1..99 }]
+-- p_order_type: 'dine-in' (needs p_table_id) or 'pickup'.
+-- Returns { order_id, order_number, duplicate }.
+drop function if exists place_order_as(uuid, text, uuid, jsonb, text, text, text, text, text);
+create or replace function place_order_as(
+  p_waiter_id         uuid,
+  p_order_type        text,
+  p_table_id          uuid,
+  p_items             jsonb,
+  p_customer_name     text default null,
+  p_customer_phone    text default null,
+  p_notes             text default null,
+  p_device_name       text default null,
+  p_client_request_id text default null,
+  p_device_id         text default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet   uuid;
+  v_w_outlet uuid;
+  v_priced   jsonb;
+  v_id       uuid;
+  v_no       integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Not authenticated';
+  end if;
+  if not has_permission('users.manage') then
+    raise exception 'Only the desktop app of this outlet can place orders for a phone';
+  end if;
+  select p.outlet_id into v_outlet from profiles p where p.user_id = auth.uid();
+  select p.outlet_id into v_w_outlet from profiles p
+   where p.user_id = p_waiter_id and coalesce(p.is_active, true);
+  if v_outlet is null or v_w_outlet is distinct from v_outlet then
+    raise exception 'That user cannot place orders at this outlet';
+  end if;
+  if not user_has_permission(p_waiter_id, 'orders.place') then
+    raise exception 'Not allowed to place orders';
+  end if;
+
+  -- A retry of a request that already succeeded returns the same order.
+  if nullif(btrim(p_client_request_id), '') is not null then
+    select o.id, o.order_number into v_id, v_no
+      from orders o
+     where o.outlet_id = v_outlet and o.client_request_id = btrim(p_client_request_id);
+    if v_id is not null then
+      return jsonb_build_object('order_id', v_id, 'order_number', v_no, 'duplicate', true);
+    end if;
+  end if;
+
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
+    raise exception 'An order needs at least one item';
+  end if;
+  if exists (
+    select 1 from jsonb_array_elements(p_items) it
+     where coalesce((it->>'quantity')::int, 0) not between 1 and 99
+        or nullif(it->>'menu_item_id', '') is null
+  ) then
+    raise exception 'Invalid quantity or item in the item list';
+  end if;
+
+  -- Prices from the menu; refuse items that are off or not on this menu.
+  select jsonb_agg(jsonb_build_object(
+           'menu_item_id', mi.id, 'quantity', (it->>'quantity')::int, 'unit_price', mi.price))
+    into v_priced
+    from jsonb_array_elements(p_items) it
+    join menu_items mi on mi.id = (it->>'menu_item_id')::uuid and mi.outlet_id = v_outlet
+   where coalesce(mi.is_active, true) and coalesce(mi.is_available, true);
+  if v_priced is null or jsonb_array_length(v_priced) <> jsonb_array_length(p_items) then
+    raise exception 'An item is not available. Refresh the menu.';
+  end if;
+
+  v_id := create_order_for(p_waiter_id, p_order_type, p_table_id, v_outlet, v_priced,
+                           p_customer_name, p_customer_phone, p_notes,
+                           p_device_name, p_client_request_id, p_device_id);
+  select o.order_number into v_no from orders o where o.id = v_id;
+  return jsonb_build_object('order_id', v_id, 'order_number', v_no, 'duplicate', false);
+exception when unique_violation then
+  -- Two identical requests raced: hand back the winner.
+  select o.id, o.order_number into v_id, v_no
+    from orders o
+   where o.outlet_id = v_outlet and o.client_request_id = btrim(p_client_request_id);
+  if v_id is null then raise; end if;
+  return jsonb_build_object('order_id', v_id, 'order_number', v_no, 'duplicate', true);
+end;
+$$;
+grant execute on function place_order_as(uuid, text, uuid, jsonb, text, text, text, text, text, text) to authenticated;
+
+
+-- ============================================================================
+-- PHONE NOTIFICATIONS (LAN): what the desktop app watches
+-- ============================================================================
+-- get_phone_orders(): called by the desktop app (users.manage). Returns, for
+-- every open order that was placed from a paired phone, its KOT state, so the
+-- desktop can tell the phone that placed it when the status changes or the
+-- order waits too long. Also returns the outlet's notification settings
+-- (which steps notify the waiter, from which waiting level to alert).
+-- Orders placed from a phone in the last 12 hours that are not completed
+-- (cancelled ones stay in so the phone hears of the cancellation).
+-- Returns { now, steps:[{code,name,notify_waiter}], levels:[{name,from_minutes,notify}],
+--           orders:[{order_id,order_number,device_id,user_id,table_number,order_type,
+--                    status,created_at,statuses:{code:count}, since: oldest item time in
+--                    its earliest unfinished status}] }
+create or replace function get_phone_orders()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not has_permission('users.manage') then
+    raise exception 'Only the desktop app of this outlet can read phone orders';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+
+  return jsonb_build_object(
+    'now', now(),
+    'steps', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'code', s.code, 'name', s.name, 'notify_waiter', s.notify_waiter,
+               'sort_order', s.sort_order) order by s.sort_order), '[]'::jsonb)
+        from kot_statuses s where s.outlet_id = v_outlet),
+    'levels', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'name', l.name, 'from_minutes', l.from_minutes, 'notify', l.notify)
+               order by l.from_minutes), '[]'::jsonb)
+        from kot_time_levels l where l.outlet_id = v_outlet),
+    'orders', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'order_id', o.id, 'order_number', o.order_number,
+               'device_id', o.placed_via_device_id, 'user_id', o.waiter_id,
+               'table_number', t.table_number, 'order_type', o.order_type,
+               'status', o.status, 'created_at', o.created_at,
+               'statuses', (select coalesce(jsonb_object_agg(x.status, x.n), '{}'::jsonb)
+                              from (select oi.status, count(*) as n
+                                      from order_items oi
+                                     where oi.order_id = o.id and not coalesce(oi.is_deleted, false)
+                                     group by oi.status) x),
+               'since', (select min(coalesce(oi.created_at, o.created_at))
+                           from order_items oi
+                          where oi.order_id = o.id and not coalesce(oi.is_deleted, false)
+                            and oi.status not in ('served', 'cancelled'))
+             ) order by o.created_at), '[]'::jsonb)
+        from orders o
+        left join tables t on t.id = o.table_id
+       where o.outlet_id = v_outlet
+         and o.placed_via_device_id is not null
+         and coalesce(o.created_at, now()) > now() - interval '12 hours'
+         and o.status <> 'completed')
+  );
+end;
+$$;
+grant execute on function get_phone_orders() to authenticated;
+
+
+-- get_kot_settings(): called by the desktop app (users.manage). The outlet's
+-- overdue (waiting-time) levels and kitchen steps, so phones can colour an
+-- order by how long it has waited and show the same step names and colours.
+-- Returns { now, steps:[{code,name,color,sort_order,is_final,notify_waiter}],
+--           levels:[{name,from_minutes,color,notify}] }.
+create or replace function get_kot_settings()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not has_permission('users.manage') then
+    raise exception 'Only the desktop app of this outlet can read the KOT settings';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  perform seed_kot_workflow(v_outlet);
+  return jsonb_build_object(
+    'now', now(),
+    'steps', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'code', s.code, 'name', s.name, 'color', s.color, 'sort_order', s.sort_order,
+               'is_final', s.is_final, 'notify_waiter', s.notify_waiter) order by s.sort_order), '[]'::jsonb)
+        from kot_statuses s where s.outlet_id = v_outlet),
+    'levels', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'name', l.name, 'from_minutes', l.from_minutes, 'color', l.color, 'notify', l.notify)
+               order by l.from_minutes), '[]'::jsonb)
+        from kot_time_levels l where l.outlet_id = v_outlet)
+  );
+end;
+$$;
+grant execute on function get_kot_settings() to authenticated;
+
+
+-- ============================================================================
+-- set_order_discount(): discount an order or mark it complimentary
+-- ============================================================================
+-- p_order_ids: the order, or all rounds of a table (they bill together).
+-- p_mode: 'percent' (value must be one of the outlet's active discount_presets),
+--         'amount' (value > 0, ONE order only, at most the largest preset's share
+--         of the order's value before tax), 'complimentary' (total 0, no tax;
+--         needs orders.complimentary), or 'none' (removes a discount).
+-- A reason (1 to 200 characters) is required except for 'none'.
+-- Needs orders.discount; every order must be in the caller's outlet, not
+-- cancelled, not completed and not paid. Totals are recomputed (tax on the
+-- discounted value) and one app_activity_log row per order records who did
+-- what: activity 'order.discount.updated', order_details with mode, value,
+-- reason and the total before and after.
+-- Returns [{order_id, discount_amount, tax_amount, total_amount}].
+create or replace function set_order_discount(
+  p_order_ids uuid[],
+  p_mode      text,
+  p_value     numeric default null,
+  p_reason    text default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_id     uuid;
+  v_before numeric;
+  v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
+  v_out    jsonb := '[]'::jsonb;
+  v_max    numeric;
+  r        record;
+begin
+  if not has_permission('orders.discount') then
+    raise exception 'Not allowed to give discounts';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  if p_order_ids is null or coalesce(array_length(p_order_ids, 1), 0) = 0 then
+    raise exception 'Choose an order';
+  end if;
+  if p_mode not in ('percent', 'amount', 'complimentary', 'none') then
+    raise exception 'Unknown discount type';
+  end if;
+  if p_mode = 'complimentary' and not has_permission('orders.complimentary') then
+    raise exception 'Not allowed to mark orders complimentary';
+  end if;
+  select max(d.percent) into v_max from discount_presets d where d.outlet_id = v_outlet and d.is_active;
+  if p_mode in ('percent', 'amount') and v_max is null then
+    raise exception 'No discount percentages are set up for this outlet';
+  end if;
+  if p_mode <> 'none' and (v_reason is null or char_length(v_reason) > 200) then
+    raise exception 'A reason of 1 to 200 characters is required';
+  end if;
+  if p_mode = 'percent' and (p_value is null or not exists (
+       select 1 from discount_presets d
+        where d.outlet_id = v_outlet and d.is_active and d.percent = p_value)) then
+    raise exception 'Choose one of the allowed discounts: %',
+      (select string_agg(trim(trailing '.' from trim(trailing '0' from d.percent::text)) || '%', ', ' order by d.percent)
+         from discount_presets d where d.outlet_id = v_outlet and d.is_active);
+  end if;
+  if p_mode = 'amount' then
+    if p_value is null or p_value <= 0 then
+      raise exception 'A discount amount must be more than 0';
+    end if;
+    if array_length(p_order_ids, 1) > 1 then
+      raise exception 'A fixed amount can only be given on one order. Use a percentage for several orders';
+    end if;
+  end if;
+
+  for v_id in select distinct x from unnest(p_order_ids) x loop
+    select o.* into r from orders o
+     where o.id = v_id and o.outlet_id = v_outlet
+       for update;
+    if not found then
+      raise exception 'Order not found';
+    end if;
+    if r.status in ('cancelled', 'completed') then
+      raise exception 'Order #% is already % so its discount cannot be changed', r.order_number, r.status;
+    end if;
+    if r.payment_details is not null then
+      raise exception 'Payment is already recorded for order #%', r.order_number;
+    end if;
+    v_before := coalesce(r.total_amount, 0);
+
+    if p_mode = 'amount' then
+      -- no more than the largest allowed percentage of the order's value (before tax, with packaging)
+      if p_value > round((coalesce(r.subtotal_amount, 0) + coalesce(r.container_charge_amount, 0)) * v_max / 100, 2) then
+        raise exception 'A discount of % is more than the % allowed (% of the order value of %)',
+          p_value, round((coalesce(r.subtotal_amount, 0) + coalesce(r.container_charge_amount, 0)) * v_max / 100, 2),
+          v_max, coalesce(r.subtotal_amount, 0) + coalesce(r.container_charge_amount, 0);
+      end if;
+    end if;
+
+    update orders
+       set discount_type  = case when p_mode in ('percent', 'amount') then p_mode end,
+           discount_value = case when p_mode in ('percent', 'amount') then p_value end,
+           is_complimentary = (p_mode = 'complimentary'),
+           discount_reason = case when p_mode = 'none' then null else v_reason end,
+           discount_by = case when p_mode = 'none' then null else auth.uid() end,
+           discount_at = case when p_mode = 'none' then null else now() end
+     where id = v_id;
+    perform recompute_order_totals(v_id);
+
+    insert into app_activity_log
+      (order_id, changed_by, changed_at, created_at, order_details, reason, activity)
+    select v_id, auth.uid(), now(), now(),
+           jsonb_build_object('mode', p_mode, 'value', p_value,
+                              'discount_amount', o.discount_amount,
+                              'total_before', v_before, 'total_after', o.total_amount)::json,
+           coalesce(v_reason, 'discount removed'), 'order.discount.updated'
+      from orders o where o.id = v_id;
+
+    v_out := v_out || (select jsonb_build_object(
+               'order_id', o.id, 'discount_amount', o.discount_amount,
+               'tax_amount', o.tax_amount, 'total_amount', o.total_amount)
+               from orders o where o.id = v_id);
+  end loop;
+  return v_out;
+end;
+$$;
+grant execute on function set_order_discount(uuid[], text, numeric, text) to authenticated;
+
+
+-- get_discount_options(): the discounts the signed-in user may offer, for the
+-- discount dialog. { percents: [10, 20, 25], max_percent: 25,
+-- can_complimentary: bool }. Empty for a user without orders.discount.
+create or replace function get_discount_options()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_percents jsonb;
+begin
+  if not has_permission('orders.discount') then
+    return jsonb_build_object('percents', '[]'::jsonb, 'max_percent', 0, 'can_complimentary', false);
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  select coalesce(jsonb_agg(d.percent order by d.percent), '[]'::jsonb) into v_percents
+    from discount_presets d where d.outlet_id = v_outlet and d.is_active;
+  return jsonb_build_object(
+    'percents', v_percents,
+    'max_percent', coalesce((select max(d.percent) from discount_presets d where d.outlet_id = v_outlet and d.is_active), 0),
+    'can_complimentary', has_permission('orders.complimentary'));
+end;
+$$;
+grant execute on function get_discount_options() to authenticated;
+
+
+-- get_order_discounts(): the discount / complimentary details of some orders,
+-- for the order details screen. Needs orders.view; only orders of the caller's
+-- outlet are returned, and only those that have a discount.
+-- Returns [{order_id, order_number, mode, value, amount, reason, by_name, at}]
+-- where mode is 'percent', 'amount' or 'complimentary'.
+create or replace function get_order_discounts(p_order_ids uuid[])
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'order_id', o.id,
+           'order_number', o.order_number,
+           'mode', case when o.is_complimentary then 'complimentary' else o.discount_type end,
+           'value', o.discount_value,
+           'amount', coalesce(o.discount_amount, 0),
+           'reason', o.discount_reason,
+           'by_name', coalesce(nullif(btrim(b.full_name), ''), b.email),
+           'at', o.discount_at) order by o.order_number), '[]'::jsonb)
+    from orders o
+    join profiles me on me.user_id = auth.uid()
+    left join profiles b on b.user_id = o.discount_by
+   where o.id = any(p_order_ids)
+     and o.outlet_id = me.outlet_id
+     and has_permission('orders.view')
+     and (o.is_complimentary or o.discount_type is not null);
+$$;
+grant execute on function get_order_discounts(uuid[]) to authenticated;
+
+
+-- ============================================================================
+-- Discount settings (Settings > Discounts)
+-- ============================================================================
+-- get_discount_settings(): the outlet's allowed discount percentages, active or
+-- not, lowest first. Needs discount.manage.
+-- Returns { percents: [{percent, is_active}], max_percent }.
+create or replace function get_discount_settings()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not has_permission('discount.manage') then
+    raise exception 'Not allowed to change discount settings';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  return jsonb_build_object(
+    'percents', (select coalesce(jsonb_agg(jsonb_build_object('percent', d.percent, 'is_active', d.is_active)
+                                           order by d.percent), '[]'::jsonb)
+                   from discount_presets d where d.outlet_id = v_outlet),
+    'max_percent', coalesce((select max(d.percent) from discount_presets d
+                              where d.outlet_id = v_outlet and d.is_active), 0));
+end;
+$$;
+grant execute on function get_discount_settings() to authenticated;
+
+-- save_discount_presets(rows): replaces the outlet's list in one step.
+-- rows = [{percent, is_active}]: 1 to 10 distinct percentages, each above 0 and
+-- below 100 (two decimals at most); at least one must be active. The largest
+-- active one becomes the cap for percentages and fixed amounts. Discounts
+-- already given are not touched. Needs discount.manage.
+create or replace function save_discount_presets(p_rows jsonb)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  n integer;
+  e jsonb;
+  v_pct numeric;
+  v_seen numeric[] := '{}';
+  v_active integer := 0;
+begin
+  if not has_permission('discount.manage') then
+    raise exception 'Not allowed to change discount settings';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  if p_rows is null or jsonb_typeof(p_rows) <> 'array' then
+    raise exception 'The list of discounts is required';
+  end if;
+  n := jsonb_array_length(p_rows);
+  if n < 1 or n > 10 then
+    raise exception 'Keep between 1 and 10 discount percentages';
+  end if;
+  for e in select x from jsonb_array_elements(p_rows) x loop
+    v_pct := (e->>'percent')::numeric;
+    if v_pct is null or v_pct <= 0 or v_pct >= 100 or v_pct <> round(v_pct, 2) then
+      raise exception 'A discount must be above 0 and below 100, with at most two decimals';
+    end if;
+    if v_pct = any(v_seen) then
+      raise exception 'The discount % is listed twice', v_pct;
+    end if;
+    v_seen := v_seen || v_pct;
+    if coalesce((e->>'is_active')::boolean, true) then v_active := v_active + 1; end if;
+  end loop;
+  if v_active = 0 then
+    raise exception 'At least one discount percentage must stay active';
+  end if;
+
+  delete from discount_presets where outlet_id = v_outlet and percent <> all (v_seen);
+  insert into discount_presets (outlet_id, percent, is_active)
+  select v_outlet, (x->>'percent')::numeric, coalesce((x->>'is_active')::boolean, true)
+    from jsonb_array_elements(p_rows) x
+  on conflict (outlet_id, percent) do update set is_active = excluded.is_active;
+
+end;
+$$;
+grant execute on function save_discount_presets(jsonb) to authenticated;

@@ -370,6 +370,7 @@ returns table (
   tax_amount numeric,
   container_charge_amount numeric,
   discount_amount numeric,
+  discount_value numeric,
   total_amount numeric,
   status text,
   table_id uuid,
@@ -400,7 +401,7 @@ as $$
   ),
   cand as (
     select o.id as order_id, o.order_type, o.created_at, o.table_id, o.invoice_number, o.order_number,
-           o.outlet_id, g.order_count, g.cancelled_count, g.status
+           o.outlet_id, o.discount_value, g.order_count, g.cancelled_count, g.status
     from caller c
     join orders o on o.outlet_id = c.outlet_id
     cross join lateral (
@@ -486,6 +487,7 @@ as $$
     coalesce(t.tax_amount, 0) as tax_amount,
     coalesce(t.container_charge_amount, 0) as container_charge_amount,
     coalesce(t.discount_amount, 0) as discount_amount,
+    coalesce(p.discount_value, 0) as discount_value,
     coalesce(t.total_amount, 0) as total_amount,
     p.status,
     p.table_id,
@@ -812,7 +814,8 @@ revoke all on function insert_order_items(uuid, uuid, jsonb) from public, anon, 
 -- ============================================================================
 -- recompute_order_totals(): shared tax/container-charge/total formula
 -- ============================================================================
--- Prices are tax-exclusive. For every non-deleted line:
+-- Prices are tax-exclusive unless the line was priced with tax included
+-- (order_items.price_includes_tax; see ITEM TAX in schema.sql). For every non-deleted line:
 --   base      = quantity * unit_price
 --   packaging = pickup orders only: base * menu_items.container_charge / 100
 --               (read from the menu at recompute time, as before)
@@ -827,8 +830,9 @@ revoke all on function insert_order_items(uuid, uuid, jsonb) from public, anon, 
 -- tax_amount = sum of those; tax_breakdown = [{name, rate, taxable, tax}] by
 -- rate; total_amount = subtotal + container charge + tax_amount.
 --
--- Deliberately excludes any "discount" column (never confirmed to exist on
--- the real orders table).
+-- A discount or complimentary flag on the order (orders.discount_type / value,
+-- is_complimentary; see ORDER DISCOUNT in schema.sql) is applied here:
+-- total = subtotal + container charge - discount + tax, tax on the discounted value.
 --
 -- Internal helper only: EXECUTE is revoked from public below so it cannot be
 -- called directly, bypassing the auth checks that edit_order_item /
@@ -847,9 +851,17 @@ declare
   v_container numeric := 0;
   v_tax numeric;
   v_breakdown jsonb;
+  v_slabs jsonb;
+  v_pre numeric;
+  v_disc_type text;
+  v_disc_value numeric;
+  v_comp boolean;
+  v_discount numeric := 0;
+  v_f numeric := 0;
 begin
-  select o.order_type, o.outlet_id, coalesce(o.created_at, now())
-    into v_order_type, v_outlet_id, v_created
+  select o.order_type, o.outlet_id, coalesce(o.created_at, now()),
+         o.discount_type, o.discount_value, coalesce(o.is_complimentary, false)
+    into v_order_type, v_outlet_id, v_created, v_disc_type, v_disc_value, v_comp
   from orders o
   where o.id = p_order_id;
 
@@ -911,16 +923,41 @@ begin
   )
   select coalesce(jsonb_agg(jsonb_build_object('name', name, 'rate', rate, 'taxable', taxable, 'tax', tax)
                             order by rate, name), '[]'::jsonb),
-         coalesce(sum(tax), 0),
+         coalesce(sum(taxable), 0),
          coalesce(sum(net_base), 0)
-    into v_breakdown, v_tax, v_subtotal
+    into v_slabs, v_pre, v_subtotal
   from final;
+
+  -- Discount: taken off the value before tax; tax is then worked out on what is
+  -- left, rate by rate. Complimentary = the whole value, no tax.
+  if v_comp then
+    v_discount := v_subtotal + v_container;
+  elsif v_disc_type = 'percent' and v_disc_value > 0 then
+    v_discount := round((v_subtotal + v_container) * least(v_disc_value, 100) / 100, 2);
+  elsif v_disc_type = 'amount' and v_disc_value > 0 then
+    v_discount := least(v_disc_value, v_subtotal + v_container);
+  end if;
+
+  if v_discount > 0 and v_pre > 0 then
+    v_f := least(v_discount / v_pre, 1);
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'name', x.name, 'rate', x.rate,
+             'taxable', case when v_comp then 0 else round(x.taxable * (1 - v_f), 2) end,
+             'tax', case when v_comp then 0 else round(x.taxable * (1 - v_f) * x.rate / 100, 2) end)
+             order by x.rate, x.name), '[]'::jsonb)
+      into v_breakdown
+      from jsonb_to_recordset(v_slabs) as x(name text, rate numeric, taxable numeric, tax numeric);
+  else
+    v_breakdown := v_slabs;
+  end if;
+  select coalesce(sum((b->>'tax')::numeric), 0) into v_tax from jsonb_array_elements(v_breakdown) b;
 
   update orders
      set subtotal_amount = v_subtotal,
          tax_amount = v_tax,
          container_amount = v_container,
-         total_amount = v_subtotal + v_container + v_tax,
+         discount_amount = v_discount,
+         total_amount = v_subtotal + v_container - v_discount + v_tax,
          tax_breakdown = v_breakdown
    where id = p_order_id;
 end;
@@ -1736,31 +1773,23 @@ security definer
 set search_path = public
 as $$
 declare
-  v_table_id uuid;
+  v_outlet uuid;
 begin
-  select o.table_id into v_table_id
-  from orders o
-  join profiles p on p.user_id = auth.uid()
-  where o.id = p_order_id
-    and has_permission('orders.complete')
-    and p.outlet_id = o.outlet_id;
-
-  if not found then
-    raise exception 'Not authorized, or order not found';
+  select p.outlet_id into v_outlet
+    from profiles p
+   where p.user_id = auth.uid()
+     and coalesce(p.is_active, true)
+     and has_permission('orders.complete');
+  if v_outlet is null
+     or not exists (select 1 from orders o
+                     where o.id = p_order_id and o.outlet_id = v_outlet) then
+    raise exception 'Not authorized, or invoice not found';
   end if;
 
-  if v_table_id is not null then
-    update orders
-       set status = 'completed',
-           settled_at = coalesce(settled_at, now())
-     where table_id = v_table_id
-       and status not in ('completed', 'cancelled');
-  else
     update orders
        set status = 'completed',
            settled_at = coalesce(settled_at, now())
      where id = p_order_id;
-  end if;
 
  insert into app_activity_log
     (order_id, changed_by, changed_at, created_at,
@@ -1773,6 +1802,51 @@ end;
 $$;
 
 grant execute on function complete_order(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- complete_invoice(): complete EVERY open round of one invoice in one step.
+-- Works the same for dine-in (several rounds share an invoice) and takeaway
+-- (one order per invoice). Authorised by orders.complete and the caller's own
+-- outlet; cancelled rounds are left alone and already completed ones are not
+-- touched again. Returns how many orders were completed.
+-- ---------------------------------------------------------------------------
+create or replace function complete_invoice(p_invoice_number text)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_count integer;
+begin
+  if p_invoice_number is null or btrim(p_invoice_number) = '' then
+    raise exception 'An invoice number is required';
+  end if;
+
+  select p.outlet_id into v_outlet
+    from profiles p
+   where p.user_id = auth.uid()
+     and coalesce(p.is_active, true)
+     and has_permission('orders.complete');
+  if v_outlet is null
+     or not exists (select 1 from orders o
+                     where o.invoice_number = p_invoice_number and o.outlet_id = v_outlet) then
+    raise exception 'Not authorized, or invoice not found';
+  end if;
+
+  update orders
+     set status = 'completed',
+         settled_at = coalesce(settled_at, now())
+   where outlet_id = v_outlet
+     and invoice_number = p_invoice_number
+     and status not in ('completed', 'cancelled');
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+
+grant execute on function complete_invoice(text) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- cancel_invoice(): "cancel all" for a dine-in table sitting — cancels every
@@ -2618,3 +2692,350 @@ end;
 $$;
 
 grant execute on function save_order_payment(text, text, numeric, numeric, numeric) to authenticated;
+
+-- ============================================================================
+-- RPC: get_unprinted_kots()
+-- ============================================================================
+-- The "Unprinted KOTs" page: every open order of the caller's outlet that has
+-- live line items not yet sent to the kitchen, with those items. Same scope
+-- and permission as find_orders_with_pending_kot() (orders.view, own outlet).
+-- Oldest order first so the longest-waiting ticket is on top.
+
+create or replace function get_unprinted_kots()
+returns table (
+  order_id uuid,
+  order_number text,
+  order_type text,
+  table_number text,
+  customer_name text,
+  waiter_name text,
+  special_notes text,
+  placed_at timestamptz,
+  order_source text,
+  device_name text,
+  items jsonb
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select o.id,
+         o.order_number,
+         o.order_type,
+         t.table_number,
+         o.customer_name,
+         p.first_name as waiter_name,
+         o.notes as special_notes,
+         coalesce(o.created_at, now()),
+         o.order_source,
+         o.placed_via_device,
+         (select jsonb_agg(jsonb_build_object(
+                   'name', coalesce(mi.name, 'Item'),
+                   'quantity', oi.quantity,
+                   'note', oi.notes)
+                 order by oi.created_at nulls last, oi.id)
+            from order_items oi
+            left join menu_items mi on mi.id = oi.menu_item_id
+           where oi.order_id = o.id
+             and not oi.is_deleted
+             and not oi.kot_printed)
+  from orders o
+  join profiles p on p.user_id = auth.uid()
+                 and coalesce(p.is_active, true)
+                 and p.outlet_id = o.outlet_id
+  left join tables t on t.id = o.table_id
+  where has_permission('orders.view')
+    and o.status not in ('completed', 'cancelled')
+    and exists (select 1 from order_items oi
+                 where oi.order_id = o.id
+                   and not oi.is_deleted
+                   and not oi.kot_printed)
+  order by coalesce(o.created_at, now()), o.order_number;
+$$;
+
+grant execute on function get_unprinted_kots() to authenticated;
+
+-- Supports the pending-items lookup.
+create index if not exists idx_order_items_pending
+  on order_items (order_id) where kot_printed = false;
+
+-- get_discount_options(): the discounts the signed-in user may offer, for the
+-- discount dialog. { percents: [10, 20, 25], max_percent: 25,
+-- can_complimentary: bool }. Empty for a user without orders.discount.
+create or replace function get_discount_options()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_percents jsonb;
+begin
+  if not has_permission('orders.discount') then
+    return jsonb_build_object('percents', '[]'::jsonb, 'max_percent', 0, 'can_complimentary', false);
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  select coalesce(jsonb_agg(d.percent order by d.percent), '[]'::jsonb) into v_percents
+    from discount_presets d where d.outlet_id = v_outlet and d.is_active;
+  return jsonb_build_object(
+    'percents', v_percents,
+    'max_percent', coalesce((select max(d.percent) from discount_presets d where d.outlet_id = v_outlet and d.is_active), 0),
+    'can_complimentary', has_permission('orders.complimentary'));
+end;
+$$;
+grant execute on function get_discount_options() to authenticated;
+
+-- ============================================================================
+-- set_order_discount(): discount an order or mark it complimentary
+-- ============================================================================
+-- p_order_ids: the order, or all rounds of a table (they bill together).
+-- p_mode: 'percent' (value must be one of the outlet's active discount_presets),
+--         'amount' (value > 0, ONE order only, at most the largest preset's share
+--         of the order's value before tax), 'complimentary' (total 0, no tax;
+--         needs orders.complimentary), or 'none' (removes a discount).
+-- A reason (1 to 200 characters) is required except for 'none'.
+-- Needs orders.discount; every order must be in the caller's outlet, not
+-- cancelled, not completed and not paid. Totals are recomputed (tax on the
+-- discounted value) and one app_activity_log row per order records who did
+-- what: activity 'order.discount.updated', order_details with mode, value,
+-- reason and the total before and after.
+-- Returns [{order_id, discount_amount, tax_amount, total_amount}].
+create or replace function set_order_discount(
+  p_order_ids uuid[],
+  p_mode      text,
+  p_value     numeric default null,
+  p_reason    text default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_id     uuid;
+  v_before numeric;
+  v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
+  v_out    jsonb := '[]'::jsonb;
+  v_max    numeric;
+  r        record;
+begin
+  if not has_permission('orders.discount') then
+    raise exception 'Not allowed to give discounts';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  if p_order_ids is null or coalesce(array_length(p_order_ids, 1), 0) = 0 then
+    raise exception 'Choose an order';
+  end if;
+  if p_mode not in ('percent', 'amount', 'complimentary', 'none') then
+    raise exception 'Unknown discount type';
+  end if;
+  if p_mode = 'complimentary' and not has_permission('orders.complimentary') then
+    raise exception 'Not allowed to mark orders complimentary';
+  end if;
+  select max(d.percent) into v_max from discount_presets d where d.outlet_id = v_outlet and d.is_active;
+  if p_mode in ('percent', 'amount') and v_max is null then
+    raise exception 'No discount percentages are set up for this outlet';
+  end if;
+  if p_mode <> 'none' and (v_reason is null or char_length(v_reason) > 200) then
+    raise exception 'A reason of 1 to 200 characters is required';
+  end if;
+  if p_mode = 'percent' and (p_value is null or not exists (
+       select 1 from discount_presets d
+        where d.outlet_id = v_outlet and d.is_active and d.percent = p_value)) then
+    raise exception 'Choose one of the allowed discounts: %',
+      (select string_agg(trim(trailing '.' from trim(trailing '0' from d.percent::text)) || '%', ', ' order by d.percent)
+         from discount_presets d where d.outlet_id = v_outlet and d.is_active);
+  end if;
+  if p_mode = 'amount' then
+    if p_value is null or p_value <= 0 then
+      raise exception 'A discount amount must be more than 0';
+    end if;
+    if array_length(p_order_ids, 1) > 1 then
+      raise exception 'A fixed amount can only be given on one order. Use a percentage for several orders';
+    end if;
+  end if;
+
+  for v_id in select distinct x from unnest(p_order_ids) x loop
+    select o.* into r from orders o
+     where o.id = v_id and o.outlet_id = v_outlet
+       for update;
+    if not found then
+      raise exception 'Order not found';
+    end if;
+    if r.status in ('cancelled', 'completed') then
+      raise exception 'Order #% is already % so its discount cannot be changed', r.order_number, r.status;
+    end if;
+    if r.payment_details is not null then
+      raise exception 'Payment is already recorded for order #%', r.order_number;
+    end if;
+    v_before := coalesce(r.total_amount, 0);
+
+    if p_mode = 'amount' then
+      -- no more than the largest allowed percentage of the order's value (before tax, with packaging)
+      if p_value > round((coalesce(r.subtotal_amount, 0) + coalesce(r.container_amount, 0)) * v_max / 100, 2) then
+        raise exception 'A discount of % is more than the % allowed (% of the order value of %)',
+          p_value, round((coalesce(r.subtotal_amount, 0) + coalesce(r.container_amount, 0)) * v_max / 100, 2),
+          v_max, coalesce(r.subtotal_amount, 0) + coalesce(r.container_amount, 0);
+      end if;
+    end if;
+
+    update orders
+       set discount_type  = case when p_mode in ('percent', 'amount') then p_mode end,
+           discount_value = case when p_mode in ('percent', 'amount') then p_value end,
+           is_complimentary = (p_mode = 'complimentary'),
+           discount_reason = case when p_mode = 'none' then null else v_reason end,
+           discount_by = case when p_mode = 'none' then null else auth.uid() end,
+           discount_at = case when p_mode = 'none' then null else now() end
+     where id = v_id;
+    perform recompute_order_totals(v_id);
+
+    insert into app_activity_log
+      (order_id, changed_by, changed_at, created_at, order_details, reason, activity)
+    select v_id, auth.uid(), now(), now(),
+           jsonb_build_object('mode', p_mode, 'value', p_value,
+                              'discount_amount', o.discount_amount,
+                              'total_before', v_before, 'total_after', o.total_amount)::json, 
+           coalesce(CONCAT(p_value, '% discount - ', v_reason), 'discount removed'), 'order.discount.updated'
+      from orders o where o.id = v_id;
+
+    v_out := v_out || (select jsonb_build_object(
+               'order_id', o.id, 'discount_amount', o.discount_amount,
+               'tax_amount', o.tax_amount, 'total_amount', o.total_amount)
+               from orders o where o.id = v_id);
+  end loop;
+  return v_out;
+end;
+$$;
+grant execute on function set_order_discount(uuid[], text, numeric, text) to authenticated;
+
+-- get_order_discounts(): the discount / complimentary details of some orders,
+-- for the order details screen. Needs orders.view; only orders of the caller's
+-- outlet are returned, and only those that have a discount.
+-- Returns [{order_id, order_number, mode, value, amount, reason, by_name, at}]
+-- where mode is 'percent', 'amount' or 'complimentary'.
+create or replace function get_order_discounts(p_order_ids uuid[])
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'order_id', o.id,
+           'order_number', o.order_number,
+           'mode', case when o.is_complimentary then 'complimentary' else o.discount_type end,
+           'value', o.discount_value,
+           'amount', coalesce(o.discount_amount, 0),
+           'reason', o.discount_reason,
+           'by_name', coalesce(nullif(btrim(b.first_name), ''), b.email),
+           'at', o.discount_at) order by o.order_number), '[]'::jsonb)
+    from orders o
+    join profiles me on me.user_id = auth.uid()
+    left join profiles b on b.user_id = o.discount_by
+   where o.id = any(p_order_ids)
+     and o.outlet_id = me.outlet_id
+     and has_permission('orders.view')
+     and (o.is_complimentary or o.discount_type is not null);
+$$;
+grant execute on function get_order_discounts(uuid[]) to authenticated;
+
+-- ============================================================================
+-- Discount settings (Settings > Discounts)
+-- ============================================================================
+-- get_discount_settings(): the outlet's allowed discount percentages, active or
+-- not, lowest first. Needs discount.manage.
+-- Returns { percents: [{percent, is_active}], max_percent }.
+create or replace function get_discount_settings()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not has_permission('discount.manage') then
+    raise exception 'Not allowed to change discount settings';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  return jsonb_build_object(
+    'percents', (select coalesce(jsonb_agg(jsonb_build_object('percent', d.percent, 'is_active', d.is_active)
+                                           order by d.percent), '[]'::jsonb)
+                   from discount_presets d where d.outlet_id = v_outlet),
+    'max_percent', coalesce((select max(d.percent) from discount_presets d
+                              where d.outlet_id = v_outlet and d.is_active), 0));
+end;
+$$;
+grant execute on function get_discount_settings() to authenticated;
+
+-- save_discount_presets(rows): replaces the outlet's list in one step.
+-- rows = [{percent, is_active}]: 1 to 10 distinct percentages, each above 0 and
+-- below 100 (two decimals at most); at least one must be active. The largest
+-- active one becomes the cap for percentages and fixed amounts. Discounts
+-- already given are not touched. Needs discount.manage.
+create or replace function save_discount_presets(p_rows jsonb)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  n integer;
+  e jsonb;
+  v_pct numeric;
+  v_seen numeric[] := '{}';
+  v_active integer := 0;
+begin
+  if not has_permission('discount.manage') then
+    raise exception 'Not allowed to change discount settings';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  if p_rows is null or jsonb_typeof(p_rows) <> 'array' then
+    raise exception 'The list of discounts is required';
+  end if;
+  n := jsonb_array_length(p_rows);
+  if n < 1 or n > 10 then
+    raise exception 'Keep between 1 and 10 discount percentages';
+  end if;
+  for e in select x from jsonb_array_elements(p_rows) x loop
+    v_pct := (e->>'percent')::numeric;
+    if v_pct is null or v_pct <= 0 or v_pct >= 100 or v_pct <> round(v_pct, 2) then
+      raise exception 'A discount must be above 0 and below 100, with at most two decimals';
+    end if;
+    if v_pct = any(v_seen) then
+      raise exception 'The discount % is listed twice', v_pct;
+    end if;
+    v_seen := v_seen || v_pct;
+    if coalesce((e->>'is_active')::boolean, true) then v_active := v_active + 1; end if;
+  end loop;
+  if v_active = 0 then
+    raise exception 'At least one discount percentage must stay active';
+  end if;
+
+  delete from discount_presets where outlet_id = v_outlet and percent <> all (v_seen);
+  insert into discount_presets (outlet_id, percent, is_active)
+  select v_outlet, (x->>'percent')::numeric, coalesce((x->>'is_active')::boolean, true)
+    from jsonb_array_elements(p_rows) x
+  on conflict (outlet_id, percent) do update set is_active = excluded.is_active;
+
+end;
+$$;
+grant execute on function save_discount_presets(jsonb) to authenticated;

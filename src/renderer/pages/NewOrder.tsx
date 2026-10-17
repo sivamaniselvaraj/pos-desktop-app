@@ -15,7 +15,7 @@ import {
 }from '../../shared/types';
 
 import styles from '../styles/NewOrder.module.css';
-import { formatMoney as money } from '../lib/format';
+import { displayInvoiceNumber, formatMoney as money } from '../lib/format';
 
 //type OrderType = 'dine_in' | 'pickup' | 'takeaway';
 type VegFilter = 'all' | 'veg' | 'nonveg';
@@ -86,7 +86,7 @@ function Stepper({ qty, onMinus, onPlus }: { qty: number; onMinus: () => void; o
   );
 }
 
-export function NewOrder() {
+export function NewOrder({ initialTableId }: { initialTableId?: string | null } = {}) {
   const [menu, setMenu] = useState<MenuEntry[]>([]);
   const [menuError, setMenuError] = useState<string | null>(null);
   const [tables, setTables] = useState<ManagedTable[]>([]);
@@ -94,7 +94,7 @@ export function NewOrder() {
   const [loading, setLoading] = useState(true);
 
   const [orderType, setOrderType] = useState<OrderType>(DINE_IN_ORDER_TYPE);
-  const [tableId, setTableId] = useState<string | null>(null);
+  const [tableId, setTableId] = useState<string | null>(initialTableId ?? null);
   const [query, setQuery] = useState('');
   const [veg, setVeg] = useState<VegFilter>('all');
   const [category, setCategory] = useState('All');
@@ -555,7 +555,7 @@ export function NewOrder() {
               <span>Order no.</span>
               <b>{result.orderNumber ?? '—'}</b>
               <span>Invoice</span>
-              <b>{result.invoiceNumber?.slice(-5) ?? '—'}</b>
+              <b>{displayInvoiceNumber(result.invoiceNumber)}</b>
               <span>Order total</span>
               <b>{money(result.total)}</b>
             </div>

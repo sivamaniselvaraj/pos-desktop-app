@@ -836,3 +836,48 @@ insert into app_menus (code, label, icon, sort_order, required_permission) value
   ('unprinted-kots', 'Unprinted KOTs', 'print', 46, 'orders.view')
 on conflict (code) do nothing;
 
+
+-- Which phone placed the order, and the phone's own request id (a retry of the
+-- same request returns the same order instead of creating a second one).
+alter table orders
+  add column if not exists placed_via_device text,
+  add column if not exists client_request_id text;
+create unique index if not exists orders_client_request_uidx
+  on orders (outlet_id, client_request_id) where client_request_id is not null;
+
+
+-- ============================================================================
+-- PHONE NOTIFICATIONS (LAN): who gets told what
+-- ============================================================================
+-- The desktop app tells the phone that placed an order when the order reaches a
+-- step flagged notify_waiter, when it has waited past a level flagged notify,
+-- or when it is cancelled. Nothing is sent for orders placed on the desktop.
+-- (notify_waiter / notify columns are added next to the kot tables above)
+
+-- Which phone (paired device id) placed the order, so notifications go to it.
+alter table orders add column if not exists placed_via_device_id text;
+
+-- Where the order was placed: 'pos' (the desktop app) or 'mobile' (a paired phone).
+-- Existing rows: anything a phone placed (device name or id present) is 'mobile'.
+alter table orders add column if not exists order_source text not null default 'pos';
+
+-- ============================================================================
+-- ORDER DISCOUNT / COMPLIMENTARY
+-- ============================================================================
+-- A discount (percent of the order's value before tax, or a fixed amount) or a
+-- complimentary flag on an order, set with set_order_discount() by a user with
+-- orders.discount. The reason is required and every change is logged in
+-- app_activity_log. Tax is worked out on the DISCOUNTED value
+-- (recompute_order_totals); a complimentary order has total 0 and no tax but keeps
+-- its items and real value (discount_amount = the value given away).
+--   discount_type  'percent' | 'amount' | null
+--   discount_value the percent (0-100] or the amount entered
+--   discount_amount the money taken off (always kept in step by recompute)
+
+alter table orders add column if not exists discount_amount numeric default 0;
+alter table orders add column if not exists discount_type text;
+alter table orders add column if not exists discount_value numeric;
+alter table orders add column if not exists discount_reason text;
+alter table orders add column if not exists discount_by uuid;
+alter table orders add column if not exists discount_at timestamptz;
+alter table orders add column if not exists is_complimentary boolean not null default false;

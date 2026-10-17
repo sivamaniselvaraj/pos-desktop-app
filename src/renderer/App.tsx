@@ -12,6 +12,7 @@ import { TablesManagement } from './pages/TablesManagement';
 import { OrdersList } from './pages/OrdersList';
 import { MenuItemsPage } from './pages/MenuItems';
 import { KotBoardPage } from './pages/KotBoard';
+import { UnprintedKotsPage } from './pages/UnprintedKots';
 import { About } from './pages/About';
 import { Login } from './pages/Login';
 import { useStatus } from './hooks/useStatus';
@@ -21,6 +22,7 @@ import styles from './styles/App.module.css';
 export default function App() {
   const { user, loading, access, signOut } = useAuth();
   const [page, setPage] = useState('dashboard');
+  const [presetTable, setPresetTable] = useState<string | null>(null);
   const { server, printers } = useStatus();
 
   const handleRefresh = () => {
@@ -69,7 +71,18 @@ export default function App() {
       <main className={styles.main}>
         <Header server={server} onRefresh={handleRefresh} />
         <div className={styles.body}>
-          {current === 'dashboard' && <Dashboard />}
+          {current === 'dashboard' && (
+            <Dashboard
+              onAddItems={
+                allowed.has('new-order')
+                  ? (tableId) => {
+                      setPresetTable(tableId);
+                      setPage('new-order');
+                    }
+                  : undefined
+              }
+            />
+          )}
           {current === 'settings' && <Settings />}
           {current === 'history' && <History />}
           {current === 'sales-report' && <SalesReport />}
@@ -77,9 +90,11 @@ export default function App() {
           {current === 'tax-rates' && <TaxRates />}
           {current === 'orders-list' && <OrdersList />}
           {current === 'tables' && <TablesManagement />}
-          {current === 'new-order' && <NewOrder />}
+          {current === 'new-order' && <NewOrder key={presetTable ?? 'none'} initialTableId={presetTable} />}
           {current === 'menu-items' && <MenuItemsPage />}
           {current === 'kot-board' && <KotBoardPage />}
+          {current === 'unprinted-kots' && <UnprintedKotsPage />}
+          
           {current === 'about' && <About />}
         </div>
       </main>

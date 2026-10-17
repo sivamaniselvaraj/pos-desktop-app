@@ -131,6 +131,8 @@ const api: ElectronApi = {
       reason,
       approval,
     ) as Promise<void>,
+  completeInvoice: (invoiceNumber: string) =>
+    ipcRenderer.invoke(IpcChannels.COMPLETE_INVOICE, invoiceNumber) as Promise<number>,
   completeOrder: (orderId) =>
     ipcRenderer.invoke(IpcChannels.COMPLETE_ORDER, orderId) as Promise<void>,
   reprintOrder: (orderId) =>

@@ -220,3 +220,51 @@
   font-size: 13px;
   cursor: pointer;
 }
+
+.discountBox {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #f0d9a8;
+  background: #fff8e6;
+  border-radius: 8px;
+}
+.discountBox .logHeading {
+  margin: 0 0 6px;
+}
+.discountRow + .discountRow {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #e3cf9f;
+}
+.discountHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.discountMeta {
+  color: #666;
+  font-size: 12px;
+  margin-top: 2px;
+}
+.compBadge {
+  background: #8e44ad;
+  color: white;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
+.addItemsBtn {
+  padding: 8px 16px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.addItemsBtn:hover {
+  background: var(--primary-dark);
+}

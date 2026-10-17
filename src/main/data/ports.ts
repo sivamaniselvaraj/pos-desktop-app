@@ -168,6 +168,8 @@ export interface OrderAdminRepository {
     approval: EditorApproval;
   }): Promise<void>;
   completeOrder(orderId: string): Promise<void>;
+  /** complete_invoice: completes every open round of the invoice (dine-in or takeaway). */
+  completeInvoice(invoiceNumber: string): Promise<number>;
   /** set_order_discount: percent / amount / complimentary / none on one or more orders. */
   getOrderDiscounts(orderIds: string[]): Promise<import('../../shared/types').OrderDiscountInfo[]>;
   getDiscountSettings(): Promise<import('../../shared/types').DiscountSettings>;

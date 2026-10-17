@@ -1,0 +1,19 @@
+.wrap { display: flex; flex-direction: column; gap: 16px; }
+.card { background: #fff; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
+.head { display: flex; align-items: center; gap: 12px; }
+.head h2 { margin: 0; font-size: 16px; font-weight: 700; flex: 1; color: #2c3e50; }
+.cols, .row { display: grid; gap: 12px; align-items: center; padding: 0 8px; }
+.grid { grid-template-columns: 1fr 100px 90px; max-width: 520px; }
+.cols { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #7f8c8d; }
+.row { padding: 10px 8px; background: #ecf0f1; }
+.input { height: 36px; border: 1px solid #bdc3c7; border-radius: 2px; padding: 0 10px; font-size: 14px; background: #fff; color: #2c3e50; min-width: 0; width: 100%; box-sizing: border-box; }
+.btn { height: 36px; padding: 0 14px; border: none; border-radius: 2px; font-size: 13px; font-weight: 700; cursor: pointer; background: #bdc3c7; color: #2c3e50; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.primary { background: #27ae60; color: #fff; height: 40px; font-size: 14px; }
+.danger { background: transparent; color: #c0392b; }
+.hint { font-size: 12px; color: #7f8c8d; }
+.flag { font-size: 13px; color: #34495e; display: flex; align-items: center; gap: 4px; }
+.msg { padding: 10px 14px; font-size: 13px; }
+.ok { background: #d5f5e3; color: #1e8449; }
+.err { background: #fadbd8; color: #c0392b; }
+.footer { display: flex; gap: 12px; align-items: center; }

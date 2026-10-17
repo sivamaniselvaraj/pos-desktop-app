@@ -330,7 +330,7 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
     if (t.cardStatus === 'settled') {
       return t.paymentRecorded
         ? { key: 'settled', label: 'Paid' }
-        : { key: 'settled', label: 'Occupied' };
+        : { key: 'settled', label: 'Occupied & Unpaid' };
     }
     // if (t.manualStatus !== 'available') {
     //   return { key: 'manual_' + t.manualStatus, label: t.manualStatus };
@@ -431,7 +431,7 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
                     )}
                   </div>
                   <div className={styles.cardActions}>
-                    {table.cardStatus === 'available' ? (
+                    {(table.cardStatus === 'available' || table.cardStatus === 'active') &&(
                       onAddItems && (
                         <button
                           className={styles.iconBtn}
@@ -441,9 +441,8 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
                           <Icon name="plus" size={16} />
                         </button>
                       )
-                    ) : (
-                      <>
-                      {table.cardStatus}
+                    )}
+                    {table.cardStatus === 'settled' && (
                         <button
                           className={styles.iconBtn}
                           title={table.cardStatus === 'settled' ? 'Print Duplicate Bill' : 'Print Bill'}
@@ -452,6 +451,7 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
                         >
                           <Icon name="print" size={16} />
                         </button>
+                        )}
                         {table.cardStatus === 'active' && (
                         <button
                           className={styles.iconBtn}
@@ -472,8 +472,7 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
                             <Icon name="save" size={16} />
                           </button>
                         )}
-                      </>
-                    )}
+                  
                   </div>
                 </div>
               );
@@ -602,6 +601,7 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
           discountSummary={{
             discountAmount: viewingTable?.orderDiscountAmount ?? 0,
             totalAmount: viewingTable?.orderTotalAmount ?? 0,
+            discountPercent: 0,
           }}
           onEditItem={handleEditItem}
           onDeleteItem={handleDeleteItem}

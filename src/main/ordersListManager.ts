@@ -2,6 +2,7 @@ import { db } from './data';
 import { config } from './config';
 import { printOrderEscpos } from './printerManager';
 import { printQueue } from './printQueue';
+import { mergeTaxBreakdowns } from '../shared/orderTotals';
 import type {
   OrderListFilter,
   OrderListPage,
@@ -9,6 +10,11 @@ import type {
   OrderActivityLogEntry,
   EditOrderItemPayload,
   EditorApproval,
+  SetOrderDiscountPayload,
+  DiscountOptions,
+  DiscountSettings,
+  DiscountPreset,
+  OrderDiscountInfo,
   FoodOrder,
 } from '../shared/types';
 
@@ -42,17 +48,20 @@ export async function getInvoiceOrderDetail(
 ): Promise<{ 
   orders: { id: string; orderNumber: number; status: string }[]; 
   items: OrderDetailItem[];
+  discounts: OrderDiscountInfo[];
 }> {
   const orders = await db.orderAdmin.listInvoiceOrders(invoiceNumber);
-  if (orders.length === 0) return { orders, items: [] };
+  if (orders.length === 0) return { orders, items: [], discounts: [] };
 
   const orderById = new Map(orders.map((o) => [o.id, o]));
   const records = await db.orderAdmin.listItemsForOrders(orders.map((o) => o.id));
   const items: OrderDetailItem[] = records.map((r) => ({
     ...r,
     orderNumber: orderById.get(r.orderId)?.orderNumber ?? 0,
-      }));
-  return { orders, items };
+  }));
+  // Best effort: the details screen still opens if the discount lookup fails.
+  const discounts = await db.orderAdmin.getOrderDiscounts(orders.map((o) => o.id)).catch(() => []);
+  return { orders, items, discounts };
 }
 
 /** Invoice-grouped counterpart to getTableActivityLog — see getInvoiceOrderDetail above. */
@@ -113,6 +122,50 @@ export async function cancelOrderWithReason(
   await db.orderAdmin.cancelOrder({ outletId: requireOutletId(), orderId, reason, approval });
 }
 
+export function getDiscountSettings(): Promise<DiscountSettings> {
+  return db.orderAdmin.getDiscountSettings();
+}
+
+export async function saveDiscountPresets(presets: DiscountPreset[]): Promise<void> {
+  if (!Array.isArray(presets) || presets.length < 1 || presets.length > 10) {
+    throw new Error('Keep between 1 and 10 discount percentages.');
+  }
+  const seen = new Set<number>();
+  for (const p of presets) {
+    const v = Number(p.percent);
+    if (!Number.isFinite(v) || v <= 0 || v >= 100) throw new Error('A discount must be above 0 and below 100.');
+    if (Math.round(v * 100) !== v * 100 && Math.abs(Math.round(v * 100) - v * 100) > 1e-9) {
+      throw new Error('A discount can have at most two decimals.');
+    }
+    if (seen.has(v)) throw new Error(`${v}% is listed twice.`);
+    seen.add(v);
+  }
+  if (!presets.some((p) => p.isActive)) throw new Error('At least one discount must stay active.');
+  await db.orderAdmin.saveDiscountPresets(presets.map((p) => ({ percent: Number(p.percent), isActive: p.isActive === true })));
+}
+
+export function getDiscountOptions(): Promise<DiscountOptions> {
+  return db.orderAdmin.getDiscountOptions();
+}
+
+/** Discount or complimentary on one order or all rounds of a table. The database checks the permission and the rules. */
+export async function setOrderDiscount(p: SetOrderDiscountPayload): Promise<void> {
+  const ids = Array.isArray(p.orderIds) ? [...new Set(p.orderIds.filter((x) => typeof x === 'string' && x))] : [];
+  if (ids.length === 0 || ids.length > 50) throw new Error('Choose an order.');
+  if (!['percent', 'amount', 'complimentary', 'none'].includes(p.mode)) throw new Error('Choose a discount type.');
+  let value: number | null = null;
+  if (p.mode === 'percent' || p.mode === 'amount') {
+    value = Number(p.value);
+    if (!Number.isFinite(value) || value <= 0) throw new Error('Enter a discount greater than 0.');
+    if (p.mode === 'percent' && value >= 100) throw new Error('Choose one of the allowed discounts.');
+    if (p.mode === 'amount' && ids.length > 1) throw new Error('A fixed amount can only be given on one order. Use a percentage for several orders.');
+    value = Math.round(value * 100) / 100;
+  }
+  const reason = p.reason?.trim() ?? '';
+  if (p.mode !== 'none' && (reason.length < 1 || reason.length > 200)) throw new Error('Enter a reason (up to 200 characters).');
+  await db.orderAdmin.setOrderDiscount({ orderIds: ids, mode: p.mode, value, reason: p.mode === 'none' ? null : reason });
+}
+
 /** "Cancel all" for a dine-in invoice: every not-yet-cancelled round, one editor approval. */
 export async function cancelInvoiceWithReason(
   invoiceNumber: string,
@@ -120,6 +173,11 @@ export async function cancelInvoiceWithReason(
   approval: EditorApproval,
 ): Promise<void> {
   await db.orderAdmin.cancelInvoice({ outletId: requireOutletId(), invoiceNumber, reason, approval });
+}
+
+export function completeInvoice(invoiceNumber: string): Promise<number> {
+  if (!invoiceNumber?.trim()) throw new Error('An invoice number is required.');
+  return db.orderAdmin.completeInvoice(invoiceNumber.trim());
 }
 
 export function completeOrder(orderId: string): Promise<void> {
@@ -199,8 +257,10 @@ export async function reprintOrder(orderId: string): Promise<void> {
         items,
         subtotal: summed.subtotal,
         tax: summed.tax,
+        taxBreakdown: mergeTaxBreakdowns(groupOrders.map((o) => o.taxBreakdown)),
         total: summed.total,
         discount: summed.discount || undefined,
+        isComplimentary: groupOrders.every((o) => o.isComplimentary === true),
         containerCharge: summed.containerCharge || undefined,
         orderNumbers: group.orderNumbers,
       };

@@ -150,7 +150,8 @@ create table if not exists settings (
 -- on the confirm that first includes it. Increments arrive as new rows.
 alter table order_items
   add column if not exists kot_printed boolean not null default false,
-  add column if not exists kot_printed_at timestamptz;
+  add column if not exists kot_printed_at timestamptz,
+  add column if not exists kot_claimed_at timestamptz;
 
 -- Fast lookup of the unprinted delta for an order.
 create index if not exists idx_order_items_unprinted
@@ -1323,9 +1324,8 @@ as $$
     where p.user_id = auth.uid()
       and coalesce(p.is_active, true)
       and (
-        --p.role = 'admin'
-        --or 
-        exists (select 1
+        p.role = 'admin'
+        or exists (select 1
                      from user_group_members m
                      join user_groups g       on g.id = m.group_id
                      join group_permissions gp on gp.group_id = g.id
@@ -1390,3 +1390,545 @@ begin
     on conflict do nothing;
   end if;
 end $$;
+
+
+-- ============================================================================
+-- TAX RATES: per category, effective-dated, fixed on each order line
+-- ============================================================================
+-- See docs/TAX_PLAN.md. Prices are tax-exclusive.
+--
+-- tax_rates is APPEND-ONLY. To change a rate you add a row with a later
+-- effective_from; the newest row that has taken effect wins. A row with a
+-- category_id applies to that category; category_id null is the outlet's
+-- DEFAULT rate, used by every category without a rate of its own. A category
+-- row with a null rate means "use the default from this date" (it undoes an
+-- override). An explicit 0 means exempt. Rows are written only through
+-- add_tax_rate() / delete_tax_rate() (tax.manage, own outlet); a row can be
+-- deleted only while it is still scheduled for the future.
+--
+-- Every order line keeps the rate it was created with (order_items
+-- .tax_rate_percent / .tax_name), so a later rate change never touches an
+-- existing order. orders.tax_breakdown stores the per-rate split for the bill.
+create table if not exists tax_rates (
+  id             uuid primary key default gen_random_uuid(),
+  outlet_id      uuid not null references outlets(id) on delete cascade,
+  category_id    uuid,
+  name           text not null default 'GST' check (char_length(btrim(name)) between 1 and 30),
+  rate_percent   numeric(5,2) check (rate_percent is null or (rate_percent >= 0 and rate_percent <= 100)),
+  effective_from timestamptz not null,
+  created_by     uuid,
+  created_at     timestamptz not null default now(),
+  check (category_id is not null or rate_percent is not null)
+);
+create unique index if not exists tax_rates_scope_time_uq
+  on tax_rates (outlet_id, coalesce(category_id, '00000000-0000-0000-0000-000000000000'::uuid), effective_from);
+create index if not exists tax_rates_lookup_idx on tax_rates (outlet_id, category_id, effective_from desc);
+
+do $$
+begin
+  if to_regclass('public.categories') is not null
+     and not exists (select 1 from pg_constraint where conname = 'tax_rates_category_fk') then
+    alter table tax_rates
+      add constraint tax_rates_category_fk foreign key (category_id) references categories(id) on delete cascade;
+  end if;
+end $$;
+
+alter table tax_rates enable row level security;
+
+-- Reading the table is for the Tax screen (tax.manage). Everyone who places
+-- orders gets the current rates through effective_tax_rates() instead.
+drop policy if exists "tax managers read own outlet rates" on tax_rates;
+create policy "tax managers read own outlet rates" on tax_rates
+  for select to authenticated
+  using (has_permission('tax.manage')
+         and exists (select 1 from profiles p
+                      where p.user_id = auth.uid() and p.outlet_id = tax_rates.outlet_id));
+
+-- What each order line was taxed at, and the per-rate split of each order.
+alter table order_items add column if not exists tax_rate_percent numeric(5,2);
+alter table order_items add column if not exists tax_name text;
+alter table orders      add column if not exists tax_breakdown jsonb;
+
+-- tax_rate_for(outlet, category, at): the rate in force at `at`. A category
+-- with no usable rate of its own gets the outlet default. With no default at
+-- all the rate is 0 (the Tax screen warns). Always returns exactly one row.
+-- Internal helper: not callable by app users.
+create or replace function tax_rate_for(p_outlet uuid, p_category uuid, p_at timestamptz)
+returns table (tax_name text, rate numeric)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_name text;
+  v_rate numeric;
+begin
+  if p_category is not null then
+    select r.name, r.rate_percent into v_name, v_rate
+      from tax_rates r
+     where r.outlet_id = p_outlet and r.category_id = p_category and r.effective_from <= p_at
+     order by r.effective_from desc
+     limit 1;
+    if found and v_rate is not null then
+      tax_name := v_name; rate := v_rate;
+      return next;
+      return;
+    end if;
+  end if;
+
+  select r.name, r.rate_percent into v_name, v_rate
+    from tax_rates r
+   where r.outlet_id = p_outlet and r.category_id is null and r.effective_from <= p_at
+   order by r.effective_from desc
+   limit 1;
+  tax_name := coalesce(v_name, 'GST');
+  rate := coalesce(v_rate, 0);
+  return next;
+end;
+$$;
+revoke all on function tax_rate_for(uuid, uuid, timestamptz) from public, anon, authenticated;
+
+-- One-time moves, only the first time tax_rates is introduced:
+--  1. each outlet's current tax_settings rate becomes its default rate,
+--     effective since 2000 so it covers every existing order;
+--  2. existing order lines get the rate their order was really taxed at
+--     (tax / taxable value), so editing an old order keeps its total.
+do $$
+begin
+  if not exists (select 1 from tax_rates) then
+    if to_regclass('public.tax_settings') is not null then
+      insert into tax_rates (outlet_id, category_id, name, rate_percent, effective_from)
+      select distinct on (ts.outlet_id) ts.outlet_id, null, ts.name, ts.rate_percent, timestamptz '2000-01-01'
+        from tax_settings ts
+       where ts.is_active
+       order by ts.outlet_id, ts.updated_at desc;
+    end if;
+
+    update order_items oi
+       set tax_rate_percent = coalesce(round(
+             o.tax_amount / nullif(coalesce(o.subtotal_amount, 0) + coalesce(o.container_charge_amount, 0), 0) * 100, 2), 0),
+           tax_name = 'GST'
+      from orders o
+     where o.id = oi.order_id and oi.tax_rate_percent is null;
+  end if;
+exception when undefined_column or undefined_table then
+  raise notice 'tax backfill skipped: %', sqlerrm;
+end $$;
+
+-- Sidebar entry for the Tax screen (needs tax.manage).
+insert into app_menus (code, label, icon, sort_order, required_permission) values
+  ('tax-rates', 'Tax', 'reports', 85, 'tax.manage')
+on conflict (code) do nothing;
+
+
+-- ============================================================================
+-- KOT BOARD: kitchen tickets with a configurable workflow
+-- ============================================================================
+-- A KOT is created when a kitchen ticket prints (record_kot()). It then moves
+-- through the steps the outlet defined in kot_statuses (default: New ->
+-- Preparing -> Ready -> Served). Which move is allowed is data, in
+-- kot_transitions (forward is the next step, "back" is any listed earlier
+-- step). The last step is final: a KOT in it leaves the board. Card colours
+-- by waiting time come from kot_time_levels. Nothing here is hard-coded in the
+-- app. Tables are written only through the functions in db/functions.sql.
+insert into permissions (code, description) values
+  ('kot.view',   'See the KOT board'),
+  ('kot.move',   'Move KOTs between steps'),
+  ('kot.manage', 'Change KOT steps and waiting-time colours')
+on conflict (code) do nothing;
+
+insert into role_permissions (role, permission_code)
+select r.role, p.code
+from (values
+  ('staff',   array['kot.view','kot.move']),
+  ('manager', array['kot.view','kot.move','kot.manage']),
+  ('owner',   array['kot.view','kot.move','kot.manage']),
+  ('admin',   array['kot.view','kot.move','kot.manage'])
+) as r(role, perms)
+cross join lateral unnest(r.perms) as p(code)
+on conflict do nothing;
+
+-- Groups that already exist get the new permissions, matched to what they
+-- could already do (admins need no group). Runs once: only while no group
+-- holds kot.view yet.
+do $$
+begin
+  if to_regclass('public.group_permissions') is not null
+     and not exists (select 1 from group_permissions where permission_code = 'kot.view') then
+    insert into group_permissions (group_id, permission_code)
+    select distinct gp.group_id, x.code
+      from group_permissions gp
+      cross join (values ('kot.view'), ('kot.move')) x(code)
+     where gp.permission_code in ('orders.place', 'orders.view', 'dashboard.view')
+    on conflict do nothing;
+    insert into group_permissions (group_id, permission_code)
+    select distinct gp.group_id, 'kot.manage'
+      from group_permissions gp
+     where gp.permission_code = 'tax.manage'
+    on conflict do nothing;
+  end if;
+end $$;
+
+create table if not exists kot_statuses (
+  id            uuid primary key default gen_random_uuid(),
+  outlet_id     uuid not null references outlets(id) on delete cascade,
+  code          text not null,
+  name          text not null check (char_length(btrim(name)) between 1 and 30),
+  color         text not null default '#7f8c8d' check (color ~ '^#[0-9a-fA-F]{6}$'),
+  action_label  text,            -- label of the button that moves a KOT INTO this step
+  sort_order    integer not null,
+  is_initial    boolean not null default false,
+  is_final      boolean not null default false,
+  show_on_board boolean not null default true,
+  created_at    timestamptz not null default now(),
+  unique (outlet_id, code)
+);
+create unique index if not exists kot_statuses_one_initial on kot_statuses (outlet_id) where is_initial;
+create unique index if not exists kot_statuses_one_final   on kot_statuses (outlet_id) where is_final;
+
+create table if not exists kot_transitions (
+  from_status uuid not null references kot_statuses(id) on delete cascade,
+  to_status   uuid not null references kot_statuses(id) on delete cascade,
+  primary key (from_status, to_status),
+  check (from_status <> to_status)
+);
+
+create table if not exists kot_time_levels (
+  id           uuid primary key default gen_random_uuid(),
+  outlet_id    uuid not null references outlets(id) on delete cascade,
+  name         text not null check (char_length(btrim(name)) between 1 and 30),
+  from_minutes integer not null check (from_minutes >= 0),
+  color        text not null check (color ~ '^#[0-9a-fA-F]{6}$'),
+  unique (outlet_id, from_minutes)
+);
+
+-- Phone notifications (see the PHONE NOTIFICATIONS section below).
+do $$
+begin
+  if not exists (select 1 from information_schema.columns
+                  where table_schema = 'public' and table_name = 'kot_statuses' and column_name = 'notify_waiter') then
+    alter table kot_statuses add column notify_waiter boolean not null default false;
+    update kot_statuses set notify_waiter = true where code <> 'new';
+  end if;
+  if not exists (select 1 from information_schema.columns
+                  where table_schema = 'public' and table_name = 'kot_time_levels' and column_name = 'notify') then
+    alter table kot_time_levels add column notify boolean not null default false;
+    -- the delay alert starts at 10 minutes
+    update kot_time_levels set notify = true where from_minutes = 10;
+  end if;
+end $$;
+
+-- There are no KOT records. The kitchen state lives on order_items itself:
+-- order_items.status is the item's current step (the code of a row in
+-- kot_statuses). Every new item starts as 'new' (column default), which is why
+-- the first step of every outlet's workflow is the step with code 'new'. The
+-- allowed values are the column's check constraint: new, cancelled, confirmed,
+-- preparing, ready, served. A workflow step uses one of them as its code. A
+-- board card is the items of one open order that sit in the same step; moving
+-- a card updates those items by order_id and writes one app_activity_log row
+-- (activity 'order.item.status.updated') in move_kot().
+-- (kots / kot_items / kot_counters existed only in an unreleased draft.)
+drop table if exists kot_items;
+drop table if exists kots;
+drop table if exists kot_counters;
+drop index if exists idx_order_items_kot_board;
+alter table order_items
+  drop column if exists kot_no,
+  drop column if exists kot_date,
+  drop column if exists kot_status_id,
+  drop column if exists kot_status_changed_at;
+do $$
+begin
+  if not exists (select 1 from information_schema.columns
+                  where table_schema = 'public' and table_name = 'order_items' and column_name = 'status') then
+    alter table order_items add column status text
+      constraint order_items_status_check
+      check (status in ('new', 'cancelled', 'confirmed', 'preparing', 'ready', 'served'));
+    -- Items that existed before the board are treated as done (the last step).
+    update order_items set status = 'served';
+  end if;
+  alter table order_items alter column status set default 'new';
+end $$;
+create index if not exists idx_order_items_kot_status
+  on order_items (order_id, status) where status is not null;
+
+-- No policies on purpose: the app reaches these only through the security
+-- definer functions, which check permission and outlet.
+alter table kot_statuses    enable row level security;
+alter table kot_transitions enable row level security;
+alter table kot_time_levels enable row level security;
+
+-- The default workflow for an outlet. Does nothing when the outlet has steps.
+create or replace function seed_kot_workflow(p_outlet uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  s_new uuid; s_prep uuid; s_ready uuid; s_served uuid;
+begin
+  if exists (select 1 from kot_statuses where outlet_id = p_outlet) then
+    return;
+  end if;
+  insert into kot_statuses (outlet_id, code, name, color, action_label, sort_order, is_initial, is_final, show_on_board)
+  values (p_outlet, 'new', 'New', '#7f8c8d', null, 10, true, false, true)
+  returning id into s_new;
+  insert into kot_statuses (outlet_id, code, name, color, action_label, sort_order, notify_waiter)
+  values (p_outlet, 'preparing', 'Preparing', '#2980b9', 'Start preparing', 20, true)
+  returning id into s_prep;
+  insert into kot_statuses (outlet_id, code, name, color, action_label, sort_order, notify_waiter)
+  values (p_outlet, 'ready', 'Ready', '#1e8449', 'Mark ready', 30, true)
+  returning id into s_ready;
+  insert into kot_statuses (outlet_id, code, name, color, action_label, sort_order, is_final, show_on_board, notify_waiter)
+  values (p_outlet, 'served', 'Served', '#34495e', 'Served', 40, true, false, true)
+  returning id into s_served;
+
+  insert into kot_transitions (from_status, to_status) values
+    (s_new, s_prep), (s_prep, s_ready), (s_ready, s_served),
+    (s_prep, s_new), (s_ready, s_prep);
+
+  insert into kot_time_levels (outlet_id, name, from_minutes, color, notify) values
+    (p_outlet, 'On time', 0, '#1e8449', false),
+    (p_outlet, 'Getting late', 10, '#f1c40f', true),
+    (p_outlet, 'Late', 20, '#c0392b', false)
+  on conflict do nothing;
+end;
+$$;
+revoke all on function seed_kot_workflow(uuid) from public, anon, authenticated;
+
+create or replace function seed_kot_workflow_for_new_outlet()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform seed_kot_workflow(new.id);
+  return new;
+end;
+$$;
+drop trigger if exists seed_kot_workflow_on_outlet on outlets;
+create trigger seed_kot_workflow_on_outlet
+  after insert on outlets
+  for each row execute function seed_kot_workflow_for_new_outlet();
+
+do $$
+declare o record;
+begin
+  for o in select id from outlets loop
+    perform seed_kot_workflow(o.id);
+  end loop;
+end $$;
+
+insert into app_menus (code, label, icon, sort_order, required_permission) values
+  ('kot-board', 'KOT Board', 'menu', 45, 'kot.view')
+on conflict (code) do nothing;
+
+-- Unprinted KOTs: tickets that never reached the kitchen printer, with a manual print.
+insert into app_menus (code, label, icon, sort_order, required_permission) values
+  ('unprinted-kots', 'Unprinted KOTs', 'print', 46, 'orders.view')
+on conflict (code) do nothing;
+
+
+-- ============================================================================
+-- REMOTE ORDERING (phones order through the desktop app; see place_order_as())
+-- ============================================================================
+-- Same check as has_permission(), for a named user instead of the signed-in
+-- one. Used to check the WAITER when the desktop places an order for a phone.
+create or replace function user_has_permission(p_user uuid, p_code text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from profiles p
+    where p.user_id = p_user
+      and coalesce(p.is_active, true)
+      and (
+        p.role = 'admin'
+        or exists (select 1
+                     from user_group_members m
+                     join user_groups g       on g.id = m.group_id
+                     join group_permissions gp on gp.group_id = g.id
+                    where m.user_id = p.user_id
+                      and g.org_id = p.org_id
+                      and gp.permission_code = p_code)
+      )
+  );
+$$;
+revoke all on function user_has_permission(uuid, text) from public, anon, authenticated;
+
+-- Which phone placed the order, and the phone's own request id (a retry of the
+-- same request returns the same order instead of creating a second one).
+alter table orders
+  add column if not exists placed_via_device text,
+  add column if not exists client_request_id text;
+create unique index if not exists orders_client_request_uidx
+  on orders (outlet_id, client_request_id) where client_request_id is not null;
+
+
+-- ============================================================================
+-- PHONE NOTIFICATIONS (LAN): who gets told what
+-- ============================================================================
+-- The desktop app tells the phone that placed an order when the order reaches a
+-- step flagged notify_waiter, when it has waited past a level flagged notify,
+-- or when it is cancelled. Nothing is sent for orders placed on the desktop.
+-- (notify_waiter / notify columns are added next to the kot tables above)
+
+-- Which phone (paired device id) placed the order, so notifications go to it.
+alter table orders add column if not exists placed_via_device_id text;
+
+-- Where the order was placed: 'pos' (the desktop app) or 'mobile' (a paired phone).
+-- Existing rows: anything a phone placed (device name or id present) is 'mobile'.
+alter table orders add column if not exists order_source text not null default 'pos';
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'orders_order_source_check') then
+    alter table orders add constraint orders_order_source_check check (order_source in ('pos', 'mobile'));
+  end if;
+end $$;
+update orders set order_source = 'mobile'
+ where order_source = 'pos' and (placed_via_device_id is not null or placed_via_device is not null);
+
+create index if not exists orders_device_idx on orders (outlet_id, placed_via_device_id, created_at)
+  where placed_via_device_id is not null;
+
+
+-- ============================================================================
+-- ITEM TAX: each menu item carries its own tax and whether its price includes it
+-- ============================================================================
+-- menu_items.tax_name / tax_rate_percent: the tax chosen for the item (required
+-- when adding or editing an item in the app). It REPLACES the category rate for
+-- that item. An item with no tax set (legacy row) still falls back to the
+-- category / outlet rate in tax_rate_for().
+-- menu_items.price_includes_tax: false = the price is before tax and tax is
+-- added on top (the previous behaviour, and the default); true = the price
+-- already contains the tax.
+-- order_items.price_includes_tax: what the line was priced as when it was
+-- created, so a later menu change never touches an existing order.
+alter table menu_items add column if not exists tax_name text;
+alter table menu_items add column if not exists tax_rate_percent numeric(5,2);
+alter table menu_items add column if not exists price_includes_tax boolean not null default false;
+alter table order_items add column if not exists price_includes_tax boolean not null default false;
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'menu_items_tax_rate_chk') then
+    alter table menu_items add constraint menu_items_tax_rate_chk
+      check (tax_rate_percent is null or (tax_rate_percent >= 0 and tax_rate_percent <= 100));
+  end if;
+  -- One-time: existing items keep what they are taxed at today (their
+  -- category's current rate), still priced before tax.
+  update menu_items mi
+     set tax_name = (select tr.tax_name from tax_rate_for(mi.outlet_id, mi.category_id, now()) tr),
+         tax_rate_percent = (select tr.rate from tax_rate_for(mi.outlet_id, mi.category_id, now()) tr)
+   where mi.tax_rate_percent is null and mi.outlet_id is not null;
+exception when others then
+  raise notice 'item tax backfill skipped: %', sqlerrm;
+end $$;
+
+
+-- ============================================================================
+-- ORDER DISCOUNT / COMPLIMENTARY
+-- ============================================================================
+-- A discount (percent of the order's value before tax, or a fixed amount) or a
+-- complimentary flag on an order, set with set_order_discount() by a user with
+-- orders.discount. The reason is required and every change is logged in
+-- app_activity_log. Tax is worked out on the DISCOUNTED value
+-- (recompute_order_totals); a complimentary order has total 0 and no tax but keeps
+-- its items and real value (discount_amount = the value given away).
+--   discount_type  'percent' | 'amount' | null
+--   discount_value the percent (0-100] or the amount entered
+--   discount_amount the money taken off (always kept in step by recompute)
+alter table orders add column if not exists discount_amount numeric default 0;
+alter table orders add column if not exists discount_type text;
+alter table orders add column if not exists discount_value numeric;
+alter table orders add column if not exists discount_reason text;
+alter table orders add column if not exists discount_by uuid;
+alter table orders add column if not exists discount_at timestamptz;
+alter table orders add column if not exists is_complimentary boolean not null default false;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'orders_discount_type_chk') then
+    alter table orders add constraint orders_discount_type_chk
+      check (discount_type is null or discount_type in ('percent', 'amount'));
+  end if;
+end $$;
+
+insert into permissions (code, description) values
+  ('orders.discount', 'Give a discount on an order or mark it complimentary')
+on conflict (code) do nothing;
+
+insert into role_permissions (role, permission_code)
+select r.role, 'orders.discount'
+from (values ('manager'), ('owner'), ('admin')) as r(role)
+on conflict do nothing;
+
+-- Groups that could cancel orders get the new permission once (admins need no group).
+do $$
+begin
+  if to_regclass('public.group_permissions') is not null
+     and not exists (select 1 from group_permissions where permission_code = 'orders.discount') then
+    insert into group_permissions (group_id, permission_code)
+    select distinct gp.group_id, 'orders.discount'
+      from group_permissions gp
+     where gp.permission_code = 'orders.cancel'
+    on conflict do nothing;
+  end if;
+end $$;
+
+
+-- Discount limits: the percentages staff may give are a list kept in the database,
+-- per outlet (default 10, 20 and 25). The largest active one is the cap: a
+-- percentage must be one of the list, and a fixed amount may not be more than
+-- the cap's share of the order's value. Change them with plain SQL, for example:
+--   update discount_presets set is_active = false where outlet_id = '<outlet>' and percent = 25;
+--   insert into discount_presets (outlet_id, percent) values ('<outlet>', 15);
+-- Marking an order complimentary (100% off) needs its own permission,
+-- orders.complimentary, so it is not a way round the cap.
+create table if not exists discount_presets (
+  id         uuid primary key default gen_random_uuid(),
+  outlet_id  uuid not null references outlets(id) on delete cascade,
+  percent    numeric(5,2) not null check (percent > 0 and percent < 100),
+  is_active  boolean not null default true,
+  unique (outlet_id, percent)
+);
+alter table discount_presets enable row level security;  -- no policies: read through get_discount_options()
+
+insert into discount_presets (outlet_id, percent)
+select o.id, p.percent from outlets o cross join (values (10), (20), (25)) as p(percent)
+on conflict do nothing;
+
+create or replace function seed_discount_presets_for_new_outlet()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into discount_presets (outlet_id, percent)
+  select new.id, p.percent from (values (10), (20), (25)) as p(percent)
+  on conflict do nothing;
+  return new;
+end;
+$$;
+drop trigger if exists trg_seed_discount_presets on outlets;
+create trigger trg_seed_discount_presets after insert on outlets
+  for each row execute function seed_discount_presets_for_new_outlet();
+
+insert into permissions (code, description) values
+  ('orders.complimentary', 'Mark an order complimentary (customer pays nothing)')
+on conflict (code) do nothing;
+insert into role_permissions (role, permission_code)
+select r.role, 'orders.complimentary' from (values ('owner'), ('admin')) as r(role)
+on conflict do nothing;
+
+
+-- Who may change the allowed discount percentages (Settings > Discounts).
+insert into permissions (code, description) values
+  ('discount.manage', 'Change the allowed discount percentages')
+on conflict (code) do nothing;
+insert into role_permissions (role, permission_code)
+select r.role, 'discount.manage' from (values ('owner'), ('admin')) as r(role)
+on conflict do nothing;

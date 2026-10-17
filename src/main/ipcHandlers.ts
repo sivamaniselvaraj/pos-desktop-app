@@ -28,7 +28,7 @@ import {
 import { listMenuCategories, saveMenuItem } from './menuManager';
 import { getMyAccess } from './accessManager';
 import { getTaxRate, placeOrder } from './orderEntryManager';
-import { getKotBoard, getKotWorkflow, moveKot, saveKotWorkflow } from './kotManager';
+import { getKotBoard, getKotWorkflow, getUnprintedKots, moveKot, printKotNow, saveKotWorkflow } from './kotManager';
 import { addTaxRate, deleteTaxRate, listTaxRates } from './taxManager';
 import {
   listOrders,
@@ -37,19 +37,24 @@ import {
   editOrderItem,
   deleteOrderItem,
   cancelOrderWithReason,
+  setOrderDiscount,
+  getDiscountOptions,
+  getDiscountSettings,
+  saveDiscountPresets,
   cancelInvoiceWithReason,
   completeOrder,
   reprintOrder,
   reprintTableBill,
+  completeInvoice,
 } from './ordersListManager';
 import { getCachedMenuItems, refreshMenuCache, setCategoryActive, setMenuItemActive } from './menuCache';
 import {
   listTables,
+  savePayment,
   listManagedTables,
   saveManagedTable,
   deleteManagedTable,
   setManagedTableStatus,
-  savePayment,
 } from './tablesManager';
 import { config } from './config';
 
@@ -63,6 +68,8 @@ import type {
   OrderListFilter,
   EditOrderItemPayload,
   EditorApproval,
+  SetOrderDiscountPayload,
+  DiscountPreset,
   ReportBucket,
   SavePaymentPayload,
   SaveManagedTablePayload,
@@ -221,6 +228,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     (_e, orderItemId: string, reason: string, approval: EditorApproval) =>
       deleteOrderItem(orderItemId, reason, approval),
   );
+  ipcMain.handle(IpcChannels.GET_DISCOUNT_SETTINGS, () => getDiscountSettings());
+  ipcMain.handle(IpcChannels.SAVE_DISCOUNT_PRESETS, (_e, presets: DiscountPreset[]) => saveDiscountPresets(presets));
+  ipcMain.handle(IpcChannels.GET_DISCOUNT_OPTIONS, () => getDiscountOptions());
+  ipcMain.handle(IpcChannels.SET_ORDER_DISCOUNT, (_e, payload: SetOrderDiscountPayload) => setOrderDiscount(payload));
   ipcMain.handle(
     IpcChannels.CANCEL_ORDER_WITH_REASON,
     (_e, orderId: string, reason: string, approval: EditorApproval) =>
@@ -232,6 +243,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       cancelInvoiceWithReason(invoiceNumber, reason, approval),
   );
   ipcMain.handle(IpcChannels.COMPLETE_ORDER, (_e, orderId: string) => completeOrder(orderId));
+  ipcMain.handle(IpcChannels.COMPLETE_INVOICE, (_e, invoiceNumber: string) => completeInvoice(invoiceNumber));
   ipcMain.handle(IpcChannels.REPRINT_ORDER, (_e, orderId: string) => reprintOrder(orderId));
 
   // Menu cache: getCachedMenuItems() is synchronous (no DB call) — wrapped
@@ -255,6 +267,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   );
   ipcMain.handle(IpcChannels.GET_MY_ACCESS, () => getMyAccess());
   ipcMain.handle(IpcChannels.GET_KOT_BOARD, () => getKotBoard());
+  ipcMain.handle(IpcChannels.GET_UNPRINTED_KOTS, () => getUnprintedKots());
+  ipcMain.handle(IpcChannels.PRINT_KOT_NOW, (_e, orderId: string) => printKotNow(orderId));
   ipcMain.handle(IpcChannels.MOVE_KOT, (_e, orderId: string, to: string, from: string) => moveKot(orderId, to, from));
   ipcMain.handle(IpcChannels.GET_KOT_WORKFLOW, () => getKotWorkflow());
   ipcMain.handle(IpcChannels.SAVE_KOT_WORKFLOW, (_e, w: KotWorkflow) => saveKotWorkflow(w));
