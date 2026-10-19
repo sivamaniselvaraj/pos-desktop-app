@@ -3334,7 +3334,7 @@ set search_path = public
 as $$
   select jsonb_build_object(
            'user_id', p.user_id,
-           'name', coalesce(nullif(btrim(p.full_name), ''), p.email, 'User'),
+           'name', coalesce(nullif(btrim(p.first_name), ''), p.email, 'User'),
            'outlet_id', p.outlet_id,
            'is_active', coalesce(p.is_active, true))
     from profiles p

@@ -5,8 +5,8 @@ import { getPrinters, testPrint } from './printerManager';
 import { isServerRunning } from './api/httpServer';
 import { db } from './data';
 import { signIn, signOut, getCurrentUser } from './authManager';
-import { listDevices, revokeDevice } from './api/apiSecurity';
-import { cancelCode, createCode } from './pairingCodes';
+import { listDevices, revokeDevice, resetDevicePin } from './api/apiSecurity';
+import { cancelCode, createCode } from './api/pairingCodes';
 
 import { getAllPrinters, updatePrinter, removePrinter, getMaxPrinters } from './settingsManager';
 import { exportSalesReport } from './reportExport';
@@ -43,9 +43,9 @@ import {
   saveDiscountPresets,
   cancelInvoiceWithReason,
   completeOrder,
+  completeInvoice,
   reprintOrder,
   reprintTableBill,
-  completeInvoice,
 } from './ordersListManager';
 import { getCachedMenuItems, refreshMenuCache, setCategoryActive, setMenuItemActive } from './menuCache';
 import {
@@ -166,6 +166,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.REVOKE_API_DEVICE, async (_e, id: string) => {
     await requireDeviceAdmin();
     revokeDevice(id);
+  });
+  ipcMain.handle(IpcChannels.RESET_API_DEVICE_PIN, async (_e, id: string) => {
+    await requireDeviceAdmin();
+    resetDevicePin(id);
   });
 
   // Sales report (manager/owner/admin — enforced server-side by the RPC)

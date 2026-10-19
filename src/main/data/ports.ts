@@ -308,6 +308,12 @@ export interface RemoteOrderRepository {
 export interface DevicePairingRepository {
   /** Who a phone's login is. Null when the login is not valid. Uses the phone's own token, not the desktop's session. */
   resolveOwner(accessToken: string): Promise<DeviceOwner | null>;
+  /**
+   * Signs a user in with email + password on the phone's behalf, so the phone never
+   * talks to the database. Returns who they are, or null when the email or password
+   * is wrong. Throws when the database cannot be reached. Keeps no session.
+   */
+  signInAsUser(email: string, password: string): Promise<DeviceOwner | null>;
   /** Are these users still active and in this outlet? Uses the desktop's signed-in session. */
   ownerStatus(userIds: string[]): Promise<{ userId: string; isActive: boolean; inOutlet: boolean }[]>;
 }

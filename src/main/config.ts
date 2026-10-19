@@ -53,6 +53,9 @@ export interface StoredApiDevice {
    *  one-time codes existed) are no longer accepted. */
   userId?: string;
   userName?: string;
+  /** Salted scrypt hash of the 4-digit app PIN the user set on the phone. Never the PIN itself. */
+  pinHash?: string;
+  pinSetAt?: string;
 }
 
 let fileCache: PersistedSettings | null = null;
@@ -116,6 +119,9 @@ export const config = {
       // paired devices (apiDevices) are the supported way: each phone has its
       // own revocable token. Never embedded in the build.
       apiKey: process.env.HTTP_API_KEY ?? '',
+      // Phones must set an app PIN and enter it (together with their device token)
+      // before any call except the PIN calls. Set HTTP_REQUIRE_PIN=0 to turn this off.
+      requirePin: (process.env.HTTP_REQUIRE_PIN ?? '1') !== '0',
       // Optional TLS: paths to a PEM certificate and key. Set both to serve https.
       tlsCertFile: process.env.HTTPS_CERT_FILE ?? '',
       tlsKeyFile: process.env.HTTPS_KEY_FILE ?? '',

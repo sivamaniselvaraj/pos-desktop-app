@@ -79,6 +79,7 @@ export interface FoodOrder {
    * orderNumber. Undefined/absent for a normal single-order print.
    */
   orderNumbers?: number[];
+  /** Staff member who placed the order (orders.waiter_id -> profiles.full_name), printed as "Placed By" on the KOT. Undefined if not set/resolvable. */
   placedBy?: string;
   /**
    * Format YYYY-MM-DD-NNNNN (assign_invoice_number() trigger, db/schema.sql).
@@ -107,6 +108,8 @@ export interface ApiDevice {
   lastUsedAt?: string;
   /** Login the phone is bound to. Missing = an old device that no longer works; revoke it and pair again. */
   userName?: string;
+  /** Whether the user has set an app PIN on this phone. */
+  pinSet: boolean;
   valid: boolean;
 }
 
@@ -920,6 +923,7 @@ export const IpcChannels = {
   CREATE_PAIRING_CODE: 'create-pairing-code',
   CANCEL_PAIRING_CODE: 'cancel-pairing-code',
   REVOKE_API_DEVICE: 'revoke-api-device',
+  RESET_API_DEVICE_PIN: 'reset-api-device-pin',
   // main -> renderer (send)
   ORDER_RECEIVED: 'order-received',
   ORDER_STATUS_CHANGED: 'order-status-changed',
@@ -1023,6 +1027,8 @@ export interface ElectronApi {
   createPairingCode(): Promise<PairingCode>;
   cancelPairingCode(): Promise<void>;
   revokeApiDevice(id: string): Promise<void>;
+  /** Clears the app PIN on a phone; the user sets a new one the next time they open the app. */
+  resetApiDevicePin(id: string): Promise<void>;
   invoke(channel: string, ...args: unknown[]): Promise<unknown>;
   onOrderReceived(cb: (order: OrderWithStatus) => void): () => void;
   onOrderStatusChanged(cb: (order: OrderWithStatus) => void): () => void;

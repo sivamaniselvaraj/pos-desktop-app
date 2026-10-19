@@ -1,3 +1,16 @@
 {
-  "waiterPrinter": "HP_Smart_Tank_580_590_series__8E5406_"
+  "waiterPrinter": "HP_Smart_Tank_580_590_series__8E5406_",
+  "apiDevices": [
+    {
+      "id": "6ac486b56bef",
+      "name": "sdk_gphone16k_arm64 · 3d8c",
+      "tokenHash": "cc3280efaf77554ee38efe874150fd728628e53da7191cb011a08f379ae525a7",
+      "createdAt": "2026-10-19T11:36:48.062Z",
+      "userId": "fcd44d4a-bfb4-40a1-8cf6-bc9c4c06fc7d",
+      "userName": "Admin User",
+      "lastUsedAt": "2026-10-19T19:26:17.096Z",
+      "pinHash": "scrypt$a754d9dc5a24c6d4b6001c7f8a866baa$f0ca099e53ffa215e9b7ad493bc01bd22b58f1ce5e3234ede8e76051831ae3d6",
+      "pinSetAt": "2026-10-19T16:27:50.958Z"
+    }
+  ]
 }

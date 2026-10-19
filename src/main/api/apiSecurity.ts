@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { config, type StoredApiDevice } from '../config';
 import { db } from '../data';
+import { forgetDevice, isUnlocked } from './devicePin';
 import type { ApiDevice, DeviceOwner } from '../../shared/types';
 
 /**
@@ -49,6 +50,7 @@ function toPublic(d: StoredApiDevice): ApiDevice {
     createdAt: d.createdAt,
     lastUsedAt: d.lastUsedAt,
     userName: d.userName,
+    pinSet: !!d.pinHash,
     valid: !!d.userId,
   };
 }
@@ -66,7 +68,6 @@ export function addPairedDevice(name: string, owner: DeviceOwner): { device: Api
   if (devices.some((d) => d.name.toLowerCase() === clean.toLowerCase())) {
     throw new Error(`A device named "${clean}" is already paired.`);
   }
-
   const id = randomUUID().replace(/-/g, '').slice(0, 12);
   const secret = randomBytes(32).toString('base64url');
   const stored: StoredApiDevice = {
@@ -113,6 +114,49 @@ export function revokeDevice(id: string): void {
   const devices = config.apiDevices;
   if (!devices.some((d) => d.id === id)) throw new Error('Device not found.');
   config.apiDevices = devices.filter((d) => d.id !== id);
+  forgetDevice(id);
+}
+
+/** The stored PIN hash of a device, if its user has set one. */
+export function devicePinHash(id: string): string | undefined {
+  return config.apiDevices.find((d) => d.id === id)?.pinHash;
+}
+
+/** Saves (or, with undefined, clears) a device's PIN hash. */
+export function setDevicePinHash(id: string, hash: string | undefined): void {
+  const devices = config.apiDevices;
+  if (!devices.some((d) => d.id === id)) throw new Error('Device not found.');
+  config.apiDevices = devices.map((d) =>
+    d.id === id ? { ...d, pinHash: hash, pinSetAt: hash ? new Date().toISOString() : undefined } : d,
+  );
+  forgetDevice(id); // any unlock from the old PIN ends
+}
+
+/** Admin: remove a phone's PIN. The user sets a new one when they next open the app. */
+export function resetDevicePin(id: string): void {
+  setDevicePinHash(id, undefined);
+}
+
+const PIN_FREE_PATHS = /^\/(pin\/(status|set|verify|change|lock)|signout)$/;
+
+/**
+ * Second check, after the device token: the phone must also have an unlock from a
+ * correct PIN (header X-Unlock-Token). Until the user has set a PIN, only the PIN calls
+ * work, so a new phone cannot do anything before a PIN exists.
+ */
+export function requireUnlock(req: Request, res: Response, next: NextFunction): void {
+  if (!config.http.requirePin) return next();
+  const id = String(res.locals.deviceId ?? '');
+  if (id === 'legacy-key' || PIN_FREE_PATHS.test(req.path)) return next();
+  if (!devicePinHash(id)) {
+    res.status(423).json({ error: 'Set an app PIN first.', code: 'PIN_NOT_SET' });
+    return;
+  }
+  if (!isUnlocked(id, req.header('x-unlock-token') ?? '')) {
+    res.status(423).json({ error: 'Enter your PIN.', code: 'PIN_REQUIRED' });
+    return;
+  }
+  next();
 }
 
 /** Counts a bad request (for example a wrong pairing code) against the client's lockout. */
@@ -284,6 +328,7 @@ export function auditLog(req: Request, res: Response, next: NextFunction): void 
 
 /** Headers that stop a browser or proxy from caching or sniffing API responses. */
 export function securityHeaders(_req: Request, res: Response, next: NextFunction): void {
+  console.log('securityHeaders ')
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Security-Policy', "default-src 'none'");

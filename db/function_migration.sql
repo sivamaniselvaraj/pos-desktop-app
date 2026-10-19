@@ -3039,3 +3039,56 @@ begin
 end;
 $$;
 grant execute on function save_discount_presets(jsonb) to authenticated;
+
+-- ============================================================================
+-- MOBILE DEVICE PAIRING (see docs/DEVICE_PAIRING.md)
+-- ============================================================================
+-- get_device_owner(): called by the desktop app WITH THE PHONE'S LOGIN when a
+-- phone pairs with a one-time code. Returns who that login is, so the desktop
+-- can bind the new device to them. No permission needed: it only tells a user
+-- about themselves.
+create or replace function get_device_owner()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+           'user_id', p.user_id,
+           'name', coalesce(nullif(btrim(p.first_name), ''), p.email, 'User'),
+           'outlet_id', p.outlet_id,
+           'is_active', coalesce(p.is_active, true))
+    from profiles p
+   where p.user_id = auth.uid();
+$$;
+grant execute on function get_device_owner() to authenticated;
+
+-- device_owner_status(user ids): called periodically by the desktop app (signed
+-- in as a user with users.manage) to learn whether the owners of paired phones
+-- are still active and still in the caller's outlet. Unknown ids are reported
+-- as inactive. Needs users.manage; only the caller's own outlet is considered.
+create or replace function device_owner_status(p_user_ids uuid[])
+returns table (user_id uuid, is_active boolean, in_outlet boolean)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not has_permission('users.manage') then
+    raise exception 'Only users who manage users can check paired devices';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  return query
+    select u.id,
+           coalesce(p.is_active, true) and p.user_id is not null,
+           p.outlet_id is not distinct from v_outlet and p.user_id is not null
+      from unnest(p_user_ids) as u(id)
+      left join profiles p on p.user_id = u.id;
+end;
+$$;
+grant execute on function device_owner_status(uuid[]) to authenticated;

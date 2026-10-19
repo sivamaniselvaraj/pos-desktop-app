@@ -1,5 +1,5 @@
 import { randomInt, timingSafeEqual } from 'crypto';
-import type { PairingCode } from '../shared/types';
+import type { PairingCode } from '../../shared/types';
 
 /**
  * pairingCodes.ts: the one-time 6-digit code for pairing a phone.
@@ -27,6 +27,10 @@ export function createCode(now = Date.now()): PairingCode {
 export function cancelCode(): void {
   active = null;
 }
+/** One line saying why there is no code. Never contains the code itself. For the log. */
+export function describeCodeState(): string {
+  return active ? 'a code is active' : `no active code (${active}), process ${process.pid}`;
+}
 
 export type CodeCheck = 'ok' | 'wrong' | 'gone';
 
@@ -42,6 +46,13 @@ export function checkCode(given: string, now = Date.now()): CodeCheck {
   active.wrong += 1;
   if (active.wrong >= MAX_WRONG) active = null;
   return 'wrong';
+}
+
+/** Counts a failed sign-in that came with a valid code, so password guessing also cancels the code. */
+export function noteFailedSignIn(): void {
+  if (!active) return;
+  active.wrong += 1;
+  if (active.wrong >= MAX_WRONG) active = null;
 }
 
 export function consumeCode(): void {

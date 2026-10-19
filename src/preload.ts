@@ -201,6 +201,7 @@ const api: ElectronApi = {
   createPairingCode: () => ipcRenderer.invoke(IpcChannels.CREATE_PAIRING_CODE) as Promise<PairingCode>,
   cancelPairingCode: () => ipcRenderer.invoke(IpcChannels.CANCEL_PAIRING_CODE) as Promise<void>,
   revokeApiDevice: (id) => ipcRenderer.invoke(IpcChannels.REVOKE_API_DEVICE, id) as Promise<void>,
+  resetApiDevicePin: (id) => ipcRenderer.invoke(IpcChannels.RESET_API_DEVICE_PIN, id) as Promise<void>,
   invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
   onOrderReceived: (cb) => on<OrderWithStatus>(IpcChannels.ORDER_RECEIVED, cb),
   onOrderStatusChanged: (cb) => on<OrderWithStatus>(IpcChannels.ORDER_STATUS_CHANGED, cb),
