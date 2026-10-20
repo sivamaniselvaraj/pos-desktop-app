@@ -202,7 +202,7 @@ export function OrdersList() {
     }
   }
 
-  async function completeOrder(orderId: string, title: string, summary = '') {
+  async function completeOrder(orderId: string, title: string, summary: string = '') {
     //setCompleteTarget({ scope: 'order', orderId, title, summary });
     if (!confirm(title)) return;
      try {

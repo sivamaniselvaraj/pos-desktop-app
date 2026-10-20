@@ -377,6 +377,7 @@ returns table (
   table_number text,
   invoice_number text,
   order_number text,
+  order_source text,
   order_count integer,
   cancelled_count integer,
   total_rows bigint
@@ -401,7 +402,7 @@ as $$
   ),
   cand as (
     select o.id as order_id, o.order_type, o.created_at, o.table_id, o.invoice_number, o.order_number,
-           o.outlet_id, o.discount_value, g.order_count, g.cancelled_count, g.status
+           o.outlet_id, o.discount_value, g.order_count, g.cancelled_count, g.status, o.order_source
     from caller c
     join orders o on o.outlet_id = c.outlet_id
     cross join lateral (
@@ -494,6 +495,7 @@ as $$
     tb.table_number,
     p.invoice_number,
     p.order_number,
+    p.order_source,
     p.order_count,
     p.cancelled_count,
     p.fetched::bigint as total_rows
