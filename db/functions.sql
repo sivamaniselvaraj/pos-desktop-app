@@ -2574,9 +2574,9 @@ declare
   v_outlet      uuid;
   v_waiter_name text;
   v_order_id    uuid;
-  v_dine_in     boolean := (p_order_type = 'dine-in');
+  v_dine_in     boolean := (p_order_type = 'dine_in');
 begin
-  if p_order_type not in ('dine-in', 'pickup') then
+  if p_order_type not in ('dine_in', 'pickup') then
     raise exception 'Unknown order type';
   end if;
   if p_actor is null then

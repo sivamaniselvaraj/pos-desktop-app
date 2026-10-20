@@ -129,15 +129,12 @@ export interface DeviceOwner {
 }
 
 // ---- Remote ordering (phone -> desktop) ----
-export interface RemoteOrderItem {
-  menuItemId: string;
-  quantity: number;
-}
+
 export interface RemoteOrderRequest {
-  orderType: 'dine-in' | 'takeaway';
+  orderType: 'dine_in' | 'takeaway';
   /** Required for dine-in: the table's id from GET /api/tables. */
   tableId?: string;
-  items: RemoteOrderItem[];
+  items: OrderItem[];
   customerName?: string;
   customerPhone?: string;
   notes?: string;
@@ -145,10 +142,11 @@ export interface RemoteOrderRequest {
   clientRequestId: string;
 }
 export interface RemoteOrderResult {
-  orderId: string;
-  orderNumber: number;
+  orderId?: string;
+  orderNumber?: number;
+  invoiceNumber?: string;
   /** True when this request id had already been used: nothing new was created. */
-  duplicate: boolean;
+  duplicate?: boolean;
 }
 
 // ---- HTTP contract (Android app -> local server) ----
@@ -548,6 +546,7 @@ export interface PlaceOrderLine {
 }
 
 export interface PlaceOrderPayload {
+  placedBy: string;
   orderType: OrderType;
   /** Required for dine-in. */
   tableId?: string;
@@ -561,6 +560,7 @@ export interface PlaceOrderResult {
   orderId: string;
   orderNumber?: number;
   invoiceNumber?: string;
+  duplicate:boolean;
   total: number;
 }
 

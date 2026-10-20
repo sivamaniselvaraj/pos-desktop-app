@@ -67,13 +67,14 @@ export async function placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrder
   // Estimate only: the database recalculates tax and total when it saves the order.
   const totals = computeTotals(lines, !isDineIn);
 
-  let orderId: string;
+  let result: { orderId?: string; orderNumber?: number; invoiceNumber?: string, duplicate?: boolean };
   if (isDineIn) {
     const tableStatus = await db.tables.getStatusById(payload.tableId as string);
     if (tableStatus === 'reserved' || tableStatus === 'cleaning') {
       throw new Error(`This table is ${tableStatus}. Change its status on the Tables page first.`);
     }
-    orderId = await db.orderEntry.placeDineInOrder({
+    result = await db.orderEntry.placeDineInOrder({
+      userId: payload.placedBy,
       outletId: config.outletId,
       tableId: payload.tableId as string,
       items: newLines,
@@ -82,7 +83,8 @@ export async function placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrder
       total: totals.total,
     });
   } else {
-    orderId = await db.orderEntry.placePickupOrder({
+    result = await db.orderEntry.placePickupOrder({
+      userId: payload.placedBy,
       outletId: config.outletId,
       items: newLines,
       subtotal: totals.subtotal,
@@ -97,6 +99,9 @@ export async function placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrder
 
   // Best effort: the order is already placed, so a failed lookup only means
   // the confirmation shows fewer details.
-  const { orderNumber, invoiceNumber } = await db.orderEntry.getOrderSummary(orderId);
-  return { orderId, orderNumber, invoiceNumber, total: totals.total };
+  //const { orderNumber, invoiceNumber } = await db.orderEntry.getOrderSummary(orderId);
+  console.log("result ", result)
+  if (!result.orderId) throw new Error('The order was not created.');
+    return { orderId: String(result.orderId), orderNumber: Number(result.orderNumber ?? 0), invoiceNumber: String(result.invoiceNumber), total: totals.total, duplicate: result.duplicate === true };
+  //return { orderId, orderNumber, invoiceNumber, total: totals.total };
 }

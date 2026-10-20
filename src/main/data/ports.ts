@@ -192,14 +192,16 @@ export interface OrderEntryRepository {
   /** Rates in force now for the signed-in user's outlet. */
   getTaxRates(): Promise<TaxRates>;
   placeDineInOrder(args: {
+    userId: string,
     outletId: string;
     tableId: string;
     items: NewOrderLine[];
     subtotal: number;
     tax: number;
     total: number;
-  }): Promise<string>;
+  }): Promise<{ orderId: string; orderNumber: number; invoiceNumber: string, duplicate: boolean }>;
   placePickupOrder(args: {
+    userId: string,
     outletId: string;
     items: NewOrderLine[];
     subtotal: number;
@@ -209,7 +211,7 @@ export interface OrderEntryRepository {
     customerName: string | null;
     customerPhone: string | null;
     notes: string | null;
-  }): Promise<string>;
+  }): Promise<{ orderId: string; orderNumber: number; invoiceNumber: string, duplicate: boolean }>;
   /** Best effort details for the confirmation. */
   getOrderSummary(orderId: string): Promise<{ orderNumber?: number; invoiceNumber?: string }>;
 }
@@ -288,9 +290,10 @@ export interface RemoteOrderRepository {
   /** Places an order for the phone's user (place_order_as). Prices come from the menu in the database. */
   placeOrderAs(p: {
     waiterId: string;
-    orderType: 'dine-in' | 'pickup';
+    orderType: 'dine_in' | 'pickup';
     tableId: string | null;
-    items: { menuItemId: string; quantity: number }[];
+    outletId: string;
+    items: OrderItem[];
     customerName?: string;
     customerPhone?: string;
     notes?: string;
@@ -298,7 +301,7 @@ export interface RemoteOrderRepository {
     /** The paired device's id; the order's notifications go to that device. */
     deviceId: string;
     clientRequestId: string;
-  }): Promise<{ orderId: string; orderNumber: number; duplicate: boolean }>;
+  }): Promise<{ orderId: string; orderNumber: number; invoiceNumber: string, duplicate: boolean }>;
   /** Open orders placed from phones, with their KOT state and the notification settings (get_phone_orders). */
   listPhoneOrders(): Promise<import('../kotNotifierCore').PhoneSnapshot>;
   /** The outlet's overdue (waiting-time) levels and kitchen steps for phones (get_kot_settings). */

@@ -4,7 +4,7 @@ import { getMyAccess } from './accessManager';
 import { orderManager } from './orderManager';
 import { printQueue } from './printQueue';
 import { listManagedTables } from './tablesManager';
-import type { ApiTable, PhoneKotSettings, RemoteOrderRequest, RemoteOrderResult } from '../shared/types';
+import { DINE_IN_ORDER_TYPE, type ApiTable, type PhoneKotSettings, type RemoteOrderRequest, type RemoteOrderResult } from '../shared/types';
 import { BadRemoteOrder } from './remoteOrderValidation';
 
 export { BadRemoteOrder, validateRemoteOrder } from './remoteOrderValidation';
@@ -98,8 +98,9 @@ export async function placeRemoteOrder(
   if (!userId) throw new BadRemoteOrder('This device is not tied to a user. Pair it again.');
   const result = await db.remoteOrders.placeOrderAs({
     waiterId: userId,
-    orderType: req.orderType === 'dine-in' ? 'dine-in' : 'pickup',
-    tableId: req.orderType === 'dine-in' ? (req.tableId ?? null) : null,
+    orderType: req.orderType === DINE_IN_ORDER_TYPE ? DINE_IN_ORDER_TYPE : 'pickup',
+    tableId: req.orderType === DINE_IN_ORDER_TYPE ? (req.tableId ?? null) : null,
+    outletId: config.outletId,
     items: req.items,
     customerName: req.customerName,
     customerPhone: req.customerPhone,
@@ -112,7 +113,7 @@ export async function placeRemoteOrder(
 
   if (config.outletId) {
     printQueue
-      .enqueue(() => orderManager.handleIncoming(result.orderId, 'kot'))
+      .enqueue(() => orderManager.handleIncoming(String(result.orderId), 'kot'))
       .then((r) => {
         if (!r.success) console.warn(`[remote] KOT for order ${result.orderNumber} not printed: ${r.message}`);
       })

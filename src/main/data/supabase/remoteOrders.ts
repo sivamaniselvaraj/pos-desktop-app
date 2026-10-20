@@ -1,24 +1,37 @@
 import { getAuthedClient } from './sessionClient';
-import type { RemoteOrderRepository } from '../ports';
+import type { NewOrderLine, RemoteOrderRepository } from '../ports';
+import { OrderItem } from '../../../shared/types';
+
+function toJsonItems(items: OrderItem[]) {
+  return items.map((i) => ({
+    menu_item_id: i.menuItemId,
+    unit_price: i.unitPrice,
+    total_price: i.totalPrice,
+    quantity: i.quantity,
+  }));
+}
 
 export const remoteOrders: RemoteOrderRepository = {
   async placeOrderAs(p) {
-    const { data, error } = await getAuthedClient().rpc('place_order_as', {
-      p_waiter_id: p.waiterId,
+    const { data, error } = await getAuthedClient().rpc('place_order', {
+      p_actor: p.waiterId,
       p_order_type: p.orderType,
       p_table_id: p.tableId,
-      p_items: p.items.map((i) => ({ menu_item_id: i.menuItemId, quantity: i.quantity })),
+      p_outlet_id: p.outletId,
+      p_items: toJsonItems(p.items),//p.items.map((i) => ({ menu_item_id: i.menuItemId, quantity: i.quantity })),
       p_customer_name: p.customerName ?? null,
       p_customer_phone: p.customerPhone ?? null,
       p_notes: p.notes ?? null,
       p_device_name: p.deviceName,
-      p_client_request_id: p.clientRequestId,
+      p_request_id: p.clientRequestId,
       p_device_id: p.deviceId,
     });
+
     if (error) throw new Error(error.message);
-    const d = (data ?? {}) as { order_id?: string; order_number?: number; duplicate?: boolean };
+    // return String(data);
+    const d = (data ?? {}) as { order_id?: string; order_number?: number; invoice_number?: string, duplicate?: boolean };
     if (!d.order_id) throw new Error('The order was not created.');
-    return { orderId: String(d.order_id), orderNumber: Number(d.order_number ?? 0), duplicate: d.duplicate === true };
+    return { orderId: String(d.order_id), orderNumber: Number(d.order_number ?? 0), invoiceNumber: String(d.invoice_number), duplicate: d.duplicate === true };
   },
   async listPhoneOrders() {
     const { data, error } = await getAuthedClient().rpc('get_phone_orders');

@@ -27,6 +27,7 @@ export const orderEntry: OrderEntryRepository = {
   async placeDineInOrder(a) {
 
     const { data, error } = await getAuthedClient().rpc('place_order', {
+      p_actor: a.userId,
       p_order_type:'dine_in',
       p_table_id: a.tableId,
       p_outlet_id: a.outletId,
@@ -37,11 +38,14 @@ export const orderEntry: OrderEntryRepository = {
     });
 
     if (error) throw new Error(error.message);
-    return String(data);
+    const d = (data ?? {}) as { order_id?: string; order_number?: number; invoice_number?: string, duplicate?: boolean };
+    if (!d.order_id) throw new Error('The order was not created.');
+    return { orderId: String(d.order_id), orderNumber: Number(d.order_number ?? 0), invoiceNumber: String(d.invoice_number), duplicate: d.duplicate === true };
   },
 
   async placePickupOrder(a) {
     const { data, error } = await getAuthedClient().rpc('place_order', {
+      p_actor: a.userId,
       p_order_type:'takeaway',
       p_table_id: null,
       p_outlet_id: a.outletId,
@@ -51,7 +55,9 @@ export const orderEntry: OrderEntryRepository = {
       p_notes: a.notes,
     });
     if (error) throw new Error(error.message);
-    return String(data);
+    const d = (data ?? {}) as { order_id?: string; order_number?: number; invoice_number?: string, duplicate?: boolean };
+    if (!d.order_id) throw new Error('The order was not created.');
+    return { orderId: String(d.order_id), orderNumber: Number(d.order_number ?? 0), invoiceNumber: String(d.invoice_number), duplicate: d.duplicate === true };
   },
 
   async getOrderSummary(orderId) {

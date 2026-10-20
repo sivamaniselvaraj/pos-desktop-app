@@ -673,19 +673,25 @@ grant execute on function get_next_order_number(uuid) to authenticated;
 -- Internal helper: not callable by app users.
 
 create or replace function place_order(
+  p_actor          uuid,
   p_order_type     text,          -- 'dine_in' or 'takeaway'
   p_table_id       uuid,          -- dine_in only
   p_outlet_id      uuid,          -- null = the caller's own outlet
   p_items          jsonb,
   p_customer_name  text default null,
   p_customer_phone text default null,
-  p_notes          text default null
-) returns uuid
+  p_notes          text default null,
+  p_device_name    text default null,
+  p_request_id     text default null,
+  p_device_id      text default null
+) returns jsonb
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
+  v_invoice_number text;
+  v_no       integer;
   v_outlet      uuid;
   v_waiter_name text;
   v_order_id    uuid;
@@ -694,7 +700,7 @@ begin
   if p_order_type not in ('dine_in', 'takeaway') then
     raise exception 'Unknown order type';
   end if;
-  if auth.uid() is null then
+  if p_actor is null then
     raise exception 'Not authenticated';
   end if;
   if not has_permission('orders.place') then
@@ -721,12 +727,17 @@ begin
   insert into orders (
     table_id, order_type, status, waiter_id, outlet_id, order_number,
     customer_name, customer_phone, notes,
-    subtotal_amount, tax_amount, total_amount, confirmed_at
+    subtotal_amount, tax_amount, total_amount, confirmed_at,
+    placed_via_device, client_request_id, placed_via_device_id, order_source
   ) values (
     case when v_dine_in then p_table_id end, p_order_type, 'preparing', auth.uid(),
     v_outlet, get_next_order_number(v_outlet),
     nullif(btrim(p_customer_name), ''), nullif(btrim(p_customer_phone), ''), nullif(btrim(p_notes), ''),
-    0, 0, 0, now()
+    0, 0, 0, now(),
+    nullif(btrim(p_device_name), ''), nullif(btrim(p_request_id), ''),
+    nullif(btrim(p_device_id), ''),
+    case when nullif(btrim(p_device_id), '') is not null or nullif(btrim(p_device_name), '') is not null
+         then 'mobile' else 'pos' end
   )
   returning id into v_order_id;
 
@@ -739,13 +750,20 @@ begin
 
   insert into app_activity_log (order_id, activity, changed_by, changed_at) values (v_order_id, 'orders.created', auth.uid(), now());
 
-  return v_order_id;
+    select o.order_number, o.invoice_number into v_no, v_invoice_number from orders o where o.id = v_order_id;
+  return jsonb_build_object('order_id', v_order_id, 'order_number', v_no, 'invoice_number', v_invoice_number, 'duplicate', false);
+exception when unique_violation then
+  -- Two identical requests raced: hand back the winner.
+  select o.id, o.order_number, o.invoice_number into v_order_id, v_no, v_invoice_number
+    from orders o
+   where o.outlet_id = v_outlet and o.client_request_id = btrim(p_request_id);
+  if v_order_id is null then raise; end if;
+  return jsonb_build_object('order_id', v_order_id, 'order_number', v_no, 'invoice_number', v_invoice_number, 'duplicate', true);
 end;
 $$;
-revoke all on function place_order(text, uuid, uuid, jsonb, text, text, text)
-  from public, anon, authenticated;
+revoke all on function place_order(uuid, text, uuid, uuid, jsonb, text, text, text, text, text, text) from public, anon, authenticated;
 
-grant execute on function place_order(text, uuid, uuid, jsonb, text, text, text) to authenticated;
+grant execute on function place_order(uuid, text, uuid, uuid, jsonb, text, text, text, text, text, text) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Shared by place_order()

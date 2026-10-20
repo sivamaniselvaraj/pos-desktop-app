@@ -16,6 +16,7 @@ import {
 
 import styles from '../styles/NewOrder.module.css';
 import { displayInvoiceNumber, formatMoney as money } from '../lib/format';
+import { useAuth } from '../context/AuthContext';
 
 //type OrderType = 'dine_in' | 'pickup' | 'takeaway';
 type VegFilter = 'all' | 'veg' | 'nonveg';
@@ -87,6 +88,7 @@ function Stepper({ qty, onMinus, onPlus }: { qty: number; onMinus: () => void; o
 }
 
 export function NewOrder({ initialTableId }: { initialTableId?: string | null } = {}) {
+  const { user } = useAuth();
   const [menu, setMenu] = useState<MenuEntry[]>([]);
   const [menuError, setMenuError] = useState<string | null>(null);
   const [tables, setTables] = useState<ManagedTable[]>([]);
@@ -253,6 +255,7 @@ export function NewOrder({ initialTableId }: { initialTableId?: string | null } 
     setPlacing(true);
     try {
       const res = await window.api.placeOrder({
+        placedBy: String(user?.id),
         orderType: orderType,
         tableId: orderType === DINE_IN_ORDER_TYPE ? (tableId ?? undefined) : undefined,
         items: cartLines.map((l) => ({ menuItemId: l.item.id, quantity: l.qty })),

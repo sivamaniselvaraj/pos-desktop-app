@@ -1,4 +1,6 @@
 import type { RemoteOrderRequest } from '../shared/types';
+import { DINE_IN_ORDER_TYPE } from '../shared/types';
+
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -7,10 +9,11 @@ export class BadRemoteOrder extends Error {}
 /** Checks the request shape. Prices and availability are checked by the database. */
 export function validateRemoteOrder(body: unknown): RemoteOrderRequest {
   const b = (body ?? {}) as Partial<RemoteOrderRequest>;
-  if (b.orderType !== 'dine-in' && b.orderType !== 'takeaway') {
-    throw new BadRemoteOrder('orderType must be "dine-in" or "takeaway".');
+  console.log(b.orderType)
+  if (b.orderType !== DINE_IN_ORDER_TYPE && b.orderType !== 'takeaway') {
+    throw new BadRemoteOrder('orderType must be "dine_in" or "takeaway".');
   }
-  if (b.orderType === 'dine-in' && !(typeof b.tableId === 'string' && UUID.test(b.tableId))) {
+  if (b.orderType === DINE_IN_ORDER_TYPE && !(typeof b.tableId === 'string' && UUID.test(b.tableId))) {
     throw new BadRemoteOrder('A dine-in order needs the tableId from GET /api/tables.');
   }
   if (typeof b.clientRequestId !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(b.clientRequestId)) {
