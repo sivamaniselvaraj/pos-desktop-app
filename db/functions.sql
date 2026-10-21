@@ -2520,7 +2520,8 @@ language sql
 security definer
 set search_path = public
 as $$
-  insert into order_items (order_id, menu_item_id, unit_price, total_price, quantity, tax_rate_percent, tax_name, price_includes_tax)
+  insert into order_items (order_id, menu_item_id, unit_price, total_price, quantity, tax_rate_percent, tax_name, price_includes_tax,
+                           incentive_type, incentive_value)
   select p_order_id,
          x.menu_item_id,
          x.unit_price,
@@ -2528,7 +2529,9 @@ as $$
          x.quantity,
          case when mi.tax_rate_percent is not null then mi.tax_rate_percent else tr.rate end,
          case when mi.tax_rate_percent is not null then mi.tax_name else tr.tax_name end,
-         case when mi.tax_rate_percent is not null then mi.price_includes_tax else false end
+         case when mi.tax_rate_percent is not null then mi.price_includes_tax else false end,
+         case when coalesce(mi.incentive_applicable, false) then mi.incentive_type end,
+         case when coalesce(mi.incentive_applicable, false) then mi.incentive_value end
     from (select nullif(it->>'menu_item_id', '')::uuid as menu_item_id,
                  (it->>'unit_price')::numeric as unit_price,
                  (it->>'quantity')::int as quantity
@@ -4005,3 +4008,104 @@ begin
 end;
 $$;
 grant execute on function mark_item_served(uuid, uuid, uuid) to authenticated;
+
+-- ============================================================================
+-- SALES BY WAITER (incentive report)
+-- ============================================================================
+-- get_sales_by_waiter(from, to): completed (settled) orders of the caller's
+-- outlet in the date range (outlet local time, like the other reports), one row
+-- per waiter (orders.waiter_id), best seller first. Needs reports.view.
+--   order_count    orders (a table with 2 rounds counts 2)
+--   invoice_count  distinct invoices (a table with 2 rounds counts 1)
+--   items_sold     units sold, deleted and cancelled items excluded
+--   subtotal       value of the items before tax and discount
+--   discount_total discounts given
+--   tax_total      tax
+--   sales_excl_tax total_amount - tax_amount: what the sale is worth before tax
+--   total_sales    total_amount: what the guests paid
+--   eligible_sales value before tax of the lines that earn an incentive
+--   incentive_total  the incentive earned, from the rule copied onto each line:
+--                  'percent' = value % of the line value before tax (discounts are
+--                  not deducted); 'fixed' = value per unit sold.
+-- Orders with no waiter are grouped as 'Unassigned' (waiter_id null).
+drop function if exists get_sales_by_waiter(date, date);
+create or replace function get_sales_by_waiter(p_from date, p_to date)
+returns table (
+  waiter_id uuid,
+  waiter_name text,
+  order_count bigint,
+  invoice_count bigint,
+  items_sold numeric,
+  subtotal numeric,
+  discount_total numeric,
+  tax_total numeric,
+  sales_excl_tax numeric,
+  total_sales numeric,
+  avg_order_value numeric,
+  eligible_sales numeric,
+  incentive_total numeric
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with me as (
+    select p.outlet_id from profiles p
+     where p.user_id = auth.uid() and coalesce(p.is_active, true) and p.outlet_id is not null
+  ),
+  mine as (
+    select o.*
+      from orders o join me on o.outlet_id = me.outlet_id
+     where has_permission('reports.incentive')
+       and o.status = 'completed'
+       and (o.created_at at time zone (select my_timezone()))::date between p_from and p_to
+  ),
+  per_order as (
+    select m.waiter_id,
+           m.id as order_id,
+           m.invoice_number,
+           m.waiter_name as order_waiter_name,
+           coalesce(m.subtotal_amount, 0) as subtotal,
+           coalesce(m.discount_amount, 0) as discount,
+           coalesce(m.tax_amount, 0) as tax,
+           coalesce(m.total_amount, 0) as total,
+           l.qty, l.eligible, l.incentive
+      from mine m
+      cross join lateral (
+        select coalesce(sum(oi.quantity), 0) as qty,
+               coalesce(sum(v.net) filter (where oi.incentive_type is not null), 0) as eligible,
+               coalesce(sum(case oi.incentive_type
+                              when 'percent' then v.net * oi.incentive_value / 100
+                              when 'fixed' then oi.quantity * oi.incentive_value
+                              else 0 end), 0) as incentive
+          from order_items oi
+          cross join lateral (
+            select case when coalesce(oi.price_includes_tax, false)
+                        then coalesce(oi.total_price, 0) * 100 / (100 + coalesce(oi.tax_rate_percent, 0))
+                        else coalesce(oi.total_price, 0) end as net
+          ) v
+         where oi.order_id = m.id and not coalesce(oi.is_deleted, false) and oi.status <> 'cancelled'
+      ) l
+  )
+  select po.waiter_id,
+         coalesce(nullif(trim(max(p.first_name)), ''), nullif(trim(max(p.full_name)), ''),
+                  nullif(trim(max(po.order_waiter_name)), ''),
+                  case when po.waiter_id is null then 'Unassigned' else 'Unknown' end) as waiter_name,
+         count(*)::bigint as order_count,
+         count(distinct coalesce(po.invoice_number, po.order_id::text))::bigint as invoice_count,
+         sum(po.qty) as items_sold,
+         sum(po.subtotal) as subtotal,
+         sum(po.discount) as discount_total,
+         sum(po.tax) as tax_total,
+         sum(po.total - po.tax) as sales_excl_tax,
+         sum(po.total) as total_sales,
+         round(sum(po.total) / count(*), 2) as avg_order_value,
+         round(sum(po.eligible), 2) as eligible_sales,
+         round(sum(po.incentive), 2) as incentive_total
+    from per_order po
+    left join profiles p on p.user_id = po.waiter_id
+   group by po.waiter_id
+   order by sum(po.total) desc, 2;
+$$;
+grant execute on function get_sales_by_waiter(date, date) to authenticated;

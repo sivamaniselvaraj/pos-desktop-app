@@ -267,6 +267,9 @@ export interface MenuItemValues {
   taxName: string;
   taxPercent: number;
   priceIncludesTax: boolean;
+  incentiveApplicable: boolean;
+  incentiveType: 'percent' | 'fixed' | null;
+  incentiveValue: number | null;
 }
 
 export interface MenuRepository {
@@ -371,6 +374,8 @@ export interface InvoiceRepository {
 
 export interface ReportRepository {
   salesReport(from: string, to: string, bucket: ReportBucket): Promise<SalesReportRow[]>;
+  /** Settled sales per waiter in the date range (get_sales_by_waiter). */
+  salesByWaiter(from: string, to: string): Promise<import('../../shared/types').SalesByWaiterRow[]>;
   topItems(from: string, to: string, limit: number): Promise<TopItemRow[]>;
   salesByOrderType(from: string, to: string): Promise<SalesByOrderTypeRow[]>;
   salesByTypeBucketed(from: string, to: string, bucket: ReportBucket): Promise<SalesByTypeBucketRow[]>;

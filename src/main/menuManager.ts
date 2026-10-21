@@ -44,6 +44,18 @@ export async function saveMenuItem(p: SaveMenuItemPayload): Promise<MenuCacheSna
     throw new Error('Choose a tax for this item.');
   }
   if (typeof p.priceIncludesTax !== 'boolean') throw new Error('Choose whether the price includes tax.');
+  if (typeof p.incentiveApplicable !== 'boolean') throw new Error('Choose whether an incentive applies.');
+  let incentiveType: 'percent' | 'fixed' | null = null;
+  let incentiveValue: number | null = null;
+  if (p.incentiveApplicable) {
+    if (p.incentiveType !== 'percent' && p.incentiveType !== 'fixed') throw new Error('Choose percentage or fixed amount for the incentive.');
+    const v = p.incentiveValue;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || (p.incentiveType === 'percent' && v > 100)) {
+      throw new Error(p.incentiveType === 'percent' ? 'The incentive percentage must be between 0 and 100.' : 'The incentive amount must be 0 or more.');
+    }
+    incentiveType = p.incentiveType;
+    incentiveValue = Math.round(v * 100) / 100;
+  }
   const imageUrl = p.imageUrl?.trim() || null;
   if (imageUrl && !/^https?:\/\//i.test(imageUrl)) throw new Error('Image URL must start with http:// or https://');
 
@@ -70,6 +82,9 @@ export async function saveMenuItem(p: SaveMenuItemPayload): Promise<MenuCacheSna
     taxName,
     taxPercent: Math.round(p.taxPercent * 100) / 100,
     priceIncludesTax: p.priceIncludesTax,
+    incentiveApplicable: p.incentiveApplicable,
+    incentiveType,
+    incentiveValue,
   };
 
   if (p.id) {

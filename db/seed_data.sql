@@ -20,7 +20,11 @@ insert into permissions (code, description) values
   ('about.view',      'See the About page'),
   ('kot.view',   'See the KOT board'),
   ('kot.move',   'Move KOTs between steps'),
-  ('kot.manage', 'Change KOT steps and waiting-time colours')
+  ('kot.manage', 'Change KOT steps and waiting-time colours'),
+  ('orders.discount', 'Give a discount on an order or mark it complimentary')
+  ('orders.complimentary', 'Mark an order complimentary (customer pays nothing)')
+  ('discount.manage', 'Change the allowed discount percentages')
+  ('reports.incentive', 'See the Incentive report')
 on conflict (code) do nothing;
 
 insert into app_menus (code, label, icon, sort_order, required_permission) values

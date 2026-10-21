@@ -172,6 +172,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     resetDevicePin(id);
   });
 
+  ipcMain.handle(IpcChannels.GET_SALES_BY_WAITER, (_e, from: string, to: string) => db.reports.salesByWaiter(from, to));
+
   // Sales report (manager/owner/admin — enforced server-side by the RPC)
   ipcMain.handle(
     IpcChannels.GET_SALES_REPORT,

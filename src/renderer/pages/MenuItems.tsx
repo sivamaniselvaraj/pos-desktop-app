@@ -24,7 +24,9 @@ const HIDDEN_KEYS = new Set([
   'container_charge',
   'image_url', 
   'cost_price', 
-  'is_active'
+  'is_active',
+  'incentive_type',
+  'incentive_value'
 ]);
 
 // A few keys, if present, are shown first in this order; everything else

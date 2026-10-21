@@ -9,7 +9,7 @@ export class BadRemoteOrder extends Error {}
 /** Checks the request shape. Prices and availability are checked by the database. */
 export function validateRemoteOrder(body: unknown): RemoteOrderRequest {
   const b = (body ?? {}) as Partial<RemoteOrderRequest>;
-  console.log(b.orderType)
+  //console.log(b.orderType)
   if (b.orderType !== DINE_IN_ORDER_TYPE && b.orderType !== 'takeaway') {
     throw new BadRemoteOrder('orderType must be "dine_in" or "takeaway".');
   }

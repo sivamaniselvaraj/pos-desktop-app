@@ -6,6 +6,7 @@ import type {
   TopItemRow,
   SalesByOrderTypeRow,
   SalesByTypeBucketRow,
+  SalesByWaiterRow,
 } from '../../../shared/types';
 
 /**
@@ -105,7 +106,28 @@ async function fetchSalesByTypeBucketed(
   }));
 }
 
+async function fetchSalesByWaiter(from: string, to: string): Promise<SalesByWaiterRow[]> {
+  const { data, error } = await getAuthedClient().rpc('get_sales_by_waiter', { p_from: from, p_to: to });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    waiterId: r.waiter_id == null ? null : String(r.waiter_id),
+    waiterName: String(r.waiter_name ?? ''),
+    orderCount: Number(r.order_count ?? 0),
+    invoiceCount: Number(r.invoice_count ?? 0),
+    itemsSold: Number(r.items_sold ?? 0),
+    subtotal: Number(r.subtotal ?? 0),
+    discountTotal: Number(r.discount_total ?? 0),
+    taxTotal: Number(r.tax_total ?? 0),
+    salesExclTax: Number(r.sales_excl_tax ?? 0),
+    totalSales: Number(r.total_sales ?? 0),
+    avgOrderValue: Number(r.avg_order_value ?? 0),
+    eligibleSales: Number(r.eligible_sales ?? 0),
+    incentiveTotal: Number(r.incentive_total ?? 0),
+  }));
+}
+
 export const reports: ReportRepository = {
+  salesByWaiter: fetchSalesByWaiter,
   salesReport: fetchSalesReport,
   topItems: fetchTopItems,
   salesByOrderType: fetchSalesByOrderType,

@@ -201,3 +201,13 @@
   border: none;
   width: auto;
 }
+
+.incentiveBox { border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 12px 14px; margin: 4px 0 14px; background: #fafafa; }
+.toggleRow { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; cursor: pointer; flex-wrap: wrap; }
+.toggleRow input[type='checkbox'] { appearance: none; -webkit-appearance: none; width: 38px; height: 22px; border-radius: 999px; background: #c9cdd3; position: relative; cursor: pointer; flex-shrink: 0; transition: background 0.15s; margin: 0; }
+.toggleRow input[type='checkbox']::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: left 0.15s; }
+.toggleRow input[type='checkbox']:checked { background: #4caf50; }
+.toggleRow input[type='checkbox']:checked::after { left: 18px; }
+.toggleRow .hint { font-weight: 400; }
+.incentiveFields { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.incentiveFields .seg { align-self: flex-start; }

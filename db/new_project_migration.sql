@@ -881,3 +881,28 @@ alter table orders add column if not exists discount_reason text;
 alter table orders add column if not exists discount_by uuid;
 alter table orders add column if not exists discount_at timestamptz;
 alter table orders add column if not exists is_complimentary boolean not null default false;
+
+
+-- ============================================================================
+-- ITEM INCENTIVES (waiter incentive)
+-- ============================================================================
+-- menu_items.incentive_applicable: waiters earn an incentive when this item is sold.
+-- incentive_type 'percent' = incentive_value % of the line value before tax;
+-- 'fixed' = incentive_value (money) for every unit sold.
+-- order_items.incentive_type / incentive_value: the rule copied onto the line when
+-- it is created (insert_order_items), so changing the menu later never changes
+-- the incentive of an order already placed. null = no incentive on that line.
+alter table menu_items add column if not exists incentive_applicable boolean not null default false;
+alter table menu_items add column if not exists incentive_type text;
+alter table menu_items add column if not exists incentive_value numeric(10,2);
+alter table menu_items drop constraint if exists menu_items_incentive_rule;
+alter table menu_items add constraint menu_items_incentive_rule check (
+  (not incentive_applicable)
+  or (incentive_type in ('percent', 'fixed') and incentive_value is not null and incentive_value >= 0
+      and (incentive_type <> 'percent' or incentive_value <= 100))
+);
+alter table order_items add column if not exists incentive_type text;
+alter table order_items add column if not exists incentive_value numeric(10,2);
+alter table order_items drop constraint if exists order_items_incentive_type_check;
+alter table order_items add constraint order_items_incentive_type_check
+  check (incentive_type is null or incentive_type in ('percent', 'fixed'));

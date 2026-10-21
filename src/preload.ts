@@ -10,6 +10,7 @@ import type {
   PrinterInfo,
   PrintOrderResponse,
   SalesReportRow,
+  SalesByWaiterRow,
   TopItemRow,
   SalesByOrderTypeRow,
   SalesByTypeBucketRow,
@@ -62,6 +63,8 @@ const api: ElectronApi = {
   getPrinters: () => ipcRenderer.invoke(IpcChannels.GET_PRINTERS) as Promise<PrinterInfo[]>,
   getSalesReport: (from, to, bucket) =>
     ipcRenderer.invoke(IpcChannels.GET_SALES_REPORT, from, to, bucket) as Promise<SalesReportRow[]>,
+  getSalesByWaiter: (from, to) =>
+    ipcRenderer.invoke(IpcChannels.GET_SALES_BY_WAITER, from, to) as Promise<SalesByWaiterRow[]>,
   getTopItems: (from, to) =>
     ipcRenderer.invoke(IpcChannels.GET_TOP_ITEMS, from, to) as Promise<TopItemRow[]>,
   getSalesByOrderType: (from, to) =>

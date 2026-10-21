@@ -19,6 +19,7 @@ import type {
   SalesByTypeBucketRow,
 } from '@shared/types';
 import { DINE_IN_ORDER_TYPE } from '../../shared/types';
+import { SalesByWaiterTab } from './SalesByWaiter';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/SalesReport.module.css';
 import { formatMoney as formatCurrency, dateInOrgZone, currencySymbol, formatNumber } from '../lib/format';
@@ -175,7 +176,7 @@ function MinHeightBar(props: {
   );
 }
 
-export function SalesReport() {
+function SalesOverview() {
   const [mode, setMode] = useState<Mode>('daily');
   const [range, setRange] = useState(() => presetRange('daily'));
   const [rows, setRows] = useState<SalesReportRow[]>([]);
@@ -380,14 +381,14 @@ export function SalesReport() {
 
           <div className={styles.chartCard}>
             {chartData.length === 0 ? (
-              <p className={pageStyles.muted}>No settled orders in this range.</p>
+              <p className={pageStyles.muted}>No completed orders in this range.</p>
             ) : (
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={chartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" />
                   <YAxis
-                    label={{ value: 'Amount (₹)', angle: -90, position: 'insideLeft' }}
+                    label={{ value: `Amount (${currencySymbol()})`, angle: -90, position: 'insideLeft' }}
                     tickFormatter={(v: number) => formatNumber(v)}
                   />
                   <Tooltip content={<ChartTooltip />} />
@@ -448,6 +449,33 @@ export function SalesReport() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+export function SalesReport() {
+  const [tab, setTab] = useState<'overview' | 'waiters'>('overview');
+  return (
+    <div className={styles.tabsShell}>
+      <div className={styles.topTabs} role="tablist">
+        <button
+          role="tab"
+          aria-selected={tab === 'overview'}
+          className={`${styles.topTab} ${tab === 'overview' ? styles.topTabOn : ''}`}
+          onClick={() => setTab('overview')}
+        >
+          Overview
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === 'waiters'}
+          className={`${styles.topTab} ${tab === 'waiters' ? styles.topTabOn : ''}`}
+          onClick={() => setTab('waiters')}
+        >
+          By waiter
+        </button>
+      </div>
+      {tab === 'overview' ? <SalesOverview /> : <SalesByWaiterTab />}
     </div>
   );
 }

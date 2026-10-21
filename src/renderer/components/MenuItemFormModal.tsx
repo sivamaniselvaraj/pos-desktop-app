@@ -58,6 +58,10 @@ export function MenuItemFormModal({ item, categories, onSave, onClose }: MenuIte
   );
   // false = price is before tax (the default); true = price already contains the tax.
   const [priceIncludesTax, setPriceIncludesTax] = useState(item?.price_includes_tax === true);
+  // Waiter incentive: off by default; when on, a percentage of the line value or a fixed amount per unit.
+  const [incentiveOn, setIncentiveOn] = useState(item?.incentive_applicable === true);
+  const [incentiveType, setIncentiveType] = useState<'percent' | 'fixed'>(item?.incentive_type === 'fixed' ? 'fixed' : 'percent');
+  const [incentiveValue, setIncentiveValue] = useState(str(item?.incentive_value));
   const [rates, setRates] = useState<TaxOption[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -125,6 +129,15 @@ export function MenuItemFormModal({ item, categories, onSave, onClose }: MenuIte
     const sort = numOrNull(sortOrder);
     if (sort !== null && !Number.isInteger(sort)) return setError('Sort order must be a whole number');
 
+    let incValue: number | null = null;
+    if (incentiveOn) {
+      incValue = numOrNull(incentiveValue);
+      if (incValue === null || !Number.isFinite(incValue) || incValue < 0) {
+        return setError('Enter the incentive (0 or more)');
+      }
+      if (incentiveType === 'percent' && incValue > 100) return setError('The incentive percentage cannot be more than 100');
+    }
+
     setSaving(true);
     setError(null);
     try {
@@ -146,6 +159,9 @@ export function MenuItemFormModal({ item, categories, onSave, onClose }: MenuIte
         taxName: chosenTax.name,
         taxPercent: chosenTax.percent,
         priceIncludesTax,
+        incentiveApplicable: incentiveOn,
+        incentiveType: incentiveOn ? incentiveType : null,
+        incentiveValue: incentiveOn ? incValue : null,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
@@ -265,6 +281,38 @@ export function MenuItemFormModal({ item, categories, onSave, onClose }: MenuIte
           Image URL
           <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://…" />
         </label>
+
+        <div className={styles.incentiveBox}>
+          <label className={styles.toggleRow}>
+            <input type="checkbox" role="switch" checked={incentiveOn} onChange={(e) => setIncentiveOn(e.target.checked)} />
+            <span>Incentive applicable?</span>
+            <small className={styles.hint}>Waiters earn an incentive when this item is sold.</small>
+          </label>
+          {incentiveOn && (
+            <div className={styles.incentiveFields}>
+              <div className={styles.seg} role="radiogroup" aria-label="Incentive type">
+                <button type="button" role="radio" aria-checked={incentiveType === 'percent'} className={incentiveType === 'percent' ? styles.segOn : ''} onClick={() => setIncentiveType('percent')}>
+                  Percentage (%)
+                </button>
+                <button type="button" role="radio" aria-checked={incentiveType === 'fixed'} className={incentiveType === 'fixed' ? styles.segOn : ''} onClick={() => setIncentiveType('fixed')}>
+                  Fixed amount ({currencySymbol()})
+                </button>
+              </div>
+              <label className={styles.formLabel}>
+                {incentiveType === 'percent' ? 'Incentive (% of the item value before tax)' : `Incentive (${currencySymbol()} per unit sold)`}
+                <input
+                  type="number"
+                  min={0}
+                  max={incentiveType === 'percent' ? 100 : undefined}
+                  step="0.01"
+                  value={incentiveValue}
+                  onChange={(e) => setIncentiveValue(e.target.value)}
+                  required
+                />
+              </label>
+            </div>
+          )}
+        </div>
 
         <div className={styles.checks}>
           <label>

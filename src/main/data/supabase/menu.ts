@@ -19,6 +19,9 @@ function toRow(v: MenuItemValues) {
     tax_name: v.taxName,
     tax_rate_percent: v.taxPercent,
     price_includes_tax: v.priceIncludesTax,
+    incentive_applicable: v.incentiveApplicable,
+    incentive_type: v.incentiveApplicable ? v.incentiveType : null,
+    incentive_value: v.incentiveApplicable ? v.incentiveValue : null,
   };
 }
 

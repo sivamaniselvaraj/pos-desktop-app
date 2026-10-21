@@ -208,6 +208,27 @@ export interface SalesReportRow {
   avgOrderValue: number;
 }
 
+/** One waiter's settled sales in a date range (get_sales_by_waiter). waiterId is null for orders with no waiter. */
+export interface SalesByWaiterRow {
+  waiterId: string | null;
+  waiterName: string;
+  orderCount: number;
+  invoiceCount: number;
+  itemsSold: number;
+  subtotal: number;
+  discountTotal: number;
+  taxTotal: number;
+  /** total - tax: the sale before tax. */
+  salesExclTax: number;
+  /** What the guests paid. */
+  totalSales: number;
+  avgOrderValue: number;
+  /** Value before tax of the lines that earn an incentive. */
+  eligibleSales: number;
+  /** Incentive earned, from the rule copied onto each line when it was sold. */
+  incentiveTotal: number;
+}
+
 export interface TopItemRow {
   menuItemId: string;
   name: string;
@@ -535,6 +556,11 @@ export interface SaveMenuItemPayload {
   taxPercent: number;
   /** false = the price is before tax and tax is added on top; true = the price already contains the tax. */
   priceIncludesTax: boolean;
+  /** Waiters earn an incentive when this item is sold. */
+  incentiveApplicable: boolean;
+  /** 'percent' = % of the line value before tax; 'fixed' = money per unit sold. Required when applicable. */
+  incentiveType?: 'percent' | 'fixed' | null;
+  incentiveValue?: number | null;
 }
 
 /** One cart line sent to place_order / place_pickup_order. */
@@ -870,6 +896,7 @@ export const IpcChannels = {
   GET_PRINTERS: 'get-printers',
   //report (renderer -> main, invoke)
   GET_SALES_REPORT: 'get-sales-report',
+  GET_SALES_BY_WAITER: 'get-sales-by-waiter',
   GET_TOP_ITEMS: 'get-top-items',
   GET_SALES_BY_ORDER_TYPE: 'get-sales-by-order-type',
   GET_SALES_BY_TYPE_BUCKETED: 'get-sales-by-type-bucketed',
@@ -959,6 +986,7 @@ export interface ElectronApi {
   clearPrinted(): Promise<void>;
   getPrinters(): Promise<PrinterInfo[]>;
   getSalesReport(from: string, to: string, bucket: ReportBucket): Promise<SalesReportRow[]>;
+  getSalesByWaiter(from: string, to: string): Promise<SalesByWaiterRow[]>;
   getTopItems(from: string, to: string): Promise<TopItemRow[]>;
   getSalesByOrderType(from: string, to: string): Promise<SalesByOrderTypeRow[]>;
   getSalesByTypeBucketed(
