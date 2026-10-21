@@ -3354,3 +3354,118 @@ as $$
    order by sum(po.total) desc, 2;
 $$;
 grant execute on function get_sales_by_waiter(date, date) to authenticated;
+
+-- get_kot_settings(): called by the desktop app (orders.place). The outlet's
+-- overdue (waiting-time) levels and kitchen steps, so phones can colour an
+-- order by how long it has waited and show the same step names and colours.
+-- Returns { now, steps:[{code,name,color,sort_order,is_final,notify_waiter}],
+--           levels:[{name,from_minutes,color,notify}] }.
+create or replace function get_kot_settings(p_waiter_id  uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if p_actor is null then
+    raise exception 'Not authenticated';
+  end if;
+  if not has_permission('orders.place') then
+    raise exception 'Only the desktop app of this outlet can read the KOT settings';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = p_waiter_id and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  --perform seed_kot_workflow(v_outlet);
+  return jsonb_build_object(
+    'now', now(),
+    'steps', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'code', s.code, 'name', s.name, 'color', s.color, 'sort_order', s.sort_order,
+               'is_final', s.is_final, 'notify_waiter', s.notify_waiter) order by s.sort_order), '[]'::jsonb)
+        from kot_statuses s where s.outlet_id = v_outlet),
+    'levels', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'name', l.name, 'from_minutes', l.from_minutes, 'color', l.color, 'notify', l.notify)
+               order by l.from_minutes), '[]'::jsonb)
+        from kot_time_levels l where l.outlet_id = v_outlet)
+  );
+end;
+$$;
+grant execute on function get_kot_settings(uuid) to authenticated;
+
+-- ============================================================================
+-- PHONE NOTIFICATIONS (LAN): what the desktop app watches
+-- ============================================================================
+-- get_phone_orders(): called by the desktop app (users.manage). Returns, for
+-- every open order that was placed from a paired phone, its KOT state, so the
+-- desktop can tell the phone that placed it when the status changes or the
+-- order waits too long. Also returns the outlet's notification settings
+-- (which steps notify the waiter, from which waiting level to alert).
+-- Orders placed from a phone in the last 12 hours that are not completed
+-- (cancelled ones stay in so the phone hears of the cancellation).
+-- Returns { now, steps:[{code,name,notify_waiter}], levels:[{name,from_minutes,notify}],
+--           orders:[{order_id,order_number,device_id,user_id,table_number,order_type,
+--                    status,created_at,statuses:{code:count}, since: oldest item time in
+--                    its earliest unfinished status}] }
+create or replace function get_phone_orders()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not has_permission('orders.place') then
+    raise exception 'Only the desktop app of this outlet can read phone orders';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+
+  return jsonb_build_object(
+    'now', now(),
+    'steps', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'code', s.code, 'name', s.name, 'notify_waiter', s.notify_waiter,
+               'sort_order', s.sort_order) order by s.sort_order), '[]'::jsonb)
+        from kot_statuses s where s.outlet_id = v_outlet),
+    'levels', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'name', l.name, 'from_minutes', l.from_minutes, 'notify', l.notify)
+               order by l.from_minutes), '[]'::jsonb)
+        from kot_time_levels l where l.outlet_id = v_outlet),
+    'orders', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'order_id', o.id, 'order_number', o.order_number,
+               'device_id', o.placed_via_device_id, 'user_id', o.waiter_id,
+               'table_number', t.table_number, 'order_type', o.order_type,
+               'status', o.status, 'created_at', o.created_at,
+               'statuses', (select coalesce(jsonb_object_agg(x.status, x.n), '{}'::jsonb)
+                              from (select oi.status, count(*) as n
+                                      from order_items oi
+                                     where oi.order_id = o.id and not coalesce(oi.is_deleted, false)
+                                     group by oi.status) x),
+               'since', (select min(coalesce(oi.created_at, o.created_at))
+                           from order_items oi
+                          where oi.order_id = o.id and not coalesce(oi.is_deleted, false)
+                            and oi.status not in ('served', 'cancelled'))
+             ) order by o.created_at), '[]'::jsonb)
+        from orders o
+        left join tables t on t.id = o.table_id
+       where o.outlet_id = v_outlet
+         and o.placed_via_device_id is not null
+         and coalesce(o.created_at, now()) > now() - interval '12 hours'
+         and o.status <> 'completed')
+  );
+end;
+$$;
+grant execute on function get_phone_orders() to authenticated;

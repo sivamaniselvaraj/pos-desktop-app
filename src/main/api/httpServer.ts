@@ -533,7 +533,8 @@ export function startHttpServer(): Promise<void> {
   // settings on the desktop.
   app.get('/api/overdue-thresholds', async (_req, res) => {
     try {
-      const s = await getKotSettingsForPhones();
+      const waiterId = deviceUserId(res);
+      const s = await getKotSettingsForPhones(waiterId);
       res.json({
         serverTime: s.serverTime,
         levels: s.levels,

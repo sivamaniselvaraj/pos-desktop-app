@@ -76,9 +76,9 @@ const KOT_TTL_MS = 30_000;
 let kotCache: { at: number; value: PhoneKotSettings } | null = null;
 
 /** Overdue thresholds and kitchen steps for phones. Cached for 30 seconds: they change rarely. */
-export async function getKotSettingsForPhones(): Promise<PhoneKotSettings> {
+export async function getKotSettingsForPhones(waiterId: string): Promise<PhoneKotSettings> {
   if (kotCache && Date.now() - kotCache.at < KOT_TTL_MS) return { ...kotCache.value, serverTime: new Date().toISOString() };
-  const value = await db.remoteOrders.getKotSettings();
+  const value = await db.remoteOrders.getKotSettings(waiterId);
   kotCache = { at: Date.now(), value };
   return value;
 }

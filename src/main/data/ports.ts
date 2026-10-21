@@ -312,7 +312,7 @@ export interface RemoteOrderRepository {
   /** Sets one item of this waiter's own open order to 'served' (mark_item_served). Safe to repeat. */
   markItemServed(p: { waiterId: string; orderId: string; itemId: string }): Promise<{ already: boolean; fromStatus: string }>;
   /** The outlet's overdue (waiting-time) levels and kitchen steps for phones (get_kot_settings). */
-  getKotSettings(): Promise<import('../../shared/types').PhoneKotSettings>;
+  getKotSettings(waiterId: string): Promise<import('../../shared/types').PhoneKotSettings>;
 }
 
 export interface DevicePairingRepository {

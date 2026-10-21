@@ -100,8 +100,10 @@ export const remoteOrders: RemoteOrderRepository = {
     const d = (data ?? {}) as { already?: boolean; from_status?: string };
     return { already: d.already === true, fromStatus: String(d.from_status ?? '') };
   },
-  async getKotSettings() {
-    const { data, error } = await getAuthedClient().rpc('get_kot_settings');
+  async getKotSettings(waiterId) {
+    const { data, error } = await getAuthedClient().rpc('get_kot_settings',{
+            p_waiter_id: waiterId,
+        })
     if (error) throw new Error(error.message);
     const d = (data ?? {}) as Record<string, unknown>;
     const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);

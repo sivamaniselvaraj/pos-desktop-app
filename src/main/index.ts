@@ -79,6 +79,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     title: 'Virunthagam',
+    icon: join(__dirname, 'assets/icons/icon.ico'), 
         // No File/Edit/View/Window/Help menu bar — Menu.setApplicationMenu(null)
     // below removes it entirely, this is a Windows/Linux-only backstop in
     // case something ever re-adds a default menu (falls back to "hidden

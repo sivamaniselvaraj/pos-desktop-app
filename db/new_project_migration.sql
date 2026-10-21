@@ -906,3 +906,12 @@ alter table order_items add column if not exists incentive_value numeric(10,2);
 alter table order_items drop constraint if exists order_items_incentive_type_check;
 alter table order_items add constraint order_items_incentive_type_check
   check (incentive_type is null or incentive_type in ('percent', 'fixed'));
+
+
+-- Phone notifications (see the PHONE NOTIFICATIONS section below).
+alter table kot_statuses add column notify_waiter boolean not null default false;
+    update kot_statuses set notify_waiter = true where code <> 'new';
+
+alter table kot_time_levels add column notify boolean not null default false;
+    -- the delay alert starts at 10 minutes
+    update kot_time_levels set notify = true where from_minutes = 10;

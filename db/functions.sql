@@ -3552,12 +3552,12 @@ $$;
 grant execute on function get_phone_orders() to authenticated;
 
 
--- get_kot_settings(): called by the desktop app (users.manage). The outlet's
+-- get_kot_settings(): called by the desktop app (orders.place). The outlet's
 -- overdue (waiting-time) levels and kitchen steps, so phones can colour an
 -- order by how long it has waited and show the same step names and colours.
 -- Returns { now, steps:[{code,name,color,sort_order,is_final,notify_waiter}],
 --           levels:[{name,from_minutes,color,notify}] }.
-create or replace function get_kot_settings()
+create or replace function get_kot_settings(p_waiter_id  uuid)
 returns jsonb
 language plpgsql
 security definer
@@ -3566,11 +3566,14 @@ as $$
 declare
   v_outlet uuid;
 begin
-  if not has_permission('users.manage') then
+  if p_actor is null then
+    raise exception 'Not authenticated';
+  end if;
+  if not has_permission('orders.place') then
     raise exception 'Only the desktop app of this outlet can read the KOT settings';
   end if;
   select p.outlet_id into v_outlet
-    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+    from profiles p where p.user_id = p_waiter_id and coalesce(p.is_active, true);
   if v_outlet is null then
     raise exception 'Your account has no outlet';
   end if;
