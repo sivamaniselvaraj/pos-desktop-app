@@ -304,6 +304,10 @@ export interface RemoteOrderRepository {
   }): Promise<{ orderId: string; orderNumber: number; invoiceNumber: string, duplicate: boolean }>;
   /** Open orders placed from phones, with their KOT state and the notification settings (get_phone_orders). */
   listPhoneOrders(): Promise<import('../kotNotifierCore').PhoneSnapshot>;
+  /** The unsettled orders (not completed, not cancelled) this waiter placed in the outlet (get_my_orders). */
+  listMyOrders(waiterId: string): Promise<import('../../shared/types').ApiMyOrder[]>;
+  /** Sets one item of this waiter's own open order to 'served' (mark_item_served). Safe to repeat. */
+  markItemServed(p: { waiterId: string; orderId: string; itemId: string }): Promise<{ already: boolean; fromStatus: string }>;
   /** The outlet's overdue (waiting-time) levels and kitchen steps for phones (get_kot_settings). */
   getKotSettings(): Promise<import('../../shared/types').PhoneKotSettings>;
 }

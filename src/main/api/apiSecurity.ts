@@ -10,8 +10,11 @@ import type { ApiDevice, DeviceOwner } from '../../shared/types';
  * ---------------------------------------------------------------------------
  * Security for the local HTTP API that phones call (print-order, menu-items).
  *
- * - Per-device bearer tokens. Each phone is paired once from Settings and gets
- *   its own token (`fop_<id>.<secret>`), shown a single time. Only a SHA-256 of
+ * - Per-device bearer tokens. Each phone pairs once with a one-time 6-digit
+ *   code (see pairingCodes.ts) while signed in as a staff user, and gets its
+ *   own token (`fop_<id>.<secret>`) bound to that user. Devices without a user
+ *   (paired the old way) are refused. A device stops working when its user is
+ *   deactivated or moves to another outlet (re-checked every few minutes). Only a SHA-256 of
  *   the secret is stored, so a copy of settings.json does not reveal tokens,
  *   and one lost phone is revoked without touching the others.
  * - Fail closed: with no paired device (and no legacy key) every /api call
@@ -328,7 +331,6 @@ export function auditLog(req: Request, res: Response, next: NextFunction): void 
 
 /** Headers that stop a browser or proxy from caching or sniffing API responses. */
 export function securityHeaders(_req: Request, res: Response, next: NextFunction): void {
-  console.log('securityHeaders ')
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Security-Policy', "default-src 'none'");

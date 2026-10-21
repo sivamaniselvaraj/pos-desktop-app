@@ -14,6 +14,8 @@ import {
   BadRemoteOrder,
   getPhoneConfig,
   getTablesForPhones,
+  getMyOrders,
+  markItemServed,
   getKotSettingsForPhones,
   placeRemoteOrder,
   validateRemoteOrder,
@@ -451,6 +453,39 @@ export function startHttpServer(): Promise<void> {
     } catch (err) {
       console.error('[api] me failed:', err);
       res.status(500).json({ error: 'The server could not process the request.' });
+    }
+  });
+
+  // The signed-in waiter's own unsettled orders (not completed, not cancelled), with
+  // items. The waiter is the user the phone is paired to; it cannot be chosen by the caller.
+  app.get('/api/orders/mine', async (_req, res) => {
+    const waiterId = deviceUserId(res);
+    if (!waiterId) return res.status(403).json({ error: 'This phone is not signed in as a user.' });
+    try {
+      const orders = await getMyOrders(waiterId);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ waiterId, count: orders.length, orders });
+    } catch (err) {
+      tablesError(err, res);
+    }
+  });
+
+  // Mark one item served. Only the waiter who placed the order can do it, and only
+  // while the order is open. Repeating the call is safe ({ already: true }).
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  app.post('/api/orders/:orderId/items/:itemId/served', async (req, res) => {
+    const { orderId, itemId } = req.params;
+    if (!UUID.test(orderId) || !UUID.test(itemId)) return res.status(400).json({ error: 'Invalid orderId or itemId' });
+    const waiterId = deviceUserId(res);
+    if (!waiterId) return res.status(403).json({ error: 'This phone is not signed in as a user.' });
+    try {
+      const r = await markItemServed(waiterId, orderId, itemId);
+      res.json({ ok: true, orderId, itemId, status: 'served', already: r.already });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      if (/Order not found|Item not found/i.test(msg)) return res.status(404).json({ error: msg });
+      if (/already (completed|cancelled)|cancelled item|not marked this item ready/i.test(msg)) return res.status(409).json({ error: msg });
+      tablesError(err, res);
     }
   });
 

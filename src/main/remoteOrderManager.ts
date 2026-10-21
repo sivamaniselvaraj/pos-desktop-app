@@ -4,7 +4,7 @@ import { getMyAccess } from './accessManager';
 import { orderManager } from './orderManager';
 import { printQueue } from './printQueue';
 import { listManagedTables } from './tablesManager';
-import { DINE_IN_ORDER_TYPE, type ApiTable, type PhoneKotSettings, type RemoteOrderRequest, type RemoteOrderResult } from '../shared/types';
+import { ApiMyOrder, DINE_IN_ORDER_TYPE, type ApiTable, type PhoneKotSettings, type RemoteOrderRequest, type RemoteOrderResult } from '../shared/types';
 import { BadRemoteOrder } from './remoteOrderValidation';
 
 export { BadRemoteOrder, validateRemoteOrder } from './remoteOrderValidation';
@@ -60,6 +60,16 @@ export async function getTablesForPhones(): Promise<ApiTable[]> {
       });
   }
   return tablesInflight;
+}
+
+/** The unsettled orders this waiter placed. Not cached: the phone wants them live. */
+export async function getMyOrders(waiterId: string): Promise<ApiMyOrder[]> {
+  return db.remoteOrders.listMyOrders(waiterId);
+}
+
+/** Marks one item of the waiter's own open order as served. */
+export async function markItemServed(waiterId: string, orderId: string, itemId: string) {
+  return db.remoteOrders.markItemServed({ waiterId, orderId, itemId });
 }
 
 const KOT_TTL_MS = 30_000;

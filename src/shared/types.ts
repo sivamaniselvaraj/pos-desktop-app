@@ -716,6 +716,23 @@ export interface PhoneKotSettings {
   steps: { code: string; name: string; color: string; sortOrder: number; isFinal: boolean; notifyWaiter: boolean }[];
 }
 
+/** One waiter order as GET /api/orders/mine reports it. */
+export interface ApiMyOrder {
+  orderId: string;
+  orderNumber: number;
+  tableId: string | null;
+  tableNumber: string | null;
+  floor: string | null;
+  /** Outlet name. */
+  outlet: string;
+  /** Order status: pending / confirmed / ... (anything but completed and cancelled). */
+  status: string;
+  total: number;
+  orderType: string;
+  createdAt: string | null;
+  items: { id: string; name: string; quantity: number; status: string }[];
+}
+
 /** One table as the HTTP API reports it (GET /api/tables, GET /api/tables/:id). */
 export interface ApiTable {
   tableId: string;

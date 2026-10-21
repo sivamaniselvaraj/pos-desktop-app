@@ -2574,9 +2574,9 @@ declare
   v_outlet      uuid;
   v_waiter_name text;
   v_order_id    uuid;
-  v_dine_in     boolean := (p_order_type = 'dine_in');
+  v_dine_in     boolean := (p_order_type = 'dine-in');
 begin
-  if p_order_type not in ('dine_in', 'pickup') then
+  if p_order_type not in ('dine-in', 'pickup') then
     raise exception 'Unknown order type';
   end if;
   if p_actor is null then
@@ -3334,7 +3334,7 @@ set search_path = public
 as $$
   select jsonb_build_object(
            'user_id', p.user_id,
-           'name', coalesce(nullif(btrim(p.first_name), ''), p.email, 'User'),
+           'name', coalesce(nullif(btrim(p.full_name), ''), p.email, 'User'),
            'outlet_id', p.outlet_id,
            'is_active', coalesce(p.is_active, true))
     from profiles p
@@ -3872,3 +3872,136 @@ begin
 end;
 $$;
 grant execute on function save_discount_presets(jsonb) to authenticated;
+
+
+-- ============================================================================
+-- MY ORDERS (phone): the waiter's unsettled orders
+-- ============================================================================
+-- get_my_orders(p_waiter_id): called by the desktop app (users.manage) on behalf
+-- of a paired phone, GET /api/orders/mine. Returns the orders THAT waiter placed
+-- (orders.waiter_id) in the desktop's outlet which are neither completed
+-- (settled) nor cancelled, oldest first, each with its items. Deleted items are
+-- left out; cancelled items stay, with status 'cancelled'.
+-- Returns [{ order_id, order_number, table_id, table_number, floor, outlet,
+--            status, total, order_type, created_at,
+--            items:[{ id, name, quantity, status }] }]
+create or replace function get_my_orders(p_waiter_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not has_permission('users.manage') then
+    raise exception 'Only the desktop app of this outlet can read a waiter''s orders';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+
+  return (
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'order_id', o.id,
+             'order_number', o.order_number,
+             'table_id', o.table_id,
+             'table_number', t.table_number,
+             'floor', t.floor,
+             'outlet', ou.name,
+             'status', o.status,
+             'total', coalesce(o.total_amount, 0),
+             'order_type', o.order_type,
+             'created_at', o.created_at,
+             'items', (
+               select coalesce(jsonb_agg(jsonb_build_object(
+                        'id', oi.id, 'name', mi.name,
+                        'quantity', oi.quantity, 'status', oi.status)
+                        order by oi.created_at, oi.id), '[]'::jsonb)
+                 from order_items oi
+                 join menu_items mi on mi.id = oi.menu_item_id
+                where oi.order_id = o.id and not coalesce(oi.is_deleted, false))
+           ) order by o.created_at, o.id), '[]'::jsonb)
+      from orders o
+      left join tables t on t.id = o.table_id
+      left join outlets ou on ou.id = o.outlet_id
+     where o.outlet_id = v_outlet
+       and o.waiter_id = p_waiter_id
+       and o.status not in ('completed', 'cancelled')
+  );
+end;
+$$;
+grant execute on function get_my_orders(uuid) to authenticated;
+
+
+-- mark_item_served(order, item, waiter): called by the desktop app (users.manage)
+-- for a paired phone, POST /api/orders/{orderId}/items/{itemId}/served.
+-- Sets ONE item to 'served' when the item is in an order that THIS waiter placed
+-- (orders.waiter_id) in the desktop's outlet and that is not completed or
+-- cancelled. Only an item the kitchen marked 'ready' can be served; a cancelled or
+-- deleted item cannot. An item that is
+-- already served answers { already: true } and changes nothing (safe to retry).
+-- Writes one app_activity_log row ('order.item.status.updated', changed_by = the
+-- waiter). Returns { ok, already, order_id, item_id, status, from_status }.
+create or replace function mark_item_served(p_order_id uuid, p_item_id uuid, p_waiter_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_order  orders%rowtype;
+  v_status text;
+begin
+  if not has_permission('users.manage') then
+    raise exception 'Only the desktop app of this outlet can mark items served for a phone';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+
+  select * into v_order from orders
+   where id = p_order_id and outlet_id = v_outlet and waiter_id = p_waiter_id;
+  if not found then
+    raise exception 'Order not found';
+  end if;
+  if v_order.status in ('completed', 'cancelled') then
+    raise exception 'This order is already %', v_order.status;
+  end if;
+
+  select oi.status into v_status from order_items oi
+   where oi.id = p_item_id and oi.order_id = p_order_id and not coalesce(oi.is_deleted, false)
+     for update;
+  if not found then
+    raise exception 'Item not found';
+  end if;
+  if v_status = 'served' then
+    return jsonb_build_object('ok', true, 'already', true, 'order_id', p_order_id,
+                              'item_id', p_item_id, 'status', 'served', 'from_status', v_status);
+  end if;
+  if v_status = 'cancelled' then
+    raise exception 'A cancelled item cannot be served';
+  end if;
+  if v_status <> 'ready' then
+    raise exception 'The kitchen has not marked this item ready yet';
+  end if;
+
+  update order_items set status = 'served' where id = p_item_id;
+
+  insert into app_activity_log
+    (order_id, changed_by, changed_at, created_at, order_details, reason, activity)
+  values (p_order_id, p_waiter_id, now(), now(),
+          jsonb_build_object('status-from', v_status, 'status-to', 'served', 'item_id', p_item_id)::json,
+          v_status || ' to served', 'order.item.status.updated');
+
+  return jsonb_build_object('ok', true, 'already', false, 'order_id', p_order_id,
+                            'item_id', p_item_id, 'status', 'served', 'from_status', v_status);
+end;
+$$;
+grant execute on function mark_item_served(uuid, uuid, uuid) to authenticated;

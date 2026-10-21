@@ -66,6 +66,40 @@ export const remoteOrders: RemoteOrderRepository = {
         })),
     };
   },
+  async listMyOrders(waiterId) {
+    const { data, error } = await getAuthedClient().rpc('get_my_orders', { p_waiter_id: waiterId });
+    if (error) throw new Error(error.message);
+    const rows = Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
+    const str = (v: unknown): string | null => (v == null ? null : String(v));
+    return rows.map((o) => ({
+      orderId: String(o.order_id),
+      orderNumber: Number(o.order_number ?? 0),
+      tableId: str(o.table_id),
+      tableNumber: str(o.table_number),
+      floor: str(o.floor),
+      outlet: String(o.outlet ?? ''),
+      status: String(o.status ?? ''),
+      total: Number(o.total ?? 0),
+      orderType: String(o.order_type ?? ''),
+      createdAt: str(o.created_at),
+      items: (Array.isArray(o.items) ? (o.items as Record<string, unknown>[]) : []).map((i) => ({
+        id: String(i.id),
+        name: String(i.name ?? ''),
+        quantity: Number(i.quantity ?? 0),
+        status: String(i.status ?? ''),
+      })),
+    }));
+  },
+  async markItemServed(p) {
+    const { data, error } = await getAuthedClient().rpc('mark_item_served', {
+      p_order_id: p.orderId,
+      p_item_id: p.itemId,
+      p_waiter_id: p.waiterId,
+    });
+    if (error) throw new Error(error.message);
+    const d = (data ?? {}) as { already?: boolean; from_status?: string };
+    return { already: d.already === true, fromStatus: String(d.from_status ?? '') };
+  },
   async getKotSettings() {
     const { data, error } = await getAuthedClient().rpc('get_kot_settings');
     if (error) throw new Error(error.message);
