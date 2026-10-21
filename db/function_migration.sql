@@ -692,6 +692,7 @@ security definer
 set search_path = public
 as $$
 declare
+  v_actor_id uuid;
   v_invoice_number text;
   v_no       integer;
   v_outlet      uuid;
@@ -709,9 +710,13 @@ begin
     raise exception 'Not allowed to place orders';
   end if;
 
-  select p.outlet_id, p.first_name into v_outlet, v_waiter_name
+  select p.user_id, p.outlet_id, p.first_name into v_actor_id, v_outlet, v_waiter_name
     from profiles p
-   where p.user_id = auth.uid();
+   where p.user_id = p_actor
+   and p.is_active = true;
+  if v_actor_id is null then
+    raise exception 'Not authenticated';
+  end if;
   if v_outlet is null then
     raise exception 'Your account has no outlet';
   end if;
@@ -732,7 +737,7 @@ begin
     subtotal_amount, tax_amount, total_amount, confirmed_at,
     placed_via_device, client_request_id, placed_via_device_id, order_source
   ) values (
-    case when v_dine_in then p_table_id end, p_order_type, 'preparing', auth.uid(),
+    case when v_dine_in then p_table_id end, p_order_type, 'preparing', v_actor_id,
     v_outlet, get_next_order_number(v_outlet),
     nullif(btrim(p_customer_name), ''), nullif(btrim(p_customer_phone), ''), nullif(btrim(p_notes), ''),
     0, 0, 0, now(),
@@ -750,7 +755,7 @@ begin
     update tables set status = 'occupied' where id = p_table_id;
   end if;
 
-  insert into app_activity_log (order_id, activity, changed_by, changed_at) values (v_order_id, 'orders.created', auth.uid(), now());
+  insert into app_activity_log (order_id, activity, changed_by, changed_at) values (v_order_id, 'orders.created', v_actor_id, now());
 
     select o.order_number, o.invoice_number into v_no, v_invoice_number from orders o where o.id = v_order_id;
   return jsonb_build_object('order_id', v_order_id, 'order_number', v_no, 'invoice_number', v_invoice_number, 'duplicate', false);
