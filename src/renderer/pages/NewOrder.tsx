@@ -259,9 +259,9 @@ export function NewOrder({ initialTableId }: { initialTableId?: string | null } 
         orderType: orderType,
         tableId: orderType === DINE_IN_ORDER_TYPE ? (tableId ?? undefined) : undefined,
         items: cartLines.map((l) => ({ menuItemId: l.item.id, quantity: l.qty })),
-        customerName: orderType === PICK_UP_ORDER_TYPE ? customerName : undefined,
-        customerPhone: orderType === PICK_UP_ORDER_TYPE ? customerPhone : undefined,
-        notes: orderType === PICK_UP_ORDER_TYPE ? notes : undefined,
+        customerName,
+        customerPhone,
+        notes,
       });
       setResultLabel(orderType === DINE_IN_ORDER_TYPE ? `Table ${selectedTable?.tableNumber}` : 'Pickup order');
       setResult(res);
@@ -482,7 +482,7 @@ export function NewOrder({ initialTableId }: { initialTableId?: string | null } 
         </div>
 
         <div className={styles.foot}>
-          {orderType === PICK_UP_ORDER_TYPE && (
+          {(orderType === DINE_IN_ORDER_TYPE  || orderType === PICK_UP_ORDER_TYPE) && (
             <div className={styles.details}>
               <button
                 type="button"
