@@ -81,6 +81,9 @@ export async function placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrder
       subtotal: totals.subtotal,
       tax: totals.tax,
       total: totals.total,
+      customerName: payload.customerName?.trim() || null,
+      customerPhone: payload.customerPhone?.trim() || null,
+      notes: payload.notes?.trim() || null,
     });
   } else {
     result = await db.orderEntry.placePickupOrder({

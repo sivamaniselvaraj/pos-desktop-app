@@ -1,38 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SalesByWaiterRow } from '@shared/types';
 import styles from '../styles/SalesByWaiter.module.css';
-import { formatMoney, dateInOrgZone, formatNumber } from '../lib/format';
-
-type Preset = 'today' | 'yesterday' | 'thisMonth' | 'lastMonth' | 'custom';
-const PRESETS: { key: Preset; label: string }[] = [
-  { key: 'today', label: 'Today' },
-  { key: 'yesterday', label: 'Yesterday' },
-  { key: 'thisMonth', label: 'This month' },
-  { key: 'lastMonth', label: 'Last month' },
-  { key: 'custom', label: 'Custom range' },
-];
-
-// Calendar arithmetic on YYYY-MM-DD strings (UTC), so it never shifts with the computer's time zone.
-const parse = (s: string): Date => new Date(`${s}T00:00:00Z`);
-const iso = (d: Date): string => d.toISOString().slice(0, 10);
-const addDays = (s: string, n: number): string => {
-  const d = parse(s);
-  d.setUTCDate(d.getUTCDate() + n);
-  return iso(d);
-};
-
-function presetRange(p: Exclude<Preset, 'custom'>): { from: string; to: string } {
-  const today = dateInOrgZone(new Date());
-  if (p === 'today') return { from: today, to: today };
-  if (p === 'yesterday') {
-    const y = addDays(today, -1);
-    return { from: y, to: y };
-  }
-  const first = `${today.slice(0, 8)}01`;
-  if (p === 'thisMonth') return { from: first, to: today };
-  const lastDay = addDays(first, -1); // last month
-  return { from: `${lastDay.slice(0, 8)}01`, to: lastDay };
-}
+import { formatMoney, formatNumber } from '../lib/format';
+import { presetRange } from '../lib/dateRange';
+import { PeriodPicker } from '../components/PeriodPicker';
 
 function csvCell(v: string | number): string {
   const s = String(v);
@@ -40,7 +11,6 @@ function csvCell(v: string | number): string {
 }
 
 export function SalesByWaiterTab() {
-  const [preset, setPreset] = useState<Preset>('today');
   const [range, setRange] = useState(() => presetRange('today'));
   const [rows, setRows] = useState<SalesByWaiterRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -62,11 +32,6 @@ export function SalesByWaiterTab() {
   useEffect(() => {
     if (range.from && range.to && range.from <= range.to) void load(range.from, range.to);
   }, [range, load]);
-
-  function choose(p: Preset) {
-    setPreset(p);
-    if (p !== 'custom') setRange(presetRange(p));
-  }
 
   const totals = useMemo(
     () =>
@@ -123,29 +88,7 @@ export function SalesByWaiterTab() {
       </div>
 
       <div className={styles.filters}>
-        <div className={styles.tabs}>
-          {PRESETS.map((p) => (
-            <button
-              key={p.key}
-              className={`${styles.tab} ${preset === p.key ? styles.tabOn : ''}`}
-              onClick={() => choose(p.key)}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-        {preset === 'custom' && (
-          <div className={styles.dates}>
-            <label>
-              From
-              <input type="date" value={range.from} max={range.to || undefined} onChange={(e) => setRange({ ...range, from: e.target.value })} />
-            </label>
-            <label>
-              To
-              <input type="date" value={range.to} min={range.from || undefined} onChange={(e) => setRange({ ...range, to: e.target.value })} />
-            </label>
-          </div>
-        )}
+        <PeriodPicker value={range} onChange={setRange} />
       </div>
 
       <div className={styles.range}>

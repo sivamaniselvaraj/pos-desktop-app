@@ -56,6 +56,12 @@ export async function saveMenuItem(p: SaveMenuItemPayload): Promise<MenuCacheSna
     incentiveType = p.incentiveType;
     incentiveValue = Math.round(v * 100) / 100;
   }
+  // An item saved as off needs a reason. Only sent on when the save turns it off (or creates it off);
+  // an item that is already off keeps its reason.
+  const inactiveReason = !p.isActive && p.inactiveReason ? p.inactiveReason.trim().slice(0, 200) : undefined;
+  if (!p.isActive && p.inactiveReason !== undefined && p.inactiveReason !== null && !inactiveReason) {
+    throw new Error('Give a reason for turning this item off.');
+  }
   const imageUrl = p.imageUrl?.trim() || null;
   if (imageUrl && !/^https?:\/\//i.test(imageUrl)) throw new Error('Image URL must start with http:// or https://');
 
@@ -85,6 +91,7 @@ export async function saveMenuItem(p: SaveMenuItemPayload): Promise<MenuCacheSna
     incentiveApplicable: p.incentiveApplicable,
     incentiveType,
     incentiveValue,
+    inactiveReason,
   };
 
   if (p.id) {

@@ -20,6 +20,8 @@ import type {
 } from '@shared/types';
 import { DINE_IN_ORDER_TYPE } from '../../shared/types';
 import { SalesByWaiterTab } from './SalesByWaiter';
+import { useAuth } from '../context/AuthContext';
+import { MenuAvailabilityTab } from './MenuAvailability';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/SalesReport.module.css';
 import { formatMoney as formatCurrency, dateInOrgZone, currencySymbol, formatNumber } from '../lib/format';
@@ -30,9 +32,6 @@ function toIsoDate(d: Date): string {
   return dateInOrgZone(d);
 }
 
-function formatCurrency1(n: number): string {
-  return `₹ ${n.toFixed(2)}`;
-}
 
 // 'pickup' displays as "Takeaway" to match how the business refers to it,
 // even though the stored order_type value is 'pickup'.
@@ -454,28 +453,38 @@ function SalesOverview() {
 }
 
 export function SalesReport() {
-  const [tab, setTab] = useState<'overview' | 'waiters'>('overview');
+    const { can } = useAuth();
+  // Each extra tab needs reports.view (to be on this page at all) plus its own permission.
+  const canWaiterReport = can('reports.view') && can('reports.incentive');
+  const canMenuReport = can('reports.view') && can('reports.menu_availability');
+  const [tab, setTab] = useState<'overview' | 'waiters' | 'menu'>('overview');
+
+  const tabs: { key: typeof tab; label: string; show: boolean }[] = [
+    { key: 'overview', label: 'Overview', show: true },
+    { key: 'waiters', label: 'By waiter', show: canWaiterReport },
+    { key: 'menu', label: 'Menu availability', show: canMenuReport },
+  ];
+  // A tab the user may not open (for example after a permission change) falls back to Overview.
+  const active = tabs.find((t) => t.key === tab && t.show)?.key ?? 'overview';
+
   return (
     <div className={styles.tabsShell}>
       <div className={styles.topTabs} role="tablist">
-        <button
-          role="tab"
-          aria-selected={tab === 'overview'}
-          className={`${styles.topTab} ${tab === 'overview' ? styles.topTabOn : ''}`}
-          onClick={() => setTab('overview')}
-        >
-          Overview
-        </button>
-        <button
-          role="tab"
-          aria-selected={tab === 'waiters'}
-          className={`${styles.topTab} ${tab === 'waiters' ? styles.topTabOn : ''}`}
-          onClick={() => setTab('waiters')}
-        >
-          By waiter
-        </button>
+        {tabs
+          .filter((t) => t.show)
+          .map((t) => (
+            <button
+              key={t.key}
+              role="tab"
+              aria-selected={active === t.key}
+              className={`${styles.topTab} ${active === t.key ? styles.topTabOn : ''}`}
+              onClick={() => setTab(t.key)}
+            >
+              {t.label}
+            </button>
+          ))}
       </div>
-      {tab === 'overview' ? <SalesOverview /> : <SalesByWaiterTab />}
+      {active === 'waiters' ? <SalesByWaiterTab /> : active === 'menu' ? <MenuAvailabilityTab /> : <SalesOverview />}
     </div>
   );
 }

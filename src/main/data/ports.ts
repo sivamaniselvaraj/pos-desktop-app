@@ -199,6 +199,9 @@ export interface OrderEntryRepository {
     subtotal: number;
     tax: number;
     total: number;
+    customerName: string | null;
+    customerPhone: string | null;
+    notes: string | null;
   }): Promise<{ orderId: string; orderNumber: number; invoiceNumber: string, duplicate: boolean }>;
   placePickupOrder(args: {
     userId: string,
@@ -270,14 +273,17 @@ export interface MenuItemValues {
   incentiveApplicable: boolean;
   incentiveType: 'percent' | 'fixed' | null;
   incentiveValue: number | null;
+  /** Why the item is off. Send it only when this save turns an active item off (or creates it off). */
+  inactiveReason?: string | null;
 }
 
 export interface MenuRepository {
   /** The outlet's full menu as raw items plus category_id / category_name. Works without a signed-in user. */
   fetchMenu(outletId: string): Promise<Record<string, unknown>[]>;
-  setItemActive(menuItemId: string, isActive: boolean): Promise<void>;
+  /** Turning off needs a reason (the database refuses without one). */
+  setItemActive(menuItemId: string, isActive: boolean, reason?: string): Promise<void>;
   /** Every item of the category in this outlet (null = items with no category). Returns how many rows changed. */
-  setCategoryActive(outletId: string, categoryId: string | null, isActive: boolean): Promise<number>;
+  setCategoryActive(outletId: string, categoryId: string | null, isActive: boolean, reason?: string): Promise<number>;
   listCategories(): Promise<MenuCategory[]>;
   /** Ids of items in this outlet whose name equals `name`, ignoring case. */
   findItemIdsByName(outletId: string, name: string): Promise<string[]>;
@@ -374,6 +380,8 @@ export interface InvoiceRepository {
 
 export interface ReportRepository {
   salesReport(from: string, to: string, bucket: ReportBucket): Promise<SalesReportRow[]>;
+  /** When menu items were turned off, why and for how long (get_menu_availability). */
+  menuAvailability(from: string, to: string): Promise<import('../../shared/types').MenuAvailabilityReport>;
   /** Settled sales per waiter in the date range (get_sales_by_waiter). */
   salesByWaiter(from: string, to: string): Promise<import('../../shared/types').SalesByWaiterRow[]>;
   topItems(from: string, to: string, limit: number): Promise<TopItemRow[]>;

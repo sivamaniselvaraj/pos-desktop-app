@@ -54,7 +54,7 @@ export async function refreshMenuCache(): Promise<MenuCacheState> {
     return getCachedMenuItems();
   }
 
-try {
+  try {
     items = await db.menu.fetchMenu(config.outletId);
     lastRefreshedAt = new Date().toISOString();
     lastError = null;
@@ -65,7 +65,7 @@ try {
     // Deliberately keep serving the STALE cache rather than clearing it —
     // a stale menu is far better for Android than no menu at all.
   }
-  
+
   return getCachedMenuItems();
 }
 
@@ -80,16 +80,26 @@ try {
 export async function setMenuItemActive(
   menuItemId: string,
   isActive: boolean,
+  reason?: string,
 ): Promise<MenuCacheState> {
-  await db.menu.setItemActive(menuItemId, isActive);
+  await db.menu.setItemActive(menuItemId, isActive, offReason(isActive, reason));
 
   return refreshMenuCache();
 }
 
+/** Turning an item off needs a reason (also enforced by the database). Returns it trimmed; undefined when turning on. */
+export function offReason(isActive: boolean, reason: string | undefined): string | undefined {
+  if (isActive) return undefined;
+  const r = typeof reason === 'string' ? reason.trim() : '';
+  if (!r) throw new Error('Give a reason for turning this off.');
+  if (r.length > 200) throw new Error('The reason is too long (200 characters at most).');
+  return r;
+}
+
 /** Turn a whole category on or off ("the whole category ran out"), then refresh the cache for Android. */
-export async function setCategoryActive(categoryId: string, isActive: boolean): Promise<MenuCacheState> {
+export async function setCategoryActive(categoryId: string, isActive: boolean, reason?: string): Promise<MenuCacheState> {
   if (!config.outletId) throw new Error('OUTLET_ID is not configured for this machine.');
-  await db.menu.setCategoryActive(config.outletId, categoryId || null, isActive);
+  await db.menu.setCategoryActive(config.outletId, categoryId || null, isActive, offReason(isActive, reason));
   return refreshMenuCache();
 }
 

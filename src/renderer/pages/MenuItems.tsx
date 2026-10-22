@@ -7,6 +7,7 @@ import type { MenuCacheSnapshot, MenuCategory, MenuItemRecord, SaveMenuItemPaylo
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/MenuItems.module.css';
 import { formatDateTime } from '../lib/format';
+import { MenuOffReasonModal } from '../components/MenuOffReason';
 
 // Not shown even if present — redundant (every row is this machine's own
 // outlet) or just DB bookkeeping rather than something an operator needs to
@@ -26,7 +27,11 @@ const HIDDEN_KEYS = new Set([
   'cost_price', 
   'is_active',
   'incentive_type',
-  'incentive_value'
+  'incentive_value',
+  'inactive_reason', // shown under the Off toggle instead
+  'inactive_since',
+  'inactive_by',
+  'inactive_by_name',
 ]);
 
 // A few keys, if present, are shown first in this order; everything else
@@ -64,6 +69,12 @@ export function MenuItemsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [togglingCat, setTogglingCat] = useState<string | null>(null);
+  // Turning something off asks for a reason first.
+  const [offAsk, setOffAsk] = useState<
+    | { kind: 'item'; item: MenuItemRecord }
+    | { kind: 'category'; group: { key: string; name: string; items: MenuItemRecord[] } }
+    | null
+  >(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(
     null,
   );
@@ -133,17 +144,23 @@ export function MenuItemsPage() {
     async function handleToggleActive(item: MenuItemRecord) {
     const id = String(item.id ?? '');
     if (!id) return;
-    const nextActive = !(item.is_active !== false); // treat missing is_active as active
-    const nowInactive = !nextActive;
+    if (item.is_active !== false) {
+      setOffAsk({ kind: 'item', item }); // turning off: ask why first
+      return;
+    }
+    await applyItem(item, true);
+  }
+
+  async function applyItem(item: MenuItemRecord, nextActive: boolean, reason?: string) {
+    const id = String(item.id ?? '');
     try {
       setTogglingId(id);
-      const result = await window.api.setMenuItemActive(id, nextActive);
+      const result = await window.api.setMenuItemActive(id, nextActive, reason);
       setSnapshot(result);
-      flash(
-        'success',
-        `${String(item.name ?? 'Item')} turned ${nowInactive ? 'off' : 'on'}`,
-      );
+      setOffAsk(null);
+      flash('success', `${String(item.name ?? 'Item')} turned ${nextActive ? 'on' : 'off'}`);
     } catch (err) {
+      setOffAsk(null);
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to update item' });
     } finally {
       setTogglingId(null);
@@ -152,15 +169,22 @@ export function MenuItemsPage() {
 
   async function handleToggleCategory(group: { key: string; name: string; items: MenuItemRecord[] }) {
     const allOn = group.items.every((i) => i.is_active !== false);
-    const next = !allOn;
-    const verb = next ? 'on' : 'off';
-    if (!next && !confirm(`Turn off all ${group.items.length} item(s) in "${group.name}"?`)) return;
+    if (allOn) {
+      setOffAsk({ kind: 'category', group }); // turning off: ask why first
+      return;
+    }
+    await applyCategory(group, true);
+  }
+
+  async function applyCategory(group: { key: string; name: string; items: MenuItemRecord[] }, next: boolean, reason?: string) {
     try {
       setTogglingCat(group.key);
-      const result = await window.api.setCategoryActive(group.key, next);
+      const result = await window.api.setCategoryActive(group.key, next, reason);
       setSnapshot(result);
-      flash('success', `${group.name}: all items turned ${verb}`);
+      setOffAsk(null);
+      flash('success', `${group.name}: all items turned ${next ? 'on' : 'off'}`);
     } catch (err) {
+      setOffAsk(null);
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to update category' });
     } finally {
       setTogglingCat(null);
@@ -311,6 +335,11 @@ export function MenuItemsPage() {
                       {togglingId === id ? '…' : isActive ? 'On' : 'Off'}
                     </button>
                     )}
+                    {!isActive && (
+                      <div className={styles.offReason} title={item.inactive_since ? `Turned off ${formatDateTime(String(item.inactive_since))}${item.inactive_by_name ? ` by ${String(item.inactive_by_name)}` : ''}` : undefined}>
+                        {item.inactive_reason ? String(item.inactive_reason) : 'No reason recorded'}
+                      </div>
+                    )}
                   </td>
                   {canManage && (
                     <td>
@@ -338,6 +367,17 @@ export function MenuItemsPage() {
           categories={categories}
           onSave={handleSaveItem}
           onClose={() => setFormItem(undefined)}
+        />
+      )}
+      {offAsk && (
+        <MenuOffReasonModal
+          title={offAsk.kind === 'item' ? `Turn off ${String(offAsk.item.name ?? 'this item')}?` : `Turn off "${offAsk.group.name}"?`}
+          subtitle={offAsk.kind === 'category' ? `All ${offAsk.group.items.length} item(s) in this category will be turned off.` : undefined}
+          busy={togglingId !== null || togglingCat !== null}
+          onCancel={() => setOffAsk(null)}
+          onConfirm={(reason) =>
+            offAsk.kind === 'item' ? void applyItem(offAsk.item, false, reason) : void applyCategory(offAsk.group, false, reason)
+          }
         />
       )}
     </div>

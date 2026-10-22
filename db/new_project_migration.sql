@@ -915,3 +915,121 @@ alter table kot_statuses add column notify_waiter boolean not null default false
 alter table kot_time_levels add column notify boolean not null default false;
     -- the delay alert starts at 10 minutes
     update kot_time_levels set notify = true where from_minutes = 10;
+
+
+
+
+-- ============================================================================
+-- WHY A MENU ITEM IS OFF (reason on every on/off change)
+-- ============================================================================
+-- Turning an item off (the On/Off toggle, a whole category, or the Active box in the
+-- item form) needs a reason. menu_items keeps the CURRENT reason (inactive_reason,
+-- inactive_since, inactive_by, inactive_by_name); menu_availability_log keeps the whole
+-- history (one row per item per change, 'off' with its reason, 'on' without).
+-- Enforced by a trigger, so every way of changing is_active is covered. Changes made
+-- with no signed-in user (migrations, scripts) are not blocked; they record
+-- 'Changed by the system'. Items that were already off keep no reason.
+alter table menu_items add column if not exists inactive_reason text;
+alter table menu_items add column if not exists inactive_since timestamptz;
+alter table menu_items add column if not exists inactive_by uuid;
+alter table menu_items add column if not exists inactive_by_name text;
+-- Written by the app together with is_active, read (and cleared) by the trigger below, so the log can tell
+-- a whole-category switch from a single item switch: change_scope 'item' | 'category'; change_batch is one
+-- id shared by every item changed by the same category switch.
+alter table menu_items add column if not exists change_scope text;
+alter table menu_items add column if not exists change_batch uuid;
+
+create table if not exists menu_availability_log (
+  id           uuid primary key default gen_random_uuid(),
+  outlet_id    uuid not null,
+  menu_item_id uuid not null,   -- no foreign key: the history outlives a deleted item
+  item_name    text,
+  category_id  uuid,
+  action       text not null check (action in ('on', 'off')),
+  reason       text,
+  changed_by   uuid,
+  changed_by_name text,
+  changed_at   timestamptz not null default now(),
+  scope        text not null default 'item' check (scope in ('item', 'category')),
+  batch_id     uuid           -- the same for every item turned off or on by one category switch
+);
+alter table menu_availability_log add column if not exists scope text not null default 'item';
+alter table menu_availability_log add column if not exists batch_id uuid;
+create index if not exists idx_menu_availability_log_item on menu_availability_log (menu_item_id, changed_at desc);
+create index if not exists idx_menu_availability_log_outlet on menu_availability_log (outlet_id, changed_at desc);
+alter table menu_availability_log enable row level security;
+--drop policy if exists "read own outlet availability log" on menu_availability_log;
+create policy "read own outlet availability log" on menu_availability_log
+  for select to authenticated
+  using (exists (select 1 from profiles p
+                  where p.user_id = auth.uid() and p.outlet_id = menu_availability_log.outlet_id
+                    and has_permission('menu.view')));
+
+
+create or replace function menu_items_track_active()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid  uuid := auth.uid();
+  v_name text;
+  v_reason text := nullif(btrim(new.inactive_reason), '');
+  v_turning_off boolean;
+  v_turning_on boolean;
+  v_scope text;
+  v_batch uuid;
+begin
+  v_turning_off := (not coalesce(new.is_active, true))
+                   and (tg_op = 'INSERT' or coalesce(old.is_active, true));
+  v_turning_on  := coalesce(new.is_active, true)
+                   and tg_op = 'UPDATE' and not coalesce(old.is_active, true);
+  v_scope := case when new.change_scope = 'category' then 'category' else 'item' end;
+  v_batch := new.change_batch;
+  new.change_scope := null;
+  new.change_batch := null;
+  if not (v_turning_off or v_turning_on) then
+    -- still off: only a reason edit is possible; keep it trimmed
+    if tg_op = 'UPDATE' and not coalesce(new.is_active, true) then
+      new.inactive_reason := coalesce(v_reason, old.inactive_reason);
+    end if;
+    return new;
+  end if;
+
+  if v_uid is not null then
+    select coalesce(nullif(btrim(p.first_name), ''), p.email)
+      into v_name from profiles p where p.user_id = v_uid;
+  end if;
+
+  if v_turning_off then
+    if v_reason is null then
+      if v_uid is not null then
+        raise exception 'Give a reason for turning this item off';
+      end if;
+      v_reason := 'Changed by the system';
+    end if;
+    if char_length(v_reason) > 200 then
+      raise exception 'The reason is too long (200 characters at most)';
+    end if;
+    new.inactive_reason := v_reason;
+    new.inactive_since := now();
+    new.inactive_by := v_uid;
+    new.inactive_by_name := v_name;
+    insert into menu_availability_log (outlet_id, menu_item_id, item_name, category_id, action, reason, changed_by, changed_by_name, scope, batch_id)
+    values (new.outlet_id, new.id, new.name, new.category_id, 'off', v_reason, v_uid, v_name, v_scope, v_batch);
+  else
+    new.inactive_reason := null;
+    new.inactive_since := null;
+    new.inactive_by := null;
+    new.inactive_by_name := null;
+    insert into menu_availability_log (outlet_id, menu_item_id, item_name, category_id, action, reason, changed_by, changed_by_name, scope, batch_id)
+    values (new.outlet_id, new.id, new.name, new.category_id, 'on', null, v_uid, v_name, v_scope, v_batch);
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists menu_items_track_active on menu_items;
+create trigger menu_items_track_active
+  before insert or update on menu_items
+  for each row execute function menu_items_track_active();

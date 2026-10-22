@@ -7,6 +7,7 @@ import type {
   SalesByOrderTypeRow,
   SalesByTypeBucketRow,
   SalesByWaiterRow,
+  MenuAvailabilityReport,
 } from '../../../shared/types';
 
 /**
@@ -126,7 +127,77 @@ async function fetchSalesByWaiter(from: string, to: string): Promise<SalesByWait
   }));
 }
 
+async function fetchMenuAvailability(from: string, to: string): Promise<MenuAvailabilityReport> {
+  const { data, error } = await getAuthedClient().rpc('get_menu_availability', { p_from: from, p_to: to });
+  if (error) throw new Error(error.message);
+  const d = (data ?? {}) as Record<string, unknown>;
+  const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
+  const s = (d.summary ?? {}) as Record<string, unknown>;
+  const str = (v: unknown): string | null => (v == null ? null : String(v));
+  return {
+    summary: {
+      offEvents: Number(s.off_events ?? 0),
+      itemsAffected: Number(s.items_affected ?? 0),
+      downtimeHours: Number(s.downtime_hours ?? 0),
+      lostUnits: Number(s.lost_units ?? 0),
+      lostValue: Number(s.lost_value ?? 0),
+      categoryOffEvents: Number(s.category_off_events ?? 0),
+      topReason: str(s.top_reason),
+      currentlyOff: Number(s.currently_off ?? 0),
+    },
+    items: arr(d.items).map((r) => ({
+      menuItemId: String(r.menu_item_id),
+      name: String(r.name ?? ''),
+      category: str(r.category),
+      timesOff: Number(r.times_off ?? 0),
+      downtimeHours: Number(r.downtime_hours ?? 0),
+      longestHours: Number(r.longest_hours ?? 0),
+      stillOff: r.still_off === true,
+      topReason: str(r.top_reason),
+      lostUnits: Number(r.lost_units ?? 0),
+      lostValue: Number(r.lost_value ?? 0),
+    })),
+    reasons: arr(d.reasons).map((r) => ({
+      reason: String(r.reason ?? ''),
+      count: Number(r.count ?? 0),
+      downtimeHours: Number(r.downtime_hours ?? 0),
+    })),
+    categoryEvents: arr(d.category_events).map((r) => ({
+      categoryId: str(r.category_id),
+      category: String(r.category ?? ''),
+      offAt: String(r.off_at ?? ''),
+      reason: String(r.reason ?? ''),
+      itemCount: Number(r.item_count ?? 0),
+      downtimeHours: Number(r.downtime_hours ?? 0),
+      stillOff: r.still_off === true,
+    })),
+    timeline: arr(d.timeline).map((r) => ({
+      menuItemId: String(r.menu_item_id),
+      name: String(r.name ?? ''),
+      category: str(r.category),
+      offAt: String(r.off_at ?? ''),
+      onAt: str(r.on_at),
+      hours: Number(r.hours ?? 0),
+      reason: String(r.reason ?? ''),
+      by: str(r.by),
+      scope: r.scope === 'category' ? 'category' : 'item',
+    })),
+    staff: arr(d.staff).map((r) => ({ name: String(r.name ?? ''), offs: Number(r.offs ?? 0), ons: Number(r.ons ?? 0) })),
+    byWeekday: arr(d.by_weekday).map((r) => ({ dow: Number(r.dow), count: Number(r.count ?? 0) })),
+    byHour: arr(d.by_hour).map((r) => ({ hour: Number(r.hour), count: Number(r.count ?? 0) })),
+    currentlyOff: arr(d.currently_off).map((r) => ({
+      menuItemId: String(r.menu_item_id),
+      name: String(r.name ?? ''),
+      category: str(r.category),
+      reason: str(r.reason),
+      since: str(r.since),
+      by: str(r.by),
+    })),
+  };
+}
+
 export const reports: ReportRepository = {
+  menuAvailability: fetchMenuAvailability,
   salesByWaiter: fetchSalesByWaiter,
   salesReport: fetchSalesReport,
   topItems: fetchTopItems,

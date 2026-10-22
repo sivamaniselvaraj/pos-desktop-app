@@ -1,4 +1,5 @@
-import { getAnonClient, getAuthedClient } from './sessionClient';
+import { randomUUID } from 'crypto';
+import { getAuthedClient } from './sessionClient';
 import type { MenuItemValues, MenuRepository } from '../ports';
 
 function toRow(v: MenuItemValues) {
@@ -22,6 +23,7 @@ function toRow(v: MenuItemValues) {
     incentive_applicable: v.incentiveApplicable,
     incentive_type: v.incentiveApplicable ? v.incentiveType : null,
     incentive_value: v.incentiveApplicable ? v.incentiveValue : null,
+    ...(v.inactiveReason ? { inactive_reason: v.inactiveReason } : {}),
   };
 }
 
@@ -49,10 +51,10 @@ export const menu: MenuRepository = {
 
   // RLS ("managers manage own outlet menu") is the permission check: a caller
   // without menu.edit, or an item of another outlet, updates zero rows.
-  async setItemActive(menuItemId, isActive) {
+  async setItemActive(menuItemId, isActive, reason) {
     const { data, error } = await getAuthedClient()
       .from('menu_items')
-      .update({ is_active: isActive })
+      .update(isActive ? { is_active: true } : { is_active: false, inactive_reason: reason ?? null })
       .eq('id', menuItemId)
       .select('id');
     if (error) throw new Error(error.message);
@@ -60,8 +62,18 @@ export const menu: MenuRepository = {
   },
 
   // Same RLS check as setItemActive; only this outlet's items are touched.
-  async setCategoryActive(outletId, categoryId, isActive) {
-    let q = getAuthedClient().from('menu_items').update({ is_active: isActive }).eq('outlet_id', outletId);
+  async setCategoryActive(outletId, categoryId, isActive, reason) {
+    // Turning off only touches items that are on, so an item already off keeps its own reason.
+    let q = getAuthedClient()
+      .from('menu_items')
+      // change_scope / change_batch tell the availability log this was one category switch.
+      .update({
+        ...(isActive ? { is_active: true } : { is_active: false, inactive_reason: reason ?? null }),
+        change_scope: 'category',
+        change_batch: randomUUID(),
+      })
+      .eq('outlet_id', outletId)
+      .eq('is_active', !isActive);
     q = categoryId ? q.eq('category_id', categoryId) : q.is('category_id', null);
     const { data, error } = await q.select('id');
     if (error) throw new Error(error.message);

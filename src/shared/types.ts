@@ -197,6 +197,7 @@ export interface PrintOrderResponse {
   error?: string;
 }
 
+// ---- Printer / server status ----
 export type ReportBucket = 'day' | 'month';
 
 /** One row per bucket (day or month) — never per order. */
@@ -206,6 +207,59 @@ export interface SalesReportRow {
   taxTotal: number;
   netTotal: number;
   avgOrderValue: number;
+}
+
+/** Menu availability report (get_menu_availability): when items were turned off, why, and for how long. */
+export interface MenuAvailabilityReport {
+  summary: {
+    offEvents: number;
+    itemsAffected: number;
+    downtimeHours: number;
+    /** Estimate: units normally sold in the hours the items were off. */
+    lostUnits: number;
+    /** Estimate: lostUnits at the price they sold for. */
+    lostValue: number;
+    categoryOffEvents: number;
+    topReason: string | null;
+    currentlyOff: number;
+  };
+  items: {
+    menuItemId: string;
+    name: string;
+    category: string | null;
+    timesOff: number;
+    downtimeHours: number;
+    longestHours: number;
+    stillOff: boolean;
+    topReason: string | null;
+    lostUnits: number;
+    lostValue: number;
+  }[];
+  reasons: { reason: string; count: number; downtimeHours: number }[];
+  categoryEvents: {
+    categoryId: string | null;
+    category: string;
+    offAt: string;
+    reason: string;
+    itemCount: number;
+    downtimeHours: number;
+    stillOff: boolean;
+  }[];
+  timeline: {
+    menuItemId: string;
+    name: string;
+    category: string | null;
+    offAt: string;
+    onAt: string | null;
+    hours: number;
+    reason: string;
+    by: string | null;
+    scope: 'item' | 'category';
+  }[];
+  staff: { name: string; offs: number; ons: number }[];
+  byWeekday: { dow: number; count: number }[];
+  byHour: { hour: number; count: number }[];
+  currentlyOff: { menuItemId: string; name: string; category: string | null; reason: string | null; since: string | null; by: string | null }[];
 }
 
 /** One waiter's settled sales in a date range (get_sales_by_waiter). waiterId is null for orders with no waiter. */
@@ -561,6 +615,8 @@ export interface SaveMenuItemPayload {
   /** 'percent' = % of the line value before tax; 'fixed' = money per unit sold. Required when applicable. */
   incentiveType?: 'percent' | 'fixed' | null;
   incentiveValue?: number | null;
+  /** Required when this save turns an active item off, or creates it off. */
+  inactiveReason?: string | null;
 }
 
 /** One cart line sent to place_order / place_pickup_order. */
@@ -897,6 +953,7 @@ export const IpcChannels = {
   //report (renderer -> main, invoke)
   GET_SALES_REPORT: 'get-sales-report',
   GET_SALES_BY_WAITER: 'get-sales-by-waiter',
+  GET_MENU_AVAILABILITY: 'get-menu-availability',
   GET_TOP_ITEMS: 'get-top-items',
   GET_SALES_BY_ORDER_TYPE: 'get-sales-by-order-type',
   GET_SALES_BY_TYPE_BUCKETED: 'get-sales-by-type-bucketed',
@@ -987,6 +1044,7 @@ export interface ElectronApi {
   getPrinters(): Promise<PrinterInfo[]>;
   getSalesReport(from: string, to: string, bucket: ReportBucket): Promise<SalesReportRow[]>;
   getSalesByWaiter(from: string, to: string): Promise<SalesByWaiterRow[]>;
+  getMenuAvailability(from: string, to: string): Promise<MenuAvailabilityReport>;
   getTopItems(from: string, to: string): Promise<TopItemRow[]>;
   getSalesByOrderType(from: string, to: string): Promise<SalesByOrderTypeRow[]>;
   getSalesByTypeBucketed(
@@ -1034,9 +1092,10 @@ export interface ElectronApi {
   reprintOrder(orderId: string): Promise<void>;
   getMenuItems(): Promise<MenuCacheSnapshot>;
   refreshMenuCache(): Promise<MenuCacheSnapshot>;
-  setMenuItemActive(menuItemId: string, isActive: boolean): Promise<MenuCacheSnapshot>;
+  /** `reason` is required when turning off. */
+  setMenuItemActive(menuItemId: string, isActive: boolean, reason?: string): Promise<MenuCacheSnapshot>;
   /** Turn every item of a category on or off (this outlet). categoryId '' = items without a category. */
-  setCategoryActive(categoryId: string, isActive: boolean): Promise<MenuCacheSnapshot>;
+  setCategoryActive(categoryId: string, isActive: boolean, reason?: string): Promise<MenuCacheSnapshot>;
   listTables(): Promise<TableCard[]>;
   listManagedTables(): Promise<ManagedTable[]>;
   getKotBoard(): Promise<KotBoard>;

@@ -11,6 +11,7 @@ import type {
   PrintOrderResponse,
   SalesReportRow,
   SalesByWaiterRow,
+  MenuAvailabilityReport,
   TopItemRow,
   SalesByOrderTypeRow,
   SalesByTypeBucketRow,
@@ -41,7 +42,7 @@ import type {
   SavePaymentPayload,
   TableOrderDetail,
   InvoiceSequenceStatus,
-} from './shared/types.js';
+} from './shared/types';
 
 // Helper to subscribe to a main->renderer channel and return an unsubscribe fn.
 function on<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -63,6 +64,8 @@ const api: ElectronApi = {
   getPrinters: () => ipcRenderer.invoke(IpcChannels.GET_PRINTERS) as Promise<PrinterInfo[]>,
   getSalesReport: (from, to, bucket) =>
     ipcRenderer.invoke(IpcChannels.GET_SALES_REPORT, from, to, bucket) as Promise<SalesReportRow[]>,
+  getMenuAvailability: (from, to) =>
+    ipcRenderer.invoke(IpcChannels.GET_MENU_AVAILABILITY, from, to) as Promise<MenuAvailabilityReport>,
   getSalesByWaiter: (from, to) =>
     ipcRenderer.invoke(IpcChannels.GET_SALES_BY_WAITER, from, to) as Promise<SalesByWaiterRow[]>,
   getTopItems: (from, to) =>
@@ -114,7 +117,7 @@ const api: ElectronApi = {
       IpcChannels.DELETE_ORDER_ITEM,
       orderItemId,
       reason,
-      approval,
+      approval
     ) as Promise<void>,
   getDiscountSettings: () => ipcRenderer.invoke(IpcChannels.GET_DISCOUNT_SETTINGS) as Promise<DiscountSettings>,
   saveDiscountPresets: (presets) => ipcRenderer.invoke(IpcChannels.SAVE_DISCOUNT_PRESETS, presets) as Promise<void>,
@@ -143,13 +146,14 @@ const api: ElectronApi = {
   getMenuItems: () => ipcRenderer.invoke(IpcChannels.GET_MENU_ITEMS) as Promise<MenuCacheSnapshot>,
   refreshMenuCache: () =>
     ipcRenderer.invoke(IpcChannels.REFRESH_MENU_CACHE) as Promise<MenuCacheSnapshot>,
-  setCategoryActive: (categoryId, isActive) =>
-    ipcRenderer.invoke(IpcChannels.SET_CATEGORY_ACTIVE, categoryId, isActive) as Promise<MenuCacheSnapshot>,
-  setMenuItemActive: (menuItemId, isActive) =>
+  setCategoryActive: (categoryId, isActive, reason) =>
+    ipcRenderer.invoke(IpcChannels.SET_CATEGORY_ACTIVE, categoryId, isActive, reason) as Promise<MenuCacheSnapshot>,
+  setMenuItemActive: (menuItemId, isActive, reason) =>
     ipcRenderer.invoke(
       IpcChannels.SET_MENU_ITEM_ACTIVE,
       menuItemId,
-      isActive,
+      isActive, 
+      reason
     ) as Promise<MenuCacheSnapshot>,
   listTables: () => ipcRenderer.invoke(IpcChannels.LIST_TABLES) as Promise<TableCard[]>,
   listManagedTables: () =>

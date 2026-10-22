@@ -3469,3 +3469,184 @@ begin
 end;
 $$;
 grant execute on function get_phone_orders() to authenticated;
+
+-- ============================================================================
+-- MENU AVAILABILITY REPORT (from menu_availability_log)
+-- ============================================================================
+-- get_menu_availability(from, to): when items were turned off, why, and for how long, in the
+-- caller's outlet (needs reports.view AND reports.menu_availability). Dates are outlet local dates, like the other reports.
+-- An "off period" runs from an 'off' log row to the next 'on' row of the same item (still open
+-- = off now). Counts use the periods that STARTED in the range; downtime counts the hours of any
+-- period that overlaps the range (an item left off over the weekend counts on both sides).
+-- Reasons starting 'Other - ' are grouped as 'Other' in the breakdowns.
+-- Estimated lost sales: for every hour an item was off, the units it normally sells in that same
+-- hour of the same weekday (average of the 4 previous weeks, completed orders), times the price
+-- it sold at (menu price if it had no sales). Hours the outlet is closed sell nothing, so they
+-- add nothing. It is an estimate, not a measured loss.
+-- Returns { summary, items[], reasons[], category_events[], timeline[], staff[], by_weekday[],
+--           by_hour[], currently_off[] }.
+create or replace function get_menu_availability(p_from date, p_to date)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_tz text;
+  v_ws timestamp;
+  v_we timestamp;
+  v_now timestamp;
+  v_result jsonb;
+begin
+  if not (has_permission('reports.view') and has_permission('reports.menu_availability')) then
+    raise exception 'Not allowed to see the menu availability report';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true) and p.outlet_id is not null;
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  v_tz := (select my_timezone());
+  v_ws := p_from::timestamp;
+  v_we := (p_to + 1)::timestamp;
+  v_now := now() at time zone v_tz;
+
+  with logrows as (
+    select l.*,
+           lead(l.action) over w as next_action,
+           lead(l.changed_at) over w as next_at
+      from menu_availability_log l
+     where l.outlet_id = v_outlet
+    window w as (partition by l.menu_item_id order by l.changed_at, l.id)
+  ),
+  periods as (
+    select r.id, r.menu_item_id, r.item_name, r.category_id, r.reason,
+           case when r.reason like 'Other - %' then 'Other' else r.reason end as reason_grp,
+           r.changed_by_name, r.scope, r.batch_id,
+           (r.changed_at at time zone v_tz) as off_local,
+           case when r.next_action = 'on' then (r.next_at at time zone v_tz) end as on_local
+      from logrows r
+     where r.action = 'off'
+  ),
+  clipped as (
+    select p.*,
+           greatest(p.off_local, v_ws) as lo,
+           least(coalesce(p.on_local, v_now), v_we, v_now) as hi,
+           (p.off_local >= v_ws and p.off_local < v_we) as starts_in
+      from periods p
+  ),
+  inwin as (
+    select c.*, greatest(0, extract(epoch from (c.hi - c.lo)) / 3600.0) as hours,
+           extract(epoch from (coalesce(c.on_local, v_now) - c.off_local)) / 3600.0 as full_hours
+      from clipped c
+     where c.starts_in or c.lo < c.hi
+  ),
+  lost as (
+    select i.id as period_id,
+           sum(h.frac * h.exp_units) as units,
+           sum(h.frac * h.exp_units * coalesce(h.avg_price, mi.price, 0)) as value
+      from inwin i
+      left join menu_items mi on mi.id = i.menu_item_id
+      cross join lateral (
+        select b.frac, e.exp_units, e.avg_price
+          from (select g as b0,
+                       greatest(0, extract(epoch from (least(g + interval '1 hour', i.hi) - greatest(g, i.lo))) / 3600.0) as frac
+                  from generate_series(date_trunc('hour', i.lo), i.hi, interval '1 hour') g) b
+          cross join lateral (
+            select coalesce(sum(oi.quantity), 0) / 4.0 as exp_units,
+                   avg(oi.unit_price) as avg_price
+              from order_items oi
+              join orders o on o.id = oi.order_id
+             where oi.menu_item_id = i.menu_item_id
+               and o.outlet_id = v_outlet
+               and o.status = 'completed'
+               and not coalesce(oi.is_deleted, false)
+               and oi.status <> 'cancelled'
+               and o.created_at >= (b.b0 - interval '29 days') at time zone v_tz
+               and o.created_at <  b.b0 at time zone v_tz
+               and date_trunc('hour', o.created_at at time zone v_tz)
+                   in (b.b0 - interval '7 days', b.b0 - interval '14 days', b.b0 - interval '21 days', b.b0 - interval '28 days')
+          ) e
+         where b.frac > 0
+      ) h
+     where i.lo < i.hi
+     group by i.id
+  ),
+  items as (
+    select i.menu_item_id,
+           (array_agg(i.item_name order by i.off_local desc))[1] as item_name,
+           (array_agg(i.category_id order by i.off_local desc))[1] as category_id,
+           count(*) filter (where i.starts_in) as times_off,
+           round(sum(i.hours)::numeric, 2) as downtime_hours,
+           round(max(i.hours)::numeric, 2) as longest_hours,
+           bool_or(i.on_local is null) as still_off,
+           mode() within group (order by i.reason_grp) filter (where i.starts_in) as top_reason,
+           round(coalesce(sum(l.units), 0)::numeric, 1) as lost_units,
+           round(coalesce(sum(l.value), 0)::numeric, 2) as lost_value
+      from inwin i left join lost l on l.period_id = i.id
+     group by i.menu_item_id
+  )
+  select jsonb_build_object(
+    'summary', jsonb_build_object(
+      'off_events', (select count(*) from inwin where starts_in),
+      'items_affected', (select count(*) from items),
+      'downtime_hours', coalesce((select round(sum(hours)::numeric, 2) from inwin), 0),
+      'lost_units', coalesce((select round(sum(lost_units)::numeric, 1) from items), 0),
+      'lost_value', coalesce((select round(sum(lost_value)::numeric, 2) from items), 0),
+      'category_off_events', (select count(distinct batch_id) from inwin where starts_in and scope = 'category'),
+      'top_reason', (select mode() within group (order by reason_grp) from inwin where starts_in),
+      'currently_off', (select count(*) from menu_items where outlet_id = v_outlet and not coalesce(is_active, true))
+    ),
+    'items', coalesce((select jsonb_agg(jsonb_build_object(
+        'menu_item_id', it.menu_item_id, 'name', it.item_name,
+        'category', (select c.name from categories c where c.id = it.category_id),
+        'times_off', it.times_off, 'downtime_hours', it.downtime_hours, 'longest_hours', it.longest_hours,
+        'still_off', it.still_off, 'top_reason', it.top_reason,
+        'lost_units', it.lost_units, 'lost_value', it.lost_value)
+        order by it.times_off desc, it.downtime_hours desc, it.item_name) from items it), '[]'::jsonb),
+    'reasons', coalesce((select jsonb_agg(jsonb_build_object('reason', x.reason_grp, 'count', x.n, 'downtime_hours', x.hrs)
+        order by x.n desc, x.reason_grp)
+      from (select reason_grp, count(*) as n, round(sum(hours)::numeric, 2) as hrs from inwin where starts_in group by reason_grp) x), '[]'::jsonb),
+    'category_events', coalesce((select jsonb_agg(jsonb_build_object(
+        'category_id', x.category_id,
+        'category', coalesce((select c.name from categories c where c.id = x.category_id), 'No category'),
+        'off_at', x.off_at, 'reason', x.reason, 'item_count', x.n, 'downtime_hours', x.hrs, 'still_off', x.still_off)
+        order by x.off_at desc)
+      from (select batch_id, (array_agg(category_id))[1] as category_id, min(off_local) as off_at,
+                   (array_agg(reason))[1] as reason, count(*) as n,
+                   round(max(hours)::numeric, 2) as hrs, bool_or(on_local is null) as still_off
+              from inwin where starts_in and scope = 'category' group by batch_id) x), '[]'::jsonb),
+    'timeline', coalesce((select jsonb_agg(jsonb_build_object(
+        'menu_item_id', t.menu_item_id, 'name', t.item_name,
+        'category', (select c.name from categories c where c.id = t.category_id),
+        'off_at', t.off_local, 'on_at', t.on_local, 'hours', round(t.full_hours::numeric, 2),
+        'reason', t.reason, 'by', t.changed_by_name, 'scope', t.scope)
+        order by t.off_local desc)
+      from (select * from inwin order by off_local desc limit 500) t), '[]'::jsonb),
+    'staff', coalesce((select jsonb_agg(jsonb_build_object('name', x.nm, 'offs', x.offs, 'ons', x.ons) order by x.offs desc, x.nm)
+      from (select coalesce(changed_by_name, 'System') as nm,
+                   count(*) filter (where action = 'off') as offs,
+                   count(*) filter (where action = 'on') as ons
+              from menu_availability_log
+             where outlet_id = v_outlet
+               and (changed_at at time zone v_tz) >= v_ws and (changed_at at time zone v_tz) < v_we
+             group by 1) x), '[]'::jsonb),
+    'by_weekday', coalesce((select jsonb_agg(jsonb_build_object('dow', d, 'count', coalesce(c.n, 0)) order by d)
+      from generate_series(0, 6) d
+      left join (select extract(dow from off_local)::int as dw, count(*) as n from inwin where starts_in group by 1) c on c.dw = d), '[]'::jsonb),
+    'by_hour', coalesce((select jsonb_agg(jsonb_build_object('hour', h, 'count', coalesce(c.n, 0)) order by h)
+      from generate_series(0, 23) h
+      left join (select extract(hour from off_local)::int as hr, count(*) as n from inwin where starts_in group by 1) c on c.hr = h), '[]'::jsonb),
+    'currently_off', coalesce((select jsonb_agg(jsonb_build_object(
+        'menu_item_id', m.id, 'name', m.name,
+        'category', (select c.name from categories c where c.id = m.category_id),
+        'reason', m.inactive_reason, 'since', m.inactive_since, 'by', m.inactive_by_name)
+        order by m.inactive_since nulls last, m.name)
+      from menu_items m where m.outlet_id = v_outlet and not coalesce(m.is_active, true)), '[]'::jsonb)
+  ) into v_result;
+  return v_result;
+end;
+$$;
+grant execute on function get_menu_availability(date, date) to authenticated;

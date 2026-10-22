@@ -62,3 +62,11 @@ insert into kot_statuses (outlet_id, code, name, color, action_label, sort_order
     (p_outlet, 'Getting late', 10, '#f1c40f'),
     (p_outlet, 'Late', 20, '#c0392b')
   on conflict do nothing;
+
+insert into permissions (code, description) values
+  ('reports.menu_availability', 'See the Menu availability report (when items were turned off, why, for how long)')
+on conflict (code) do nothing;
+
+insert into permissions (code, description) values
+  ('reports.incentive', 'See the By waiter report (sales and incentive per waiter)')
+on conflict (code) do nothing;

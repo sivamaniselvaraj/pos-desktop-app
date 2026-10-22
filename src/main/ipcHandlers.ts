@@ -128,7 +128,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.AUTH_SIGN_OUT, () => signOut());
   ipcMain.handle(IpcChannels.AUTH_GET_SESSION, () => getCurrentUser());
 
-  // orders renderer -> main (invoke/handle)
+  // orders (renderer -> main, invoke/handle)
   ipcMain.handle(IpcChannels.GET_ORDERS, () => orderManager.getAll());
   ipcMain.handle(IpcChannels.RETRY_PRINT, (_e, orderId: string) => orderManager.retry(orderId));
   ipcMain.handle(IpcChannels.CANCEL_ORDER, (_e, orderId: string) => orderManager.cancel(orderId));
@@ -172,6 +172,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     resetDevicePin(id);
   });
 
+  ipcMain.handle(IpcChannels.GET_MENU_AVAILABILITY, (_e, from: string, to: string) => db.reports.menuAvailability(from, to));
   ipcMain.handle(IpcChannels.GET_SALES_BY_WAITER, (_e, from: string, to: string) => db.reports.salesByWaiter(from, to));
 
   // Sales report (manager/owner/admin — enforced server-side by the RPC)
@@ -256,12 +257,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   // in Promise.resolve() only so it matches the async invoke() contract.
   ipcMain.handle(IpcChannels.GET_MENU_ITEMS, () => Promise.resolve(getCachedMenuItems()));
   ipcMain.handle(IpcChannels.REFRESH_MENU_CACHE, () => refreshMenuCache());
-  ipcMain.handle(IpcChannels.SET_CATEGORY_ACTIVE, (_e, categoryId: string, isActive: boolean) =>
-    setCategoryActive(categoryId, isActive),
+  ipcMain.handle(IpcChannels.SET_CATEGORY_ACTIVE, (_e, categoryId: string, isActive: boolean, reason?: string) =>
+    setCategoryActive(categoryId, isActive, reason),
   );
   ipcMain.handle(
     IpcChannels.SET_MENU_ITEM_ACTIVE,
-    (_e, menuItemId: string, isActive: boolean) => setMenuItemActive(menuItemId, isActive),
+    (_e, menuItemId: string, isActive: boolean, reason?: string) => setMenuItemActive(menuItemId, isActive, reason),
   );
 
   // Dashboard table cards

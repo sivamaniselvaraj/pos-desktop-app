@@ -32,9 +32,9 @@ export const orderEntry: OrderEntryRepository = {
       p_table_id: a.tableId,
       p_outlet_id: a.outletId,
       p_items: toJsonItems(a.items),
-      p_customer_name: null,
-      p_customer_phone: null,
-      p_notes: null,
+      p_customer_name: a.customerName,
+      p_customer_phone: a.customerPhone,
+      p_notes: a.notes,
     });
 
     if (error) throw new Error(error.message);
