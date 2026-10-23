@@ -7,16 +7,14 @@ const str = (v: unknown): string => (v == null ? '' : String(v));
 const strOrNull = (v: unknown): string | null => (v == null || v === '' ? null : String(v));
 
 /** Every call is authorized (and scoped to the caller's outlet) in the database. */
-export const kots: KotRepository = {
-  async getBoard(): Promise<KotBoard> {
-    const { data, error } = await getAuthedClient().rpc('get_kot_board');
-    if (error) throw new Error(error.message);
+function mapBoard(data: unknown): KotBoard {
     const d = (data ?? {}) as Row;
     const list = (v: unknown): Row[] => (Array.isArray(v) ? (v as Row[]) : []);
     return {
       now: str(d.now),
       statuses: list(d.statuses).map((s) => ({
         id: str(s.id),
+        code: str(s.code),
         name: str(s.name),
         color: str(s.color),
         actionLabel: strOrNull(s.action_label),
@@ -46,6 +44,29 @@ export const kots: KotRepository = {
         })),
       })),
     };
+}
+
+export const kots: KotRepository = {
+  async getBoard(): Promise<KotBoard> {
+    const { data, error } = await getAuthedClient().rpc('get_kot_board');
+    if (error) throw new Error(error.message);
+     return mapBoard(data);
+  },
+
+  async getBoardAs(userId) {
+    const { data, error } = await getAuthedClient().rpc('get_kot_board_as', { p_user: userId });
+    if (error) throw new Error(error.message);
+    return mapBoard(data);
+  },
+
+  async moveAs(userId, orderId, toStatusId, fromStatusId) {
+    const { error } = await getAuthedClient().rpc('move_kot_as', {
+      p_user: userId,
+      p_order_id: orderId,
+      p_to_status: toStatusId,
+      p_from_status: fromStatusId,
+    });
+    if (error) throw new Error(error.message);
   },
 
   async move(orderId, toStatusId, fromStatusId) {

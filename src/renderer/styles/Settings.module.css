@@ -303,3 +303,20 @@
 .tabs { display: flex; gap: 4px; border-bottom: 2px solid #bdc3c7; margin-bottom: 16px; }
 .tab, .tabActive { padding: 10px 20px; font-size: 15px; background: none; border: none; cursor: pointer; color: #7f8c8d; font-weight: 500; margin-bottom: -2px; }
 .tabActive { color: #1e8449; font-weight: 700; border-bottom: 3px solid #1e8449; }
+
+.cancelBtn {
+  padding: 8px 12px;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #333;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.cancelBtn:hover {
+  background: #f4f4f4;
+}

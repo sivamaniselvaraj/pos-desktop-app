@@ -13,6 +13,7 @@ import type {
 import { formatDateTime } from '../lib/format';
 import { KotWorkflow } from '../components/KotWorkflowSettings';
 import { DiscountSettings } from '../components/DiscountSettings';
+import { TaxRates } from './TaxRates';
 
 interface PrinterConfigs {
   [key: string]: string; // e.g., { printer_kitchen: "USB001", printer_cashier: "COM1" }
@@ -36,7 +37,8 @@ export function Settings() {
   const canDevices = can('users.manage');
   const canKot = can('kot.manage');
   const canDiscounts = can('discount.manage');
-  const [tab, setTab] = useState<'general' | 'kot' | 'discounts'>('general');
+  const canTax = can('tax.manage');
+  const [tab, setTab] = useState<'general' | 'kot' | 'discounts' | 'tax'>('general');
 
   const [invoiceStatus, setInvoiceStatus] = useState<InvoiceSequenceStatus | null>(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
@@ -189,6 +191,17 @@ export function Settings() {
     }
   }
 
+  async function handleResetPin(device: ApiDevice) {
+    if (!window.confirm(`Reset the app PIN on "${device.name}"? The user sets a new PIN next time they open the app.`)) return;
+    try {
+      await window.api.resetApiDevicePin(device.id);
+      await loadDevices();
+      flash('success', `PIN reset on "${device.name}".`);
+    } catch (err) {
+      flash('error', err instanceof Error ? err.message : 'Could not reset the PIN');
+    }
+  }
+
   function flash(type: 'success' | 'error', text: string) {
     setMessage({ type, text });
     setTimeout(() => setMessage(null), 3000);
@@ -292,7 +305,7 @@ export function Settings() {
         <h1>Settings</h1>
       </div>
 
-      {(canKot || canDiscounts) && (
+      {(canKot || canDiscounts || canTax) && (
         <div className={styles.tabs}>
           <button className={tab === 'general' ? styles.tabActive : styles.tab} onClick={() => setTab('general')}>
             General
@@ -305,6 +318,11 @@ export function Settings() {
           {canDiscounts && (
             <button className={tab === 'discounts' ? styles.tabActive : styles.tab} onClick={() => setTab('discounts')}>
               Discounts
+            </button>
+          )}
+          {canTax && (
+            <button className={tab === 'tax' ? styles.tabActive : styles.tab} onClick={() => setTab('tax')}>
+              Tax
             </button>
           )}
         </div>
@@ -328,9 +346,19 @@ export function Settings() {
         </div>
       )}
 
+      {tab === 'tax' && canTax && (
+        <div className={styles.container}>
+          <TaxRates />
+        </div>
+      )}
+
       <div
         className={styles.container}
-        style={(tab === 'kot' && canKot) || (tab === 'discounts' && canDiscounts) ? { display: 'none' } : undefined}
+        style={
+          (tab === 'kot' && canKot) || (tab === 'discounts' && canDiscounts) || (tab === 'tax' && canTax)
+            ? { display: 'none' }
+            : undefined
+        }
       >
         {/* Printers */}
         <div className={styles.section}>
@@ -357,11 +385,11 @@ export function Settings() {
               return (
                 <div key={role} className={styles.printerCardWrap}>
                   <div className={styles.printerCard}>
-                  <div className={styles.printerInfo}>
-                    <div className={styles.printerName}>{role}</div>
-                  </div>
+                    <div className={styles.printerInfo}>
+                      <div className={styles.printerName}>{role}</div>
+                    </div>
 
-                  <select
+                    <select
                       className={styles.roleSelect}
                       value={device}
                       onChange={(e) => handleDropdownChange(role, e.target.value)}
@@ -385,7 +413,7 @@ export function Settings() {
                       {savingRole === role ? 'Saving...' : 'Save'}
                     </button>
 
-                  <button
+                    <button
                       className={styles.testBtn}
                       onClick={() => handleTestPrint(role)}
                       disabled={busy || !device}
@@ -394,8 +422,8 @@ export function Settings() {
                       <Icon name="print" size={16} />
                       {testingRole === role ? 'Testing...' : 'Test'}
                     </button>
-                    </div>
-                    {staleNotices[role] && (
+                  </div>
+                  {staleNotices[role] && (
                     <div className={styles.staleNotice}>
                       <Icon name="alert" size={14} />
                       {staleNotices[role]}
@@ -508,10 +536,18 @@ export function Settings() {
                         </small>
                       )}
                       <small className={styles.hint}>
+                        {d.pinSet ? 'App PIN set' : 'No app PIN yet (the user sets it on the phone)'}
+                      </small>
+                      <small className={styles.hint}>
                         Paired {formatDateTime(d.createdAt)}
                         {d.lastUsedAt ? `, last used ${formatDateTime(d.lastUsedAt)}` : ', never used'}
                       </small>
                     </div>
+                    {d.pinSet && (
+                      <button className={styles.cancelBtn} onClick={() => void handleResetPin(d)}>
+                        Reset PIN
+                      </button>
+                    )}
                     <button className={styles.saveBtn} onClick={() => void handleRevokeDevice(d)}>
                       Revoke
                     </button>

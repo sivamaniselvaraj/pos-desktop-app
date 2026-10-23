@@ -19,9 +19,9 @@ import type {
   SalesByTypeBucketRow,
 } from '@shared/types';
 import { DINE_IN_ORDER_TYPE } from '../../shared/types';
-import { SalesByWaiterTab } from './SalesByWaiter';
+import { SalesByWaiterTab } from './ReportSalesByWaiter';
 import { useAuth } from '../context/AuthContext';
-import { MenuAvailabilityTab } from './MenuAvailability';
+import { MenuAvailabilityTab } from './ReportMenuAvailability';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/SalesReport.module.css';
 import { formatMoney as formatCurrency, dateInOrgZone, currencySymbol, formatNumber } from '../lib/format';

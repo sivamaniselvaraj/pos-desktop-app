@@ -541,6 +541,17 @@ export interface MenuCategory {
   name: string;
 }
 
+/** One row of the Categories tab (Menu page): a category of this outlet, active or not. */
+export interface MenuCategoryAdmin {
+  id: string;
+  name: string;
+  /** Display order (lowest first); null = not set, listed last. */
+  sortOrder: number;
+  isActive: boolean;
+  itemCount: number;
+  activeItemCount: number;
+}
+
 /** Add (no id) or edit (id) a menu item. outlet_id is always this machine's outlet. */
 /** One row of Settings > Discounts. */
 export interface DiscountPreset {
@@ -693,6 +704,8 @@ export interface AddTaxRatePayload {
 // ---- KOT board ----------------------------------------------------------
 export interface KotStatus {
   id: string;
+  /** The order_items.status value of this step (new, preparing, ready, ...). */
+  code: string;
   name: string;
   color: string;
   /** Label of the button that moves a KOT INTO this step. */
@@ -1003,6 +1016,10 @@ export const IpcChannels = {
   DELETE_TAX_RATE: 'delete-tax-rate',
   GET_MY_ACCESS: 'get-my-access',
   LIST_MENU_CATEGORIES: 'list-menu-categories',
+  LIST_MENU_CATEGORIES_ADMIN: 'list-menu-categories-admin',
+  SAVE_MENU_CATEGORY: 'save-menu-category',
+  REORDER_MENU_CATEGORIES: 'reorder-menu-categories',
+  SET_MENU_CATEGORY_ACTIVE: 'set-menu-category-active',
   SAVE_MENU_ITEM: 'save-menu-item',
   PLACE_ORDER: 'place-order',
   SAVE_MANAGED_TABLE: 'save-managed-table',
@@ -1110,7 +1127,16 @@ export interface ElectronApi {
   addTaxRate(payload: AddTaxRatePayload): Promise<void>;
   deleteTaxRate(id: string): Promise<void>;
   getMyAccess(): Promise<MyAccess | null>;
+  /** Active categories of this outlet, for pickers. */
   listMenuCategories(): Promise<MenuCategory[]>;
+  /** Every category of this outlet with item counts (needs menu.categories). */
+  listMenuCategoriesAdmin(): Promise<MenuCategoryAdmin[]>;
+  /** Add (no id) or rename a category (needs menu.categories). */
+  saveMenuCategory(payload: { id?: string; name: string }): Promise<void>;
+  /** Saves the display order: every category id of this outlet, in the wanted order (needs menu.categories.manage). */
+  reorderMenuCategories(ids: string[]): Promise<void>;
+  /** Deactivating turns the category's items off; activating leaves them off. Returns how many were turned off. */
+  setMenuCategoryActive(id: string, isActive: boolean): Promise<{ itemsTurnedOff: number }>;
   saveMenuItem(payload: SaveMenuItemPayload): Promise<MenuCacheSnapshot>;
   placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrderResult>;
   saveManagedTable(payload: SaveManagedTablePayload): Promise<void>;

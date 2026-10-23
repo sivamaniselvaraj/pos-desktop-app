@@ -284,7 +284,16 @@ export interface MenuRepository {
   setItemActive(menuItemId: string, isActive: boolean, reason?: string): Promise<void>;
   /** Every item of the category in this outlet (null = items with no category). Returns how many rows changed. */
   setCategoryActive(outletId: string, categoryId: string | null, isActive: boolean, reason?: string): Promise<number>;
-  listCategories(): Promise<MenuCategory[]>;
+  /** Active categories of the caller's outlet (for pickers). */
+  listCategories(outletId: string): Promise<MenuCategory[]>;
+  /** All categories of the caller's outlet with item counts (get_menu_categories_admin; needs menu.categories). */
+  listCategoriesAdmin(): Promise<import('../../shared/types').MenuCategoryAdmin[]>;
+  /** save_menu_category: add (no id) or rename. */
+  saveCategory(id: string | null, name: string): Promise<void>;
+  /** reorder_menu_categories: the display order from the position in the list. */
+  reorderCategories(ids: string[]): Promise<void>;
+  /** set_menu_category_active: deactivating turns the category's items off. Returns how many. */
+  setCategoryRecordActive(id: string, isActive: boolean): Promise<number>;
   /** Ids of items in this outlet whose name equals `name`, ignoring case. */
   findItemIdsByName(outletId: string, name: string): Promise<string[]>;
   insertItem(outletId: string, values: MenuItemValues): Promise<void>;
@@ -336,6 +345,10 @@ export interface DevicePairingRepository {
 
 export interface KotRepository {
   getBoard(): Promise<KotBoard>;
+  /** The board for a paired kitchen screen, acting as that device's user (get_kot_board_as). */
+  getBoardAs(userId: string): Promise<KotBoard>;
+  /** Moves a card as the kitchen screen's user (move_kot_as). */
+  moveAs(userId: string, orderId: string, toStatusId: string, fromStatusId: string): Promise<void>;
   move(orderId: string, toStatusId: string, fromStatusId: string): Promise<void>;
   getWorkflow(): Promise<KotWorkflow>;
   saveWorkflow(workflow: KotWorkflow): Promise<void>;

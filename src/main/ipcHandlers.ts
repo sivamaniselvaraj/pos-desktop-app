@@ -9,6 +9,7 @@ import { listDevices, revokeDevice, resetDevicePin } from './api/apiSecurity';
 import { cancelCode, createCode } from './api/pairingCodes';
 
 import { getAllPrinters, updatePrinter, removePrinter, getMaxPrinters } from './settingsManager';
+//import { getInvoiceSequenceStatus, resetInvoiceSequence } from './invoiceManager';
 import { exportSalesReport } from './reportExport';
 import {
   listUsers,
@@ -25,7 +26,7 @@ import {
   setUserGroups,
   getUserAccess,
 } from './userAdmin';
-import { listMenuCategories, saveMenuItem } from './menuManager';
+import { listMenuCategories, listMenuCategoriesAdmin, reorderMenuCategories, saveMenuCategory, setMenuCategoryActive, saveMenuItem } from './menuManager';
 import { getMyAccess } from './accessManager';
 import { getTaxRate, placeOrder } from './orderEntryManager';
 import { getKotBoard, getKotWorkflow, getUnprintedKots, moveKot, printKotNow, saveKotWorkflow } from './kotManager';
@@ -179,7 +180,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(
     IpcChannels.GET_SALES_REPORT,
     (_e, from: string, to: string, bucket: 'day' | 'month') =>
-      db.reports.salesReport(from, to, bucket),
+    db.reports.salesReport(from, to, bucket),
   );
   ipcMain.handle(IpcChannels.GET_TOP_ITEMS, (_e, from: string, to: string) =>
     db.reports.topItems(from, to, 10),
@@ -269,9 +270,11 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.LIST_TABLES, () => listTables());
   ipcMain.handle(IpcChannels.LIST_MANAGED_TABLES, () => listManagedTables());
   ipcMain.handle(IpcChannels.LIST_MENU_CATEGORIES, () => listMenuCategories());
-  ipcMain.handle(IpcChannels.SAVE_MENU_ITEM, (_e, payload: SaveMenuItemPayload) =>
-    saveMenuItem(payload),
-  );
+  ipcMain.handle(IpcChannels.LIST_MENU_CATEGORIES_ADMIN, () => listMenuCategoriesAdmin());
+  ipcMain.handle(IpcChannels.SAVE_MENU_CATEGORY, (_e, payload: { id?: string; name: string }) => saveMenuCategory(payload));
+  ipcMain.handle(IpcChannels.REORDER_MENU_CATEGORIES, (_e, ids: string[]) => reorderMenuCategories(ids));
+  ipcMain.handle(IpcChannels.SET_MENU_CATEGORY_ACTIVE, (_e, id: string, isActive: boolean) => setMenuCategoryActive(id, isActive));
+  ipcMain.handle(IpcChannels.SAVE_MENU_ITEM, (_e, payload: SaveMenuItemPayload) => saveMenuItem(payload));
   ipcMain.handle(IpcChannels.GET_MY_ACCESS, () => getMyAccess());
   ipcMain.handle(IpcChannels.GET_KOT_BOARD, () => getKotBoard());
   ipcMain.handle(IpcChannels.GET_UNPRINTED_KOTS, () => getUnprintedKots());

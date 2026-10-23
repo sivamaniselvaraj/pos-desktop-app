@@ -1,0 +1,27 @@
+.bar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.bar h3 { margin: 0; font-size: 17px; flex: 1; }
+.check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #555; }
+.hint { color: #777; font-size: 13px; margin: 0 0 12px 0; }
+.error { color: #b71c1c; font-size: 13px; margin: 0 0 10px 0; }
+.table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
+.table th { text-align: left; font-size: 12px; color: #666; background: #f3f5f7; padding: 10px 14px; }
+.table td { padding: 10px 14px; border-top: 1px solid #eee; font-size: 14px; }
+.num { text-align: right !important; font-variant-numeric: tabular-nums; }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+.on { background: #e8f5e9; color: #2e7d32; }
+.off { background: #f0f0f0; color: #777; }
+.inactiveRow td { color: #888; }
+.actions { display: flex; gap: 8px; justify-content: flex-end; }
+.btn { padding: 6px 12px; background: white; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600; color: #333; }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.danger { color: #b71c1c; border-color: #e0b4b4; }
+.add { padding: 8px 14px; background: #4caf50; color: white; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.empty { padding: 24px; text-align: center; color: #888; }
+.tabs { display: flex; gap: 4px; border-bottom: 2px solid #bdc3c7; margin-bottom: 16px; }
+.tab, .tabActive { padding: 10px 20px; font-size: 15px; background: none; border: none; cursor: pointer; color: #7f8c8d; font-weight: 500; margin-bottom: -2px; }
+.tabActive { color: #1e8449; font-weight: 700; border-bottom: 3px solid #1e8449; }
+.warn { background: #fff3e0; color: #8a4b00; border-radius: 6px; padding: 10px 12px; font-size: 13px; margin: 0 0 14px 0; line-height: 1.4; }
+
+.unsaved { display: flex; align-items: center; gap: 10px; background: #fff8e1; border: 1px solid #ffe08a; color: #7a5b00; border-radius: 6px; padding: 8px 12px; margin: 0 0 12px 0; font-size: 13px; }
+.unsaved span { flex: 1; }
+.add:disabled { opacity: 0.5; cursor: default; }

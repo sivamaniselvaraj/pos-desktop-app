@@ -1516,10 +1516,9 @@ exception when undefined_column or undefined_table then
   raise notice 'tax backfill skipped: %', sqlerrm;
 end $$;
 
--- Sidebar entry for the Tax screen (needs tax.manage).
-insert into app_menus (code, label, icon, sort_order, required_permission) values
-  ('tax-rates', 'Tax', 'reports', 85, 'tax.manage')
-on conflict (code) do nothing;
+-- The Tax screen is a tab inside Settings (needs tax.manage); it no longer has
+-- a sidebar entry of its own.
+delete from app_menus where code = 'tax-rates';
 
 
 -- ============================================================================
@@ -2152,4 +2151,196 @@ begin
      where gp.permission_code = 'reports.view'
     on conflict do nothing;
   end if;
+end $$;
+
+
+-- ============================================================================
+-- MENU CATEGORIES PER OUTLET (add / edit / deactivate on the Menu page)
+-- ============================================================================
+-- Categories used to be shared by every outlet of an organization. Each outlet
+-- now owns its own, so one outlet can add, rename or retire a category without
+-- touching the others. Managed by users with menu.categories (functions in
+-- db/functions.sql); everyone in the outlet can read them.
+--
+-- Upgrade (runs once): every existing category is copied to every outlet of its
+-- organization. The first outlet keeps the original row; the others get a copy,
+-- and that outlet's menu items, tax rates and availability history are pointed
+-- at its own copy. Nothing about prices or tax changes.
+create table if not exists categories (
+  id     uuid primary key default gen_random_uuid(),
+  name   text,
+  org_id uuid references organizations(id)
+);
+alter table categories add column if not exists outlet_id  uuid references outlets(id) on delete cascade;
+alter table categories add column if not exists is_active  boolean not null default true;
+alter table categories add column if not exists created_at timestamptz not null default now();
+alter table categories add column if not exists updated_at timestamptz not null default now();
+-- Display order: categories are listed by sort_order (lowest first, empty last), then by name.
+alter table categories add column if not exists sort_order integer;
+
+do $$
+declare
+  c record;
+  o record;
+  v_first boolean;
+  v_new uuid;
+begin
+  for c in select * from categories where outlet_id is null and org_id is not null loop
+    v_first := true;
+    for o in select id from outlets where org_id = c.org_id order by id loop
+      if v_first then
+        update categories set outlet_id = o.id where id = c.id;
+        v_first := false;
+      else
+        insert into categories (name, org_id, outlet_id, is_active, sort_order)
+        values (c.name, c.org_id, o.id, c.is_active, c.sort_order) returning id into v_new;
+        update menu_items set category_id = v_new where outlet_id = o.id and category_id = c.id;
+        update tax_rates  set category_id = v_new where outlet_id = o.id and category_id = c.id;
+        if to_regclass('public.menu_availability_log') is not null then
+          update menu_availability_log set category_id = v_new where outlet_id = o.id and category_id = c.id;
+        end if;
+      end if;
+    end loop;
+  end loop;
+end $$;
+
+-- Two categories of one outlet may not share a name (ignoring case and spaces).
+-- Old duplicates get a number so the unique index can be created.
+update categories c
+   set name = btrim(c.name) || ' (' || d.n || ')'
+  from (select id, row_number() over (partition by outlet_id, lower(btrim(name)) order by created_at, id) as n
+          from categories where outlet_id is not null) d
+ where c.id = d.id and d.n > 1;
+-- Categories without an order go after the ones that have one, in name order.
+update categories c
+   set sort_order = d.base + d.n * 10
+  from (select id,
+               coalesce(max(sort_order) over (partition by outlet_id), 0) as base,
+               row_number() over (partition by outlet_id order by lower(btrim(name)), id) as n
+          from categories where outlet_id is not null) d
+ where c.id = d.id and c.sort_order is null;
+create unique index if not exists categories_outlet_name_uq
+  on categories (outlet_id, lower(btrim(name))) where outlet_id is not null;
+
+-- Readable by the outlet's own users (replaces the organization-wide read).
+-- There are no write policies: writes go through save_menu_category() and
+-- set_menu_category_active().
+drop policy if exists "members read own org categories" on categories;
+drop policy if exists "members read own outlet categories" on categories;
+create policy "members read own outlet categories" on categories
+  for select to authenticated
+  using (exists (select 1 from profiles p
+                  where p.user_id = auth.uid() and p.outlet_id = categories.outlet_id));
+
+-- A menu item must use a category of its own outlet (and organization).
+create or replace function enforce_menu_item_category_org()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_cat_org uuid;
+  v_cat_outlet uuid;
+  v_outlet_org uuid;
+begin
+  if new.category_id is null then
+    return new;
+  end if;
+  select c.org_id, c.outlet_id into v_cat_org, v_cat_outlet from categories c where c.id = new.category_id;
+  select o.org_id into v_outlet_org from outlets o where o.id = new.outlet_id;
+  if v_cat_org is not null and v_outlet_org is not null and v_cat_org <> v_outlet_org then
+    raise exception 'That category belongs to a different organization';
+  end if;
+  if v_cat_outlet is not null and new.outlet_id is not null and v_cat_outlet <> new.outlet_id then
+    raise exception 'That category belongs to a different outlet';
+  end if;
+  return new;
+end;
+$$;
+
+-- An item cannot be turned on, or moved, into a deactivated category.
+create or replace function menu_item_category_active_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.category_id is not null and coalesce(new.is_active, true)
+     and exists (select 1 from categories c where c.id = new.category_id and not c.is_active) then
+    raise exception 'This category is deactivated. Activate the category first.';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists menu_items_category_active_guard on menu_items;
+create trigger menu_items_category_active_guard
+  before insert or update of is_active, category_id on menu_items
+  for each row execute function menu_item_category_active_guard();
+
+-- Permissions for the Categories tab on the Menu page:
+--   menu.categories.view    see the tab and the list of categories
+--   menu.categories.manage  add, rename and deactivate (also needs .view, to reach the tab)
+-- Manager, owner and admin get both. Groups that already hold menu.edit get both
+-- once, so nobody loses access at the upgrade. (Earlier name: menu.categories,
+-- which is moved to .manage + .view and then removed.)
+insert into permissions (code, description) values
+  ('menu.categories.view',   'See the menu categories'),
+  ('menu.categories.manage', 'Add, rename and deactivate menu categories')
+on conflict (code) do nothing;
+
+insert into role_permissions (role, permission_code)
+select r.role, c.code
+from (values ('manager'), ('owner'), ('admin')) as r(role)
+cross join (values ('menu.categories.view'), ('menu.categories.manage')) as c(code)
+on conflict do nothing;
+
+do $$
+begin
+  if to_regclass('public.group_permissions') is not null then
+    -- from the earlier single permission
+    insert into group_permissions (group_id, permission_code)
+    select gp.group_id, c.code
+      from group_permissions gp
+      cross join (values ('menu.categories.view'), ('menu.categories.manage')) as c(code)
+     where gp.permission_code = 'menu.categories'
+    on conflict do nothing;
+    -- first install: groups that can edit the menu
+    if not exists (select 1 from group_permissions where permission_code in ('menu.categories.view', 'menu.categories.manage')) then
+      insert into group_permissions (group_id, permission_code)
+      select distinct gp.group_id, c.code
+        from group_permissions gp
+        cross join (values ('menu.categories.view'), ('menu.categories.manage')) as c(code)
+       where gp.permission_code = 'menu.edit'
+      on conflict do nothing;
+    end if;
+    delete from group_permissions where permission_code = 'menu.categories';
+  end if;
+  delete from role_permissions where permission_code = 'menu.categories';
+  delete from permissions where code = 'menu.categories';
+end $$;
+
+
+-- ============================================================================
+-- TABLES BELONG TO AN OUTLET (each outlet has its own layout)
+-- ============================================================================
+-- Table numbers are already unique per outlet (uq_tables_outlet_number) and
+-- every policy and query filters by outlet. This closes the last gap: a table
+-- must have an outlet, and that outlet must exist. Skipped with a notice if
+-- old rows have no outlet (give them one, then re-run).
+do $$
+begin
+  if to_regclass('public.tables') is not null then
+    if not exists (select 1 from tables where outlet_id is null) then
+      alter table tables alter column outlet_id set not null;
+    else
+      raise notice 'tables.outlet_id left nullable: some tables have no outlet';
+    end if;
+    if not exists (select 1 from pg_constraint where conname = 'tables_outlet_fk') then
+      alter table tables add constraint tables_outlet_fk foreign key (outlet_id) references outlets(id);
+    end if;
+  end if;
+exception when others then
+  raise notice 'tables outlet constraints skipped: %', sqlerrm;
 end $$;

@@ -70,3 +70,8 @@ on conflict (code) do nothing;
 insert into permissions (code, description) values
   ('reports.incentive', 'See the By waiter report (sales and incentive per waiter)')
 on conflict (code) do nothing;
+
+insert into permissions (code, description) values
+  ('menu.categories.view',   'See the menu categories'),
+  ('menu.categories.manage', 'Add, rename and deactivate menu categories')
+on conflict (code) do nothing;

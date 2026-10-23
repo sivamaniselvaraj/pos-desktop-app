@@ -3650,3 +3650,181 @@ begin
 end;
 $$;
 grant execute on function get_menu_availability(date, date) to authenticated;
+
+-- ============================================================================
+-- MENU CATEGORIES (add / edit / deactivate)
+-- ============================================================================
+-- The list needs menu.categories.view; add, rename and deactivate need menu.categories.manage
+-- AND .view. All work on the caller's own outlet.
+
+-- get_menu_categories_admin(): every category of the outlet (active or not)
+-- with how many items it holds and how many of those are on.
+create or replace function get_menu_categories_admin()
+returns table (id uuid, name text, sort_order integer, is_active boolean, item_count bigint, active_item_count bigint)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not has_permission('menu.categories.view') then
+    raise exception 'Not allowed to see categories';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  return query
+    select c.id, c.name, c.sort_order, c.is_active,
+           count(mi.id) as item_count,
+           count(mi.id) filter (where coalesce(mi.is_active, true)) as active_item_count
+      from categories c
+      left join menu_items mi on mi.category_id = c.id and mi.outlet_id = c.outlet_id
+     where c.outlet_id = v_outlet
+     group by c.id, c.name, c.sort_order, c.is_active
+     order by c.sort_order nulls last, lower(c.name);
+end;
+$$;
+grant execute on function get_menu_categories_admin() to authenticated;
+
+-- save_menu_category(id, name): add (id null) or rename. Names are unique in the outlet.
+create or replace function save_menu_category(p_id uuid, p_name text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_org    uuid;
+  v_name   text := btrim(coalesce(p_name, ''));
+  v_id     uuid;
+begin
+  if not (has_permission('menu.categories.manage') and has_permission('menu.categories.view')) then
+    raise exception 'Not allowed to manage categories';
+  end if;
+  select p.outlet_id, p.org_id into v_outlet, v_org
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  if char_length(v_name) < 1 or char_length(v_name) > 60 then
+    raise exception 'The category name must be 1 to 60 characters';
+  end if;
+  if exists (select 1 from categories c
+              where c.outlet_id = v_outlet and lower(btrim(c.name)) = lower(v_name)
+                and c.id is distinct from p_id) then
+    raise exception 'A category with this name already exists';
+  end if;
+
+  if p_id is null then
+    insert into categories (name, outlet_id, is_active)
+    values (v_name, v_outlet, true) returning id into v_id;
+  else
+    update categories set name = v_name, updated_at = now()
+     where id = p_id and outlet_id = v_outlet returning id into v_id;
+    if v_id is null then
+      raise exception 'Category not found';
+    end if;
+  end if;
+  return jsonb_build_object('id', v_id, 'name', v_name);
+end;
+$$;
+grant execute on function save_menu_category(uuid, text) to authenticated;
+
+-- set_menu_category_active(id, active): deactivating also turns the category's
+-- items that are on OFF, with the reason 'Category deactivated' (one batch in the
+-- availability log, so the downtime report stays right). Activating does NOT
+-- turn items back on: switch them on from the Menu page.
+create or replace function set_menu_category_active(p_id uuid, p_active boolean)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_cat    categories%rowtype;
+  v_off    int := 0;
+  v_batch  uuid := gen_random_uuid();
+begin
+  if not (has_permission('menu.categories.manage') and has_permission('menu.categories.view')) then
+    raise exception 'Not allowed to manage categories';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  select * into v_cat from categories where id = p_id and outlet_id = v_outlet for update;
+  if not found then
+    raise exception 'Category not found';
+  end if;
+  if v_cat.is_active = p_active then
+    return jsonb_build_object('id', p_id, 'is_active', p_active, 'items_turned_off', 0);
+  end if;
+
+  if not p_active then
+    with moved as (
+      update menu_items
+         set is_active = false,
+             inactive_reason = 'Category deactivated',
+             change_scope = 'category',
+             change_batch = v_batch
+       where outlet_id = v_outlet and category_id = p_id and coalesce(is_active, true)
+      returning 1)
+    select count(*) into v_off from moved;
+  end if;
+  update categories set is_active = p_active, updated_at = now() where id = p_id;
+  return jsonb_build_object('id', p_id, 'is_active', p_active, 'items_turned_off', v_off);
+end;
+$$;
+grant execute on function set_menu_category_active(uuid, boolean) to authenticated;
+
+-- reorder_menu_categories(ids): sets the display order from the position in the
+-- array (10, 20, 30, ...). Pass every category of the outlet in the wanted order;
+-- any category left out is placed after them in its current order. Ids must be
+-- this outlet's, with no repeats.
+create or replace function reorder_menu_categories(p_ids uuid[])
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_n int := coalesce(cardinality(p_ids), 0);
+begin
+  if not (has_permission('menu.categories.manage') and has_permission('menu.categories.view')) then
+    raise exception 'Not allowed to manage categories';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  if v_n = 0 then
+    return;
+  end if;
+  if (select count(distinct x) from unnest(p_ids) x) <> v_n then
+    raise exception 'A category is listed twice';
+  end if;
+  perform 1 from categories c where c.outlet_id = v_outlet for update;
+  if (select count(*) from categories c where c.outlet_id = v_outlet and c.id = any (p_ids)) <> v_n then
+    raise exception 'Category not found';
+  end if;
+
+  update categories c
+     set sort_order = t.ord * 10, updated_at = now()
+    from unnest(p_ids) with ordinality as t(id, ord)
+   where c.id = t.id and c.outlet_id = v_outlet;
+
+  -- categories not in the list follow, in their current order
+  update categories c
+     set sort_order = v_n * 10 + r.n * 10, updated_at = now()
+    from (select id, row_number() over (order by sort_order nulls last, lower(name), id) as n
+            from categories where outlet_id = v_outlet and id <> all (p_ids)) r
+   where c.id = r.id;
+end;
+$$;
+grant execute on function reorder_menu_categories(uuid[]) to authenticated;

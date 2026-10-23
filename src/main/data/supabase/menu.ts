@@ -36,16 +36,22 @@ export const menu: MenuRepository = {
     if (!supabase) throw new Error('Database client unavailable.');
     const [menuRes, catRes] = await Promise.all([
       supabase.from('menu_items').select('*').eq('outlet_id', outletId).order('name'),
-      supabase.from('categories').select('id, name').eq('outlet_id', outletId),
+      supabase.from('categories').select('id, name, sort_order').eq('outlet_id', outletId),
     ]);
     if (menuRes.error) throw new Error(menuRes.error.message);
     if (catRes.error) throw new Error(catRes.error.message);
-    const categoryName = new Map(
-      ((catRes.data ?? []) as { id: string; name: string }[]).map((c) => [String(c.id), c.name]),
-    );
+    const cats = (catRes.data ?? []) as { id: string; name: string; sort_order: number | null }[];
+    const categoryName = new Map(cats.map((c) => [String(c.id), c.name]));
+    const categorySort = new Map(cats.map((c) => [String(c.id), c.sort_order == null ? null : Number(c.sort_order)]));
     return ((menuRes.data ?? []) as Record<string, unknown>[]).map((row) => {
       const cid = row.category_id ? String(row.category_id) : null;
-      return { ...row, category_id: cid, category_name: cid ? (categoryName.get(cid) ?? null) : null };
+      return {
+        ...row,
+        category_id: cid,
+        category_name: cid ? (categoryName.get(cid) ?? null) : null,
+        // The category's display order, so every screen and the phone app can list categories the same way.
+        category_sort_order: cid ? (categorySort.get(cid) ?? null) : null,
+      };
     });
   },
 
@@ -82,10 +88,42 @@ export const menu: MenuRepository = {
   },
 
   // RLS ("members read own org categories") limits this to the caller's organization.
-  async listCategories() {
-    const { data, error } = await getAuthedClient().from('categories').select('id, name').order('name');
+  async listCategories(outletId) {
+    const { data, error } = await getAuthedClient().from('categories').select('id, name').eq('is_active', true)
+      .eq('outlet_id', outletId)
+      .order('sort_order', { ascending: true, nullsFirst: false })
+      .order('name');
     if (error) throw new Error(error.message);
     return ((data ?? []) as { id: string; name: string }[]).map((c) => ({ id: String(c.id), name: String(c.name) }));
+  },
+
+  async listCategoriesAdmin() {
+    const { data, error } = await getAuthedClient().rpc('get_menu_categories_admin');
+    if (error) throw new Error(error.message);
+    return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+      id: String(r.id),
+      name: String(r.name ?? ''),
+      sortOrder: Number(r.sort_order),
+      isActive: r.is_active !== false,
+      itemCount: Number(r.item_count ?? 0),
+      activeItemCount: Number(r.active_item_count ?? 0),
+    }));
+  },
+
+  async saveCategory(id, name) {
+    const { error } = await getAuthedClient().rpc('save_menu_category', { p_id: id, p_name: name });
+    if (error) throw new Error(error.message);
+  },
+
+  async reorderCategories(ids) {
+    const { error } = await getAuthedClient().rpc('reorder_menu_categories', { p_ids: ids });
+    if (error) throw new Error(error.message);
+  },
+
+  async setCategoryRecordActive(id, isActive) {
+    const { data, error } = await getAuthedClient().rpc('set_menu_category_active', { p_id: id, p_active: isActive });
+    if (error) throw new Error(error.message);
+    return Number((data as Record<string, unknown> | null)?.items_turned_off ?? 0);
   },
 
   async findItemIdsByName(outletId, name) {

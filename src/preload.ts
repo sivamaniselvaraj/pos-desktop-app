@@ -35,6 +35,7 @@ import type {
   AddTaxRatePayload,
   MyAccess,
   MenuCategory,
+  MenuCategoryAdmin,
   PlaceOrderResult,
   ServerStatus,
   ApiDevice,
@@ -160,6 +161,12 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.LIST_MANAGED_TABLES) as Promise<ManagedTable[]>,
   listMenuCategories: () =>
     ipcRenderer.invoke(IpcChannels.LIST_MENU_CATEGORIES) as Promise<MenuCategory[]>,
+  listMenuCategoriesAdmin: () =>
+    ipcRenderer.invoke(IpcChannels.LIST_MENU_CATEGORIES_ADMIN) as Promise<MenuCategoryAdmin[]>,
+  saveMenuCategory: (payload) => ipcRenderer.invoke(IpcChannels.SAVE_MENU_CATEGORY, payload) as Promise<void>,
+  reorderMenuCategories: (ids) => ipcRenderer.invoke(IpcChannels.REORDER_MENU_CATEGORIES, ids) as Promise<void>,
+  setMenuCategoryActive: (id, isActive) =>
+    ipcRenderer.invoke(IpcChannels.SET_MENU_CATEGORY_ACTIVE, id, isActive) as Promise<{ itemsTurnedOff: number }>,
   saveMenuItem: (payload) =>
     ipcRenderer.invoke(IpcChannels.SAVE_MENU_ITEM, payload) as Promise<MenuCacheSnapshot>,
   getMyAccess: () => ipcRenderer.invoke(IpcChannels.GET_MY_ACCESS) as Promise<MyAccess | null>,

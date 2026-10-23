@@ -44,8 +44,10 @@ function statusClass(status: string): string {
   return '';
 }
 
-export function OrdersList() {
+/** `onNewOrder` shows the New order button (the caller passes it only when the user may place orders). */
+export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
   const { can } = useAuth();
+  const canPlaceOrder = can('orders.place');
   const canEditItems = can('orders.edit');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
   const [searchInput, setSearchInput] = useState('');
@@ -319,7 +321,10 @@ export function OrdersList() {
     setDetailDiscounts([]);
   }
 
-    async function refreshAfterWrite(): Promise<void> {
+  // The write itself may throw (wrong editor credentials etc.) — that error
+  // propagates to ApprovalModal. Refreshes after a successful write are
+  // swallowed so a refresh hiccup is never shown as an approval failure.
+  async function refreshAfterWrite(): Promise<void> {
     try {
       await reloadDetail();
       await load();
@@ -385,7 +390,16 @@ export function OrdersList() {
 
   return (
     <div className={pageStyles.page}>
-      <h2>Orders</h2>
+      <div className={styles.titleRow}>
+        <h2>Orders</h2>
+        {(onNewOrder && canPlaceOrder) && (
+          <button className={styles.newOrderBtn} onClick={onNewOrder}>
+            <Icon name="plus" size={16} />
+            New order
+          </button>
+        )}
+      </div>
+
       <div className={styles.searchRow}>
         <input
           type="text"

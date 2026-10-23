@@ -1,7 +1,7 @@
 import { db, type MenuItemValues } from './data';
 import { refreshMenuCache } from './menuCache';
 import { config } from './config';
-import type { MenuCacheSnapshot, MenuCategory, SaveMenuItemPayload } from '../shared/types';
+import type { MenuCacheSnapshot, MenuCategory, MenuCategoryAdmin, SaveMenuItemPayload } from '../shared/types';
 
 /**
  * menuAdmin.ts
@@ -14,7 +14,37 @@ import type { MenuCacheSnapshot, MenuCategory, SaveMenuItemPayload } from '../sh
  */
 
 export function listMenuCategories(): Promise<MenuCategory[]> {
-  return db.menu.listCategories();
+  return db.menu.listCategories(config.outletId);
+}
+
+export function listMenuCategoriesAdmin(): Promise<MenuCategoryAdmin[]> {
+  return db.menu.listCategoriesAdmin();
+}
+
+/** Add (no id) or rename a category. The database checks menu.categories and that the name is unique in the outlet. */
+export async function saveMenuCategory(p: { id?: string; name: string }): Promise<void> {
+  const name = p?.name?.trim();
+  if (!name) throw new Error('Category name is required.');
+  if (name.length > 60) throw new Error('The category name must be 60 characters or fewer.');
+  await db.menu.saveCategory(p.id || null, name);
+  await refreshMenuCache(); // the menu served to phones carries category names
+}
+
+/** Saves the display order (every category id, in the wanted order) and refreshes the menu served to phones. */
+export async function reorderMenuCategories(ids: string[]): Promise<void> {
+  if (!Array.isArray(ids) || ids.length === 0 || ids.some((i) => typeof i !== 'string' || !i)) {
+    throw new Error('Nothing to reorder.');
+  }
+  await db.menu.reorderCategories(ids);
+  await refreshMenuCache();
+}
+
+/** Deactivating turns the category's items off (reason "Category deactivated"). Activating leaves them off. */
+export async function setMenuCategoryActive(id: string, isActive: boolean): Promise<{ itemsTurnedOff: number }> {
+  if (!id) throw new Error('Choose a category.');
+  const itemsTurnedOff = await db.menu.setCategoryRecordActive(id, isActive);
+  await refreshMenuCache();
+  return { itemsTurnedOff };
 }
 
 function optNumber(v: number | null | undefined, label: string, min: number, max: number): number | null {

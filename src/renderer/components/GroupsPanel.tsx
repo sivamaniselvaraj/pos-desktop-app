@@ -22,7 +22,7 @@ const PERMISSION_GROUPS: [string, string[]][] = [
   ['Tables', ['dashboard', 'tables']],
   ['Menu', ['menu']],
   ['Reports and billing', ['reports', 'history', 'tax', 'invoicing']],
-  ['Administration', ['users', 'settings', 'about']],
+  ['Administration', ['users', 'settings','discount', 'about']],
 ];
 
 function permissionGroup(code: string): string {

@@ -4,7 +4,7 @@ import { Header } from './components/Header';
 import { Dashboard } from './pages/Dashboard';
 import { Settings } from './pages/Settings';
 import { History } from './pages/History';
-import { SalesReport } from './pages/SalesReport';
+import { SalesReport } from './pages/ReportSalesByOutlet';
 import { UserManagement } from './pages/UserManagement';
 import { TaxRates } from './pages/TaxRates';
 import { NewOrder } from './pages/NewOrder';
@@ -87,14 +87,23 @@ export default function App() {
           {current === 'history' && <History />}
           {current === 'sales-report' && <SalesReport />}
           {current === 'users' && <UserManagement />}
-          {current === 'tax-rates' && <TaxRates />}
-          {current === 'orders-list' && <OrdersList />}
+          {current === 'orders-list' && (
+            <OrdersList
+              onNewOrder={
+                allowed.has('new-order')
+                  ? () => {
+                      setPresetTable(null); // a fresh order, not one left over from a table
+                      setPage('new-order');
+                    }
+                  : undefined
+              }
+            />
+          )}
           {current === 'tables' && <TablesManagement />}
           {current === 'new-order' && <NewOrder key={presetTable ?? 'none'} initialTableId={presetTable} />}
           {current === 'menu-items' && <MenuItemsPage />}
           {current === 'kot-board' && <KotBoardPage />}
           {current === 'unprinted-kots' && <UnprintedKotsPage />}
-          
           {current === 'about' && <About />}
         </div>
       </main>

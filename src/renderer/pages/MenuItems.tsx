@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import { MenuItemFormModal } from '../components/MenuItemFormModal';
+import { MenuOffReasonModal } from '../components/MenuOffReason';
+import { MenuCategories } from '../components/MenuCategories';
 import { useAuth } from '../context/AuthContext';
-import type { MenuCacheSnapshot, MenuCategory, MenuItemRecord, SaveMenuItemPayload  } from '@shared/types';
+import type { MenuCacheSnapshot, MenuCategory, MenuItemRecord, SaveMenuItemPayload } from '@shared/types';
+import tabStyles from '../styles/MenuCategories.module.css';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/MenuItems.module.css';
 import { formatDateTime } from '../lib/format';
-import { MenuOffReasonModal } from '../components/MenuOffReason';
 
 // Not shown even if present — redundant (every row is this machine's own
 // outlet) or just DB bookkeeping rather than something an operator needs to
@@ -32,12 +34,18 @@ const HIDDEN_KEYS = new Set([
   'inactive_since',
   'inactive_by',
   'inactive_by_name',
+  'change_scope',
+  'change_batch',
+  'sort_order',
+  'tax_rate_percent',
+  'is_available',
+  'category_name',
 ]);
 
 // A few keys, if present, are shown first in this order; everything else
 // follows alphabetically. Purely cosmetic — works fine if none of these
 // exist under these exact names.
-const PRIORITY_KEYS = ['name', 'category_name', 'price'];
+const PRIORITY_KEYS = ['name', 'price'];
 
 function formatCell(value: unknown): string {
   if (value === null || value === undefined) return '—';
@@ -52,7 +60,27 @@ function columnLabel(key: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** Menu page: the items list, plus a Categories tab for users who hold menu.categories. */
 export function MenuItemsPage() {
+  const { can } = useAuth();
+  const [tab, setTab] = useState<'items' | 'categories'>('items');
+  if (!can('menu.categories.view')) return <MenuItemsList />;
+  return (
+    <div className={pageStyles.page}>
+      <div className={tabStyles.tabs}>
+        <button className={tab === 'items' ? tabStyles.tabActive : tabStyles.tab} onClick={() => setTab('items')}>
+          Items
+        </button>
+        <button className={tab === 'categories' ? tabStyles.tabActive : tabStyles.tab} onClick={() => setTab('categories')}>
+          Categories
+        </button>
+      </div>
+      {tab === 'items' ? <MenuItemsList embedded /> : <MenuCategories canManage={can('menu.categories.manage')} />}
+    </div>
+  );
+}
+
+function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
   const { can } = useAuth();
   // Only managers+ add/edit. The database enforces this too (RLS on menu_items).
   const canManage = can('menu.edit');
@@ -141,7 +169,7 @@ export function MenuItemsPage() {
     flash('success', payload.id ? `${payload.name} updated` : `${payload.name} added`);
   }
 
-    async function handleToggleActive(item: MenuItemRecord) {
+  async function handleToggleActive(item: MenuItemRecord) {
     const id = String(item.id ?? '');
     if (!id) return;
     if (item.is_active !== false) {
@@ -229,7 +257,7 @@ export function MenuItemsPage() {
   }, [filteredItems]);
 
   return (
-    <div className={pageStyles.page}>
+    <div className={embedded ? undefined : pageStyles.page}>
       <div className={styles.header}>
         <h2>Menu Items</h2>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -271,7 +299,7 @@ export function MenuItemsPage() {
         <p className={pageStyles.muted}>
           No menu items cached yet. Check OUTLET_ID is configured for this machine, then Refresh.
         </p>
-         ) : filteredItems.length === 0 ? (
+      ) : filteredItems.length === 0 ? (
         <p className={pageStyles.muted}>No menu items match &quot;{searchQuery}&quot;.</p>
       ) : (
         <table className={pageStyles.table}>
@@ -356,7 +384,7 @@ export function MenuItemsPage() {
                 </tr>
               );
             })}
-          </tbody>
+              </tbody>
             );
           })}
         </table>
