@@ -71,16 +71,6 @@ export async function placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrder
   const totals = computeTotals(lines, !isDineIn);
 
   let result: { orderId?: string; orderNumber?: number; invoiceNumber?: string, duplicate?: boolean };
-  let orderDetail: { 
-      userId: string,
-      orderType: OrderType
-      outletId: string;
-      tableId: string;
-      items: NewOrderLine[];
-      customerName: string | null;
-      customerPhone: string | null;
-      notes: string | null;
-  };
 
   if (isDineIn) {
     const tableStatus = await db.tables.getStatusById(payload.tableId as string);

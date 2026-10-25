@@ -23,6 +23,8 @@ export type OrderDiscountMode = 'percent' | 'amount' | 'complimentary' | 'none';
 export const DINE_IN_ORDER_TYPE = 'dine_in' as const;
 export const PICK_UP_ORDER_TYPE = 'takeaway' as const;
 
+export type OrderListStatus = 'active' | 'completed' | 'cancelled';
+
 export interface OutletInfo {
   id: string;
   name: string;
@@ -370,10 +372,6 @@ export interface OutletOption {
   id: string;
   name: string;
 }
-
-export type OrderListStatus = 'active' | 'completed' | 'cancelled';
-
-
 
 export interface OrderListRow {
   orderSource: OrderSource;
