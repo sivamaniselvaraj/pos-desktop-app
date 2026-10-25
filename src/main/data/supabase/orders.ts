@@ -145,12 +145,12 @@ async function fetchOrderFallback(
   return order;
 }
 
-async function fetchOrderById(orderId: string): Promise<FoodOrder | null> {
+async function fetchOrderById(orderId: string, outletId: string): Promise<FoodOrder | null> {
   const supabase = getClient();
   if (!supabase) throw new Error('Database is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.');
 
   // Try the RPC first (preferred: single round trip with outlet + items).
-  const { data, error } = await supabase.rpc(ORDER_RPC, { p_order_id: orderId });
+  const { data, error } = await supabase.rpc(ORDER_RPC, { p_order_id: orderId, p_outlet_id: outletId});
 
   if (!error) {
     if (!data) return null;

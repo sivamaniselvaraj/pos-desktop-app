@@ -197,7 +197,7 @@ export function completeOrder(orderId: string): Promise<void> {
  */
 export async function reprintOrder(orderId: string): Promise<void> {
   await printQueue.enqueue(async () => {
-    const order = await db.orders.fetchOrderById(orderId);
+    const order = await db.orders.fetchOrderById(orderId, config.outletId);
     if (!order) throw new Error(`Order ${orderId} not found.`);
 
     // Same aggregation settle uses: non-deleted items only, merged by dish so
@@ -227,7 +227,7 @@ export async function reprintOrder(orderId: string): Promise<void> {
 
       const groupIds = group.orderIds.length > 0 ? group.orderIds : [];
 
-      const order = await db.orders.fetchOrderById(groupIds[0]);
+      const order = await db.orders.fetchOrderById(groupIds[0], config.outletId);
       if (!order) throw new Error(`Orders found for table ${tableId}`);
       
       const isGrouped = groupIds.length > 1;
@@ -239,7 +239,7 @@ export async function reprintOrder(orderId: string): Promise<void> {
           }
   
       const items = await db.orders.fetchAggregatedItemsForOrders(groupIds);
-      const groupOrders = (await Promise.all(groupIds.map((id) => db.orders.fetchOrderById(id)))).filter(
+      const groupOrders = (await Promise.all(groupIds.map((id) => db.orders.fetchOrderById(id, config.outletId)))).filter(
         (o): o is FoodOrder => o != null,
       );
       const summed = groupOrders.reduce(

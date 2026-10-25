@@ -3828,3 +3828,75 @@ begin
 end;
 $$;
 grant execute on function reorder_menu_categories(uuid[]) to authenticated;
+
+-- ============================================================================
+-- RPC: get_order_with_items(p_order_id)
+-- ============================================================================
+-- Returns a single order (by its UUID id) with its line items and outlet info
+-- nested in the response, as one JSON object.
+--
+-- Call it from the client with:
+--   const { data, error } = await supabase.rpc('get_order_with_items', {
+--     p_order_id: '550e8400-e29b-41d4-a716-446655440000',
+--   });
+--
+-- Response shape:
+--   {
+--     id, order_id, order_number, ..., table_number, placed_by_name,
+--     outlet: { id, name, city, phone, gst_number, address },
+--     items: [ { id, status, quantity, unit_price, total_price, name }, ... ]
+--   }
+--
+-- placed_by_name: the staff member who placed the order (orders.waiter_id ->
+-- profiles.full_name), printed as "Placed By: <name>" on the KOT — see
+-- printKot() in src/main/printerManager.ts. Null when waiter_id is null
+-- (orders from before this existed, or with no resolvable staff login).
+--
+-- SECURITY DEFINER: the function runs with owner privileges, so the print
+-- path (anon key, no user session) can fetch an order even with RLS enabled,
+-- without exposing broad table-level SELECT. The only capability is "fetch
+-- one order if you know its exact id".
+create or replace function get_order_with_items(p_order_id uuid, p_outlet_id uuid)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+select to_jsonb(o)
+  || jsonb_build_object('table_number', tbls.table_number)
+  || jsonb_build_object('placed_by_name', wp.first_name)
+  || jsonb_build_object(
+    'outlet',
+    (select to_jsonb(out) from outlets out where out.id = o.outlet_id)
+  )
+  || jsonb_build_object(
+    'items',
+    coalesce(
+      (
+        select jsonb_agg(
+          (select to_jsonb(item_cols) from
+            (select oi.id, oi.status, oi.quantity, oi.unit_price, oi.total_price, mi.name)
+            item_cols
+          )
+        )
+        from order_items oi
+        join menu_items mi on mi.id = oi.menu_item_id
+        where oi.order_id = o.id
+      ),
+      '[]'::jsonb
+    )
+  )
+from orders o
+left join tables tbls on tbls.id = o.table_id
+left join profiles wp on wp.id = o.waiter_id and wp.is_active = true and wp.outlet_id = o.outlet_id
+where o.id = p_order_id
+and o.outlet_id = p_outlet_id;
+$$;
+
+-- Allow API roles to call it.
+grant execute on function get_order_with_items(uuid, uuid) to anon, authenticated;
+
+-- Indexes for performance.
+create index if not exists idx_order_items_order_id on order_items (order_id);
+create index if not exists idx_orders_outlet_id on orders (outlet_id);

@@ -3,11 +3,13 @@ import { db } from './data';
 import { printOrderEscpos, printKot } from './printerManager';
 import { getPrinterFor } from './settingsManager';
 import { config } from './config';
-import type {
-  FoodOrder,
-  OrderWithStatus,
-  PrintOrderResponse,
-  PrintType,
+import {
+  DINE_IN_ORDER_TYPE,
+  PICK_UP_ORDER_TYPE,
+  type FoodOrder,
+  type OrderWithStatus,
+  type PrintOrderResponse,
+  type PrintType,
 } from '../shared/types';
 
 // Backoff delays per attempt (ms): attempt 1 immediate, then 5s, then 10s.
@@ -48,7 +50,7 @@ class OrderManager extends EventEmitter {
   // entrypoint stays for KOT/plain-bill (always orderId-based) and as a
   // backward-compatible shim for a legacy orderId-only settle request.
   async handleIncoming(orderId: string, type: PrintType = 'bill'): Promise<PrintOrderResponse> {
-    let order = await db.orders.fetchOrderById(orderId);
+    let order = await db.orders.fetchOrderById(orderId, config.outletId);
 
     if (!order) {
       return {
@@ -59,9 +61,11 @@ class OrderManager extends EventEmitter {
         error: 'NOT_FOUND',
       };
     }
-
-    if (type === 'kot') return this.handleKot(orderId, order);
-    //if (type === 'settle') return this.handleSettle(orderId, order);
+    
+   if (type === 'kot') return this.handleKot(orderId, order);
+    if(order.orderType === PICK_UP_ORDER_TYPE){
+      return this.handleSettleByNumbers(order.orderNumbers??[], config.outletId);
+    }
 
     return {
       success: false,
@@ -78,7 +82,7 @@ class OrderManager extends EventEmitter {
    * print failure keeps the delta for a retry. No unprinted items => no-op.
    */
   private async handleKot(orderId: string, order: FoodOrder): Promise<PrintOrderResponse> {
-    const targetRole = order.orderType === 'dine_in' ? 'waiter' : 'kitchen';
+    const targetRole = order.orderType === DINE_IN_ORDER_TYPE ? 'waiter' : 'kitchen';
     const targetPrinter = getPrinterFor(targetRole);
         if (!targetPrinter) {
           const roleLabel = targetRole === 'waiter' ? 'Waiter' : 'Kitchen';
@@ -120,7 +124,7 @@ class OrderManager extends EventEmitter {
 
     // Re-fetch so the UI shows the full order (all items, updated
     // kot_printed flags) rather than just the delta that was printed.
-    const postStamp = (await db.orders.fetchOrderById(orderId)) ?? order;
+    const postStamp = (await db.orders.fetchOrderById(orderId, config.outletId)) ?? order;
     this.cacheForDisplay({
       ...postStamp,
       printStatus: 'printed',

@@ -1,6 +1,6 @@
 import { getAuthedClient } from './sessionClient';
 import type { NewOrderLine, OrderEntryRepository } from '../ports';
-import type { TaxRates } from '../../../shared/types';
+import { DINE_IN_ORDER_TYPE, type TaxRates } from '../../../shared/types';
 
 function toJsonItems(items: NewOrderLine[]) {
   return items.map((i) => ({
@@ -24,12 +24,11 @@ export const orderEntry: OrderEntryRepository = {
     return out;
   },
 
-  async placeDineInOrder(a) {
-
+  async placeNewOrder(a){
     const { data, error } = await getAuthedClient().rpc('place_order', {
       p_actor: a.userId,
-      p_order_type:'dine_in',
-      p_table_id: a.tableId,
+      p_order_type: a.orderType,
+      p_table_id: a.orderType === DINE_IN_ORDER_TYPE ? a.tableId : null,
       p_outlet_id: a.outletId,
       p_items: toJsonItems(a.items),
       p_customer_name: a.customerName,
@@ -41,23 +40,7 @@ export const orderEntry: OrderEntryRepository = {
     const d = (data ?? {}) as { order_id?: string; order_number?: number; invoice_number?: string, duplicate?: boolean };
     if (!d.order_id) throw new Error('The order was not created.');
     return { orderId: String(d.order_id), orderNumber: Number(d.order_number ?? 0), invoiceNumber: String(d.invoice_number), duplicate: d.duplicate === true };
-  },
 
-  async placePickupOrder(a) {
-    const { data, error } = await getAuthedClient().rpc('place_order', {
-      p_actor: a.userId,
-      p_order_type:'takeaway',
-      p_table_id: null,
-      p_outlet_id: a.outletId,
-      p_items: toJsonItems(a.items),
-      p_customer_name: a.customerName,
-      p_customer_phone: a.customerPhone,
-      p_notes: a.notes,
-    });
-    if (error) throw new Error(error.message);
-    const d = (data ?? {}) as { order_id?: string; order_number?: number; invoice_number?: string, duplicate?: boolean };
-    if (!d.order_id) throw new Error('The order was not created.');
-    return { orderId: String(d.order_id), orderNumber: Number(d.order_number ?? 0), invoiceNumber: String(d.invoice_number), duplicate: d.duplicate === true };
   },
 
   async getOrderSummary(orderId) {

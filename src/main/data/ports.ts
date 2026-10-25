@@ -57,6 +57,7 @@ import type {
   CreateUserPayload,
   UpdateUserPayload,
   InvoiceSequenceStatus,
+  OrderType,
 } from '../../shared/types';
 
 // ---------------------------------------------------------------------------
@@ -105,7 +106,7 @@ export interface TableBatch {
 
 export interface OrderRepository {
   isReachable(): Promise<boolean>;
-  fetchOrderById(orderId: string): Promise<FoodOrder | null>;
+  fetchOrderById(orderId: string, outletId: string): Promise<FoodOrder | null>;
   fetchOutletById(outletId: string): Promise<OutletInfo | null>;
   getOrderStatus(orderId: string): Promise<string | null>;
   /** True only when the order exists AND belongs to this outlet. Unknown or malformed ids are false. */
@@ -191,26 +192,13 @@ export interface NewOrderLine {
 export interface OrderEntryRepository {
   /** Rates in force now for the signed-in user's outlet. */
   getTaxRates(): Promise<TaxRates>;
-  placeDineInOrder(args: {
+
+  placeNewOrder(args: {
     userId: string,
+    orderType: OrderType;
     outletId: string;
     tableId: string;
     items: NewOrderLine[];
-    subtotal: number;
-    tax: number;
-    total: number;
-    customerName: string | null;
-    customerPhone: string | null;
-    notes: string | null;
-  }): Promise<{ orderId: string; orderNumber: number; invoiceNumber: string, duplicate: boolean }>;
-  placePickupOrder(args: {
-    userId: string,
-    outletId: string;
-    items: NewOrderLine[];
-    subtotal: number;
-    tax: number;
-    containerCharge: number;
-    total: number;
     customerName: string | null;
     customerPhone: string | null;
     notes: string | null;

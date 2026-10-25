@@ -423,7 +423,7 @@ export function startHttpServer(): Promise<void> {
       if (!(await db.orders.isOrderInOutlet(orderId, config.outletId))) {
         return res.status(404).json({ error: 'Order not found' });
       }
-      const order = await db.orders.fetchOrderById(orderId);
+      const order = await db.orders.fetchOrderById(orderId, config.outletId);
       if (!order) return res.status(404).json({ error: 'Order not found' });
       res.json(order);
     } catch (err) {

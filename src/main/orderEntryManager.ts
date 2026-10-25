@@ -2,10 +2,13 @@ import { db, type NewOrderLine } from './data';
 import { getCachedMenuItems } from './menuCache';
 import { config } from './config';
 import { computeTotals, type PricedLine } from '../shared/orderTotals';
-import type { PlaceOrderPayload, PlaceOrderResult, TaxRates } from '../shared/types';
+import type { OrderType, PlaceOrderPayload, PlaceOrderResult, TaxRates } from '../shared/types';
 import {
   DINE_IN_ORDER_TYPE,
+  PICK_UP_ORDER_TYPE,
 }from '../shared/types';
+import { printQueue } from './printQueue';
+import { orderManager } from './orderManager';
 
 /**
  * orderEntryManager.ts
@@ -68,42 +71,49 @@ export async function placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrder
   const totals = computeTotals(lines, !isDineIn);
 
   let result: { orderId?: string; orderNumber?: number; invoiceNumber?: string, duplicate?: boolean };
+  let orderDetail: { 
+      userId: string,
+      orderType: OrderType
+      outletId: string;
+      tableId: string;
+      items: NewOrderLine[];
+      customerName: string | null;
+      customerPhone: string | null;
+      notes: string | null;
+  };
+
   if (isDineIn) {
     const tableStatus = await db.tables.getStatusById(payload.tableId as string);
     if (tableStatus === 'reserved' || tableStatus === 'cleaning') {
       throw new Error(`This table is ${tableStatus}. Change its status on the Tables page first.`);
     }
-    result = await db.orderEntry.placeDineInOrder({
-      userId: payload.placedBy,
-      outletId: config.outletId,
-      tableId: payload.tableId as string,
-      items: newLines,
-      subtotal: totals.subtotal,
-      tax: totals.tax,
-      total: totals.total,
-      customerName: payload.customerName?.trim() || null,
-      customerPhone: payload.customerPhone?.trim() || null,
-      notes: payload.notes?.trim() || null,
-    });
-  } else {
-    result = await db.orderEntry.placePickupOrder({
-      userId: payload.placedBy,
-      outletId: config.outletId,
-      items: newLines,
-      subtotal: totals.subtotal,
-      tax: totals.tax,
-      containerCharge: totals.containerCharge,
-      total: totals.total,
-      customerName: payload.customerName?.trim() || null,
-      customerPhone: payload.customerPhone?.trim() || null,
-      notes: payload.notes?.trim() || null,
-    });
   }
+
+  result = await db.orderEntry.placeNewOrder({
+    userId: payload.placedBy,
+    orderType: isDineIn ? DINE_IN_ORDER_TYPE : PICK_UP_ORDER_TYPE,
+    outletId: config.outletId,
+    tableId: payload.tableId as string,
+    items: newLines,
+    customerName: payload.customerName?.trim() || null,
+    customerPhone: payload.customerPhone?.trim() || null,
+    notes: payload.notes?.trim() || null,
+  })
 
   // Best effort: the order is already placed, so a failed lookup only means
   // the confirmation shows fewer details.
   //const { orderNumber, invoiceNumber } = await db.orderEntry.getOrderSummary(orderId);
   if (!result.orderId) throw new Error('The order was not created.');
+
+  if (config.outletId && result.orderId) {
+      printQueue
+        .enqueue(() => orderManager.handleIncoming(String(result.orderId), 'kot'))
+        .then((r) => {
+          if (!r.success) console.warn(`[Entry Manager] KOT for order ${result.orderNumber} not printed: ${r.message}`);
+        })
+        .catch((err) => console.error('[Entry Manager] KOT print failed:', err instanceof Error ? err.message : err));
+    }
+
     return { orderId: String(result.orderId), orderNumber: Number(result.orderNumber ?? 0), invoiceNumber: String(result.invoiceNumber), total: totals.total, duplicate: result.duplicate === true };
   //return { orderId, orderNumber, invoiceNumber, total: totals.total };
 }
