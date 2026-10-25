@@ -8,7 +8,7 @@ import type { FoodOrder, OrderItem, OutletInfo, OrderType, UnprintedKot } from '
 const ITEMS_TABLE = 'order_items';
 const ORDER_RPC = 'get_order_with_items';
 
-const getClient = getAnonClient;
+const getClient = getAuthedClient;
 
 function mapItem(row: Record<string, unknown>): OrderItem {
   return {
@@ -254,7 +254,6 @@ async function fetchUnprintedItems(orderId: string): Promise<OrderItem[]> {
   if (!supabase) throw new Error('Database is not configured.');
   const id = await resolveOrderId(orderId);
   if (!id) return [];
-
   const { data, error } = await supabase
     .from(ITEMS_TABLE_NAME)
     .select('*')
