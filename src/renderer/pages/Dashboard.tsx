@@ -397,7 +397,6 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
             const mins = elapsedMinutes(table.orderCreatedAt, now);
             const st = statusOf(table);
             const cap = tableMeta[table.tableId]?.capacity ?? 0;
-            const busy = busyTableId === table.tableId;
           return (
             <div
                   key={table.tableId}
