@@ -160,6 +160,7 @@ export type SettleOrderType = 'dine_in' | 'takeaway';
 export interface PrintOrderRequest {
   /** KOT/plain-bill prints still key on this (Android already has it at order-creation time). Also still accepted for a legacy 'settle' request with no orderType. */
   orderId?: string;
+  invoiceNumber?:string;
   /**
    * Required (with tableNumber or orderNumber) for a 'settle' request.
    * Tells the server up front which resolution path to take — 'dine-in'

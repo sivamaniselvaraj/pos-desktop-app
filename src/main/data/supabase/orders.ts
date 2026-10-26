@@ -69,7 +69,7 @@ function mapRow(row: Record<string, unknown>): FoodOrder {
         }))
       : undefined,
     total: Number(row.total_amount ?? 0),
-    containerCharge: row.container_charge_amount != null ? Number(row.container_charge_amount) : undefined,
+    containerCharge: row.container_amount != null ? Number(row.container_amount) : undefined,
     // Inferred from the confirmed subtotal_amount/tax_amount/total_amount/
     // container_charge_amount naming pattern, NOT independently confirmed
     // the way those were — row.discount (bare) was almost certainly the same
@@ -461,22 +461,21 @@ async function fetchTableOrderNumbers(
  * single-element array and gets back that one order (or none, if it's been
  * cancelled or doesn't exist for this outlet).
  */
-async function fetchOrdersByNumbers(
-  orderNumbers: number[],
+async function fetchOrdersByInvoiceNumbers(
+  invoiceNumber: string,
   outletId: string,
 ): Promise<FoodOrder[]> {
-  if (orderNumbers.length === 0) return [];
+  if (invoiceNumber.trim() === '') return [];
   const supabase = getClient();
   if (!supabase) throw new Error('Database is not configured.');
 
   const { data, error } = await supabase
-    .from(supabaseSettings.table)
-    .select('*')
-    .in('order_number', orderNumbers)
+    .from('orders')
+    .select(`*, outlet:outlets!outlet_id(id)`)
+    .eq('invoice_number', invoiceNumber)
     .eq('outlet_id', outletId)
     .neq('status', 'cancelled');
   if (error) throw new Error(error.message);
-
   return ((data as Record<string, unknown>[] | null) ?? []).map(mapRow);
 }
 
@@ -578,7 +577,7 @@ export const orders: OrderRepository = {
   fetchAggregatedItemsForOrders,
   fetchTableBatchOrders,
   fetchTableOrderNumbers,
-  fetchOrdersByNumbers,
+  fetchOrdersByInvoiceNumbers,
   markOrdersCompleted,
   findOrdersWithPendingKot,
   listUnprintedKots,

@@ -125,7 +125,7 @@ export interface OrderRepository {
   fetchTableBatchOrders(orderId: string): Promise<TableBatch>;
   /** Order numbers in a dine-in table's batch; null when the table doesn't exist. */
   fetchTableOrderNumbers(tableNumber: string, outletId: string): Promise<number[] | null>;
-  fetchOrdersByNumbers(orderNumbers: number[], outletId: string): Promise<FoodOrder[]>;
+  fetchOrdersByInvoiceNumbers(invoiceNumber: string, outletId: string): Promise<FoodOrder[]>;
   /** Marks orders completed (settled). Does not free the table. */
   markOrdersCompleted(orderIds: string[]): Promise<void>;
   /** Orders of one outlet whose kitchen items are still unprinted. */

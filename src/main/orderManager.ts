@@ -61,12 +61,11 @@ class OrderManager extends EventEmitter {
         error: 'NOT_FOUND',
       };
     }
-    
-   if (type === 'kot') return this.handleKot(orderId, order);
-    if(order.orderType === PICK_UP_ORDER_TYPE){
-      return this.handleSettleByNumbers(order.orderNumbers??[], config.outletId);
+    if(order.orderType === PICK_UP_ORDER_TYPE) {
+      this.handleSettleByNumbers(order.invoiceNumber!, config.outletId);
     }
-
+    if (type === 'kot') return this.handleKot(orderId, order);
+   
     return {
       success: false,
       orderId,
@@ -163,8 +162,9 @@ class OrderManager extends EventEmitter {
      * here; that only happens once payment is recorded via the Table
      * Dashboard's Save button (save_order_payment RPC).
      */
-    async handleSettleByNumbers(orderNumbers: number[], outletId: string): Promise<PrintOrderResponse> {
-      if (orderNumbers.length === 0) {
+    async handleSettleByNumbers(invoiceNumber: string, outletId: string): Promise<PrintOrderResponse> {
+      console.log('handleSettleByNumbers ', invoiceNumber)
+      if (invoiceNumber.trim() === '') {
         return {
           success: false,
           orderId: '',
@@ -174,12 +174,12 @@ class OrderManager extends EventEmitter {
         };
       }
   
-    const orders = await db.orders.fetchOrdersByNumbers(orderNumbers, outletId);
+    const orders = await db.orders.fetchOrdersByInvoiceNumbers(invoiceNumber, outletId);
       if (orders.length === 0) {
         return {
           success: false,
           orderId: '',
-          message: `No matching order(s) found for #${orderNumbers.join(', ')}`,
+          message: `No matching order(s) found for #${invoiceNumber.slice(-5)}`,
           printStatus: 'failed',
           error: 'NOT_FOUND',
         };

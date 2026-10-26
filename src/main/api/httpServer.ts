@@ -358,22 +358,10 @@ export function startHttpServer(): Promise<void> {
         if (!isTableNumber(body.tableNumber)) {
           return fail(res, 400, 'BAD_REQUEST', 'Invalid tableNumber.');
         }
-        const tableNumber = String(body.tableNumber);
-        let orderNumbers: number[] | null;
-        try {
-          orderNumbers = await db.orders.fetchTableOrderNumbers(tableNumber, outletId);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : 'Unknown error';
-          return fail(res, 500, 'SERVER_ERROR', 'failed');
-        }
-        if (orderNumbers === null) {
-          return fail(res, 404, 'NOT_FOUND', `Table ${tableNumber} not found`);
-        }
-        if (orderNumbers.length === 0) {
-          return fail(res, 404, 'NOT_FOUND', `Nothing outstanding to settle for table ${tableNumber}`);
-        }
+        const invoiceNumber = String(body.invoiceNumber);
+
         return await runQueued(
-          () => orderManager.handleSettleByNumbers(orderNumbers as number[], outletId),
+          () => orderManager.handleSettleByNumbers(invoiceNumber, outletId),
           res,
         );
       } //end of dine-in
@@ -385,9 +373,9 @@ export function startHttpServer(): Promise<void> {
       if (!isOrderNumber(body.orderNumber)) {
         return fail(res, 400, 'BAD_REQUEST', 'Invalid orderNumber.');
       }
-      const orderNumber = body.orderNumber;
+      const invoiceNumber = String(body.invoiceNumber);
       return await runQueued(
-        () => orderManager.handleSettleByNumbers([orderNumber], outletId),
+        () => orderManager.handleSettleByNumbers(invoiceNumber, outletId),
         res
       );
       }
