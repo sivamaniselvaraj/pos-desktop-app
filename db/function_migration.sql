@@ -3900,3 +3900,89 @@ grant execute on function get_order_with_items(uuid, uuid) to anon, authenticate
 -- Indexes for performance.
 create index if not exists idx_order_items_order_id on order_items (order_id);
 create index if not exists idx_orders_outlet_id on orders (outlet_id);
+
+-- ============================================================================
+-- INVOICE NUMBERING: admin-only status + manual reset
+-- ============================================================================
+-- The invoice number itself (format YYYY-MM-DD-NNNNN) is assigned entirely
+-- by the assign_invoice_number() trigger on orders (db/schema.sql) — neither
+-- RPC below ever writes orders.invoice_number. These two only expose the
+-- running count (invoice_sequences, locked down with RLS + no policies —
+-- see db/schema.sql) for the Settings page's "Invoicing" panel, admin-only
+-- per the same "Not sure? go narrower" call as User Management.
+--
+-- Both resolve the outlet from the CALLER's own profile rather than taking
+-- p_outlet_id from the client — an admin only ever manages their own
+-- outlet's sequence, same trust boundary as every other admin RPC here.
+
+-- ---------------------------------------------------------------------------
+-- get_invoice_sequence_status(): current running count + last manual reset
+-- for the caller's own outlet. Returns zero rows for a non-admin (or a
+-- caller with no profile/outlet) rather than raising — the Settings page
+-- just hides the panel when this comes back empty.
+-- ---------------------------------------------------------------------------
+create or replace function get_invoice_sequence_status()
+returns table (
+  outlet_id uuid,
+  current_seq integer,
+  last_reset_at timestamptz,
+  reset_by_name text
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    p.outlet_id,
+    coalesce(s.current_seq, 0) as current_seq,
+    s.last_reset_at,
+    coalesce(rb.full_name, rb.email) as reset_by_name
+  from profiles p
+  left join invoice_sequences s on s.outlet_id = p.outlet_id
+  left join profiles rb on rb.user_id = s.reset_by
+  where p.user_id = auth.uid()
+    and has_permission('invoicing.manage')
+    and p.outlet_id is not null;
+$$;
+
+grant execute on function get_invoice_sequence_status() to authenticated;
+
+
+-- ---------------------------------------------------------------------------
+-- reset_invoice_sequence(): admin-only manual reset of the caller's own
+-- outlet's running invoice sequence back to 0, so the next order gets
+-- ...-00001. The YYYY-MM-DD date prefix keeps changing daily regardless —
+-- this only resets the 5-digit running count, and only when an admin
+-- explicitly asks for it. Nothing here tracks or enforces a cadence
+-- (monthly/half-yearly/yearly) — that's the admin's own call each time.
+-- ---------------------------------------------------------------------------
+create or replace function reset_invoice_sequence()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet_id uuid;
+begin
+  select p.outlet_id into v_outlet_id
+  from profiles p
+  where p.user_id = auth.uid()
+    and has_permission('invoicing.manage')
+    and p.outlet_id is not null;
+
+  if v_outlet_id is null then
+    raise exception 'Not authorized to reset the invoice sequence';
+  end if;
+
+  insert into invoice_sequences (outlet_id, current_seq, last_reset_at, reset_by)
+  values (v_outlet_id, 0, now(), auth.uid())
+  on conflict (outlet_id) do update
+    set current_seq = 0,
+        last_reset_at = now(),
+        reset_by = auth.uid();
+end;
+$$;
+
+grant execute on function reset_invoice_sequence() to authenticated;
