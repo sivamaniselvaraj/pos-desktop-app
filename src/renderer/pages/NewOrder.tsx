@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Toast, type ToastMessage } from '../components/Toast';
 import { Icon } from '../components/Icon';
-import { computeTotals } from '../../shared/orderTotals';
+import { applyDiscount, computeTotals, type NewOrderDiscount } from '../../shared/orderTotals';
+import { DiscountModal } from '../components/DiscountModal';
+import { useAuth } from '../context/AuthContext';
 import type {
   ManagedTable,
   OrderType,
@@ -16,7 +18,6 @@ import {
 
 import styles from '../styles/NewOrder.module.css';
 import { displayInvoiceNumber, formatMoney as money } from '../lib/format';
-import { useAuth } from '../context/AuthContext';
 
 //type OrderType = 'dine_in' | 'pickup' | 'takeaway';
 type VegFilter = 'all' | 'veg' | 'nonveg';
@@ -29,6 +30,8 @@ interface MenuEntry {
   price: number;
   category: string;
   categoryId: string;
+  /** The category's display order (lowest first); no order sorts last. */
+  categorySort: number;
   isVeg: boolean;
   searchKey: string;
   containerPercent: number;
@@ -49,6 +52,7 @@ function toEntry(raw: Record<string, unknown>): MenuEntry | null {
     price,
     category: raw.category_name ? String(raw.category_name) : 'Other',
     categoryId: raw.category_id ? String(raw.category_id) : '',
+    categorySort: raw.category_sort_order == null ? Number.MAX_SAFE_INTEGER : Number(raw.category_sort_order),
     // Items without the flag are treated as veg (the column default).
     isVeg: raw.is_veg !== false,
     searchKey: raw.search_key ? String(raw.search_key).toLowerCase() : '',
@@ -88,7 +92,11 @@ function Stepper({ qty, onMinus, onPlus }: { qty: number; onMinus: () => void; o
 }
 
 export function NewOrder({ initialTableId }: { initialTableId?: string | null } = {}) {
-  const { user } = useAuth();
+  const { can, user } = useAuth();
+  const canDiscount = can('orders.discount');
+  // The discount or complimentary chosen for this order (null = none); it is applied when the order is placed.
+  const [discount, setDiscount] = useState<(NewOrderDiscount & { reason: string }) | null>(null);
+  const [discountOpen, setDiscountOpen] = useState(false);
   const [menu, setMenu] = useState<MenuEntry[]>([]);
   const [menuError, setMenuError] = useState<string | null>(null);
   const [tables, setTables] = useState<ManagedTable[]>([]);
@@ -163,12 +171,15 @@ export function NewOrder({ initialTableId }: { initialTableId?: string | null } 
   );
 
   const categories = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const m of vegFiltered) counts.set(m.category, (counts.get(m.category) ?? 0) + 1);
-    return [
-      ['All', vegFiltered.length] as const,
-      ...[...counts.entries()].sort((a, b) => a[0].localeCompare(b[0])),
-    ];
+    const counts = new Map<string, { n: number; sort: number }>();
+    for (const m of vegFiltered) {
+      const c = counts.get(m.category) ?? { n: 0, sort: m.categorySort };
+      c.n += 1;
+      counts.set(m.category, c);
+    }
+    // In the categories' sort order, then A-Z.
+    const ordered = [...counts.entries()].sort((a, b) => a[1].sort - b[1].sort || a[0].localeCompare(b[0]));
+    return [['All', vegFiltered.length] as const, ...ordered.map(([name, c]) => [name, c.n] as const)];
   }, [vegFiltered]);
 
   // A selected category that no longer has items (e.g. after the Veg filter) falls back to All.
@@ -230,6 +241,9 @@ export function NewOrder({ initialTableId }: { initialTableId?: string | null } 
     [cartLines, tax, orderType],
   );
 
+  // With the chosen discount: the figures the database will save (estimate on screen).
+  const shown = useMemo(() => applyDiscount(totals, discount), [totals, discount]);
+
   const selectedTable = tables.find((t) => t.tableId === tableId) ?? null;
   const floors = useMemo(() => {
     const m = new Map<string, ManagedTable[]>();
@@ -262,6 +276,7 @@ export function NewOrder({ initialTableId }: { initialTableId?: string | null } 
         customerName,
         customerPhone,
         notes,
+        discount: discount ? { mode: discount.mode, value: discount.value, reason: discount.reason } : undefined,
       });
       setResultLabel(orderType === DINE_IN_ORDER_TYPE ? `Table ${selectedTable?.tableNumber}` : 'Pickup order');
       setResult(res);
@@ -278,6 +293,7 @@ export function NewOrder({ initialTableId }: { initialTableId?: string | null } 
     setCustomerName('');
     setCustomerPhone('');
     setNotes('');
+    setDiscount(null);
     setShowDetails(false);
     setQuery('');
     setTableId(null);
@@ -507,23 +523,40 @@ export function NewOrder({ initialTableId }: { initialTableId?: string | null } 
               )}
               </div>
           )}
+          {canDiscount && cartLines.length > 0 && (
+            <button type="button" className={styles.discountBtn} onClick={() => setDiscountOpen(true)}>
+              <span>{discount ? 'Change discount' : 'Discount / Complimentary'}</span>
+              {discount && (
+                <span className={styles.optional}>
+                  {discount.mode === 'complimentary' ? 'Complimentary' : discount.mode === 'percent' ? `${discount.value}% off` : `${money(Number(discount.value))} off`}
+                  {` · ${discount.reason}`}
+                </span>
+              )}
+            </button>
+          )}
           <div className={styles.sum}>
             <span>Subtotal</span>
-            <span>{money(totals.subtotal)}</span>
+            <span>{money(shown.subtotal)}</span>
           </div>
           {orderType === PICK_UP_ORDER_TYPE && totals.containerCharge > 0 && (
             <div className={styles.sum}>
               <span>Container charge {totals.containerPercent}%</span>
-              <span>{money(totals.containerCharge)}</span>
+              <span>{money(shown.containerCharge)}</span>
             </div>
           )}
-          {totals.breakdown.length === 0 ? (
+           {shown.discount > 0 && (
+            <div className={`${styles.sum} ${styles.discountLine}`}>
+              <span>{discount?.mode === 'complimentary' ? 'Complimentary' : discount?.mode === 'percent' ? `Discount ${discount.value}%` : 'Discount'}</span>
+              <span>−{money(shown.discount)}</span>
+            </div>
+          )}
+          {shown.breakdown.length === 0 ? (
           <div className={styles.sum}>
               <span>Tax</span>
               <span>{money(0)}</span>
             </div>
           ) : (
-            totals.breakdown.map((b) => (
+            shown.breakdown.map((b) => (
               <div className={styles.sum} key={`${b.name}|${b.rate}`}>
             <span>
                   {b.name} {b.rate}%
@@ -535,16 +568,30 @@ export function NewOrder({ initialTableId }: { initialTableId?: string | null } 
           
           <div className={`${styles.sum} ${styles.grand}`}>
             <span>{orderType === DINE_IN_ORDER_TYPE && selectedTable?.effectiveStatus === 'occupied' ? 'Total this round' : 'Total'}</span>
-            <span>{money(totals.total)}</span>
+            <span>{money(shown.total)}</span>
           </div>
           <button type="button" className={styles.place} disabled={!canPlace} onClick={() => void place()}>
-            {placing ? 'Placing…' : `Place Order · ${money(totals.total)}`}
+            {placing ? 'Placing…' : `Place Order · ${money(shown.total)}`}
           </button>
           {orderType === DINE_IN_ORDER_TYPE && !selectedTable && cartLines.length > 0 && (
             <div className={styles.hint}>Select a table to place this order.</div>
           )}
         </div>
       </aside>
+
+      {discountOpen && (
+        <DiscountModal
+          title={orderType === DINE_IN_ORDER_TYPE ? `Table ${selectedTable?.tableNumber ?? ''} · new order` : 'Pickup · new order'}
+          orderIds={['new']}
+          currentDiscount={shown.discount}
+          currentTotal={shown.total}
+          onClose={() => setDiscountOpen(false)}
+          onApply={async (mode, value, reason) => {
+            // Nothing is saved yet: the choice is kept and applied when the order is placed.
+            setDiscount(mode === 'none' ? null : { mode, value, reason });
+            setDiscountOpen(false);
+          } } currentDiscountPercent={0}        />
+      )}
 
       {result && (
         <div className={styles.overlay}>
@@ -559,9 +606,20 @@ export function NewOrder({ initialTableId }: { initialTableId?: string | null } 
               <b>{result.orderNumber ?? '—'}</b>
               <span>Invoice</span>
               <b>{displayInvoiceNumber(result.invoiceNumber)}</b>
+              {result.discountAmount ? (
+                <>
+                  <span>Discount</span>
+                  <b>−{money(result.discountAmount)}</b>
+                </>
+              ) : null}
               <span>Order total</span>
               <b>{money(result.total)}</b>
             </div>
+            {result.discountError && (
+              <p className={styles.discountFail} role="alert">
+                The order was placed, but the discount was not applied: {result.discountError} You can add it from the Orders list.
+              </p>
+            )}
             <button type="button" className={styles.place} onClick={startNew} autoFocus>
               New order
             </button>

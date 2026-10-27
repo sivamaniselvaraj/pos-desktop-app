@@ -77,6 +77,36 @@ export function computeTotals(lines: PricedLine[], includeContainer: boolean): O
   const tax = r2(breakdown.reduce((s, b) => s + b.tax, 0));
   return { subtotal, tax, containerCharge, total: r2(subtotal + tax + containerCharge), breakdown, containerPercent: containerPercent};
 }
+export interface DiscountedTotals extends OrderTotals {
+  /** The money taken off (before tax). */
+  discount: number;
+}
+
+export type NewOrderDiscount = { mode: 'percent' | 'amount' | 'complimentary'; value?: number };
+
+/**
+ * The totals with a discount, the way the database works it out (recompute_order_totals):
+ * a percentage or a fixed amount comes off the value before tax (subtotal + container
+ * charge) and the tax is then worked out on what is left, rate by rate; complimentary is the
+ * whole value with no tax. Only an estimate for the screen; the database's figures are saved.
+ */
+export function applyDiscount(t: OrderTotals, d: NewOrderDiscount | null | undefined): DiscountedTotals {
+  if (!d) return { ...t, discount: 0 };
+  const value = t.subtotal + t.containerCharge;
+  const comp = d.mode === 'complimentary';
+  const v = Number(d.value ?? 0);
+  const discount = comp ? value : d.mode === 'percent' ? r2((value * Math.min(v, 100)) / 100) : Math.min(v, value);
+  const pre = t.breakdown.reduce((s, b) => s + b.taxable, 0);
+  if (!(discount > 0)) return { ...t, discount: 0 };
+  const f = pre > 0 ? Math.min(discount / pre, 1) : 1;
+  const breakdown = t.breakdown.map((b) => ({
+    ...b,
+    taxable: comp ? 0 : r2(b.taxable * (1 - f)),
+    tax: comp ? 0 : r2(b.taxable * (1 - f) * (b.rate / 100)),
+  }));
+  const tax = r2(breakdown.reduce((s, b) => s + b.tax, 0));
+  return { ...t, breakdown, tax, discount: r2(discount), total: r2(t.subtotal + t.containerCharge - discount + tax) };
+}
 
 /** Combine the per-rate tax of several orders (a grouped table bill): one line per rate. */
 export function mergeTaxBreakdowns(lists: (TaxBreakdownLine[] | undefined)[]): TaxBreakdownLine[] {

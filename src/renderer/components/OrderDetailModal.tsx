@@ -468,7 +468,7 @@ export function OrderDetailModal({
           </div>
         )}
 
-        {!loading && canDiscount && discountFigures && (
+        {!loading && canDiscount && discountFigures && meta!.orderType === DINE_IN_ORDER_TYPE && (
           <div className={styles.modalActions}>
             <button type="button" className={styles.smallBtn} onClick={() => setDiscountOpen(true)}>
               {discountFigures.discountAmount > 0 || (discounts && discounts.length > 0) ? 'Change discount' : 'Discount / Complimentary'}

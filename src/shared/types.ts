@@ -647,6 +647,8 @@ export interface PlaceOrderPayload {
   customerName?: string;
   customerPhone?: string;
   notes?: string;
+  /** A discount or complimentary given while placing the order (the same rules as the Orders list). Needs orders.discount and a reason. */
+  discount?: { mode: 'percent' | 'amount' | 'complimentary'; value?: number; reason: string };
 }
 
 export interface PlaceOrderResult {

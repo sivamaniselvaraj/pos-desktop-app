@@ -1,8 +1,9 @@
 import { db, type NewOrderLine } from './data';
 import { getCachedMenuItems } from './menuCache';
 import { config } from './config';
-import { computeTotals, type PricedLine } from '../shared/orderTotals';
-import type { OrderType, PlaceOrderPayload, PlaceOrderResult, TaxRates } from '../shared/types';
+import { setOrderDiscount } from './ordersListManager';
+import { applyDiscount, computeTotals, type PricedLine } from '../shared/orderTotals';
+import type { PlaceOrderPayload, PlaceOrderResult, TaxRates } from '../shared/types';
 import {
   DINE_IN_ORDER_TYPE,
   PICK_UP_ORDER_TYPE,
@@ -95,6 +96,29 @@ export async function placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrder
   //const { orderNumber, invoiceNumber } = await db.orderEntry.getOrderSummary(orderId);
   if (!result.orderId) throw new Error('The order was not created.');
 
+  let orderResult: PlaceOrderResult = {
+    orderId: result.orderId,
+    orderNumber: Number(result.orderNumber ?? 0),
+    invoiceNumber: String(result.invoiceNumber), 
+    duplicate: result.duplicate === true,
+    total: totals.total,
+  };
+
+    // A discount chosen while placing the order is applied to this order right after it is saved.
+    // The database checks the permission, the allowed percentages and the reason.
+    const wanted = payload.discount;
+    if (wanted && ['percent', 'amount', 'complimentary'].includes(wanted.mode)) {
+      try {
+        await setOrderDiscount({ orderIds: [result.orderId], mode: wanted.mode, value: wanted.value, reason: wanted.reason });
+        const d = applyDiscount(totals, { mode: wanted.mode, value: wanted.value });
+        orderResult.total = d.total;
+        orderResult.discountAmount = d.discount;
+        //return { orderId, orderNumber, invoiceNumber, total: d.total, discountAmount: d.discount };
+      } catch (err) {
+        orderResult.discountError = err instanceof Error ? err.message : 'The discount could not be applied.';
+      }
+    }
+
   if (config.outletId && result.orderId) {
       printQueue
         .enqueue(() => orderManager.handleIncoming(String(result.orderId), 'kot'))
@@ -104,6 +128,7 @@ export async function placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrder
         .catch((err) => console.error('[Entry Manager] KOT print failed:', err instanceof Error ? err.message : err));
     }
 
-    return { orderId: String(result.orderId), orderNumber: Number(result.orderNumber ?? 0), invoiceNumber: String(result.invoiceNumber), total: totals.total, duplicate: result.duplicate === true };
+  return orderResult;
+  //return { orderId: String(result.orderId), orderNumber: Number(result.orderNumber ?? 0), invoiceNumber: String(result.invoiceNumber), total: totals.total, duplicate: result.duplicate === true };
   //return { orderId, orderNumber, invoiceNumber, total: totals.total };
 }

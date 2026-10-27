@@ -14,10 +14,10 @@ import type {
   OrderDiscountMode,
   OrderDiscountInfo,
 } from '@shared/types';
-import { DINE_IN_ORDER_TYPE } from '../../shared/types';
+import { DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE } from '../../shared/types';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/OrdersList.module.css';
-import { formatMoney as formatCurrency, formatDateTime, displayInvoiceNumber } from '../lib/format';
+import { formatMoney as formatCurrency, displayInvoiceNumber } from '../lib/format';
 
 
 const PAGE_SIZE = 25;
@@ -590,7 +590,7 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
                                 className={styles.iconBtn}
                                 title={r.discountAmount > 0 ? 'Change discount' : 'Discount / Complimentary'}
                                 onClick={() => void openDiscountRow(r)}
-                                disabled={busyOrderId === r.orderId}
+                                disabled={busyOrderId === r.orderId || r.orderType === PICK_UP_ORDER_TYPE}
                               >
                                 <span className={styles.pctIcon}>%</span>
                               </button>
