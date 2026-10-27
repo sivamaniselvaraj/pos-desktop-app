@@ -206,7 +206,7 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
 
   async function completeOrder(orderId: string, title: string, summary: string = '') {
     //setCompleteTarget({ scope: 'order', orderId, title, summary });
-    if (!confirm(title)) return;
+    if (!confirm(title + '\n' + summary)) return;
      try {
       setBusyOrderId(orderId);
       await window.api.completeOrder(orderId);
