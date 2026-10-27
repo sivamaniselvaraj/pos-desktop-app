@@ -11,10 +11,11 @@ const ORDER_RPC = 'get_order_with_items';
 const getClient = getAuthedClient;
 
 function mapItem(row: Record<string, unknown>): OrderItem {
+  const menuItemRaw = row.menu_item ? (row.menu_item as Record<string, unknown>) : null;
   return {
     id: String(row.id ?? row.item_id ?? ''),
     menuItemId: row.menu_item_id != null ? String(row.menu_item_id) : undefined,
-    name: String(row.name),
+    name: menuItemRaw ? String(mapMenuItem(menuItemRaw).name) : 'Item',
     quantity: Number(row.quantity ?? row.qty ?? 1),
     unitPrice: Number(row.price ?? row.unit_price ?? 0),
     specialInstructions: row.special_instructions
@@ -24,6 +25,13 @@ function mapItem(row: Record<string, unknown>): OrderItem {
         : undefined,
     kotPrinted: row.kot_printed === true,
     kotPrintedAt: row.kot_printed_at != null ? String(row.kot_printed_at) : undefined,
+  };
+}
+
+function mapMenuItem(row: Record<string, unknown>): OutletInfo {
+  return {
+    id: String(row.id ?? ''),
+    name: String(row.name ?? 'Item'),
   };
 }
 
@@ -255,7 +263,7 @@ async function fetchUnprintedItems(orderId: string): Promise<OrderItem[]> {
   if (!id) return [];
   const { data, error } = await supabase
     .from(ITEMS_TABLE_NAME)
-    .select('*')
+    .select('*, menu_item:menu_items!menu_item_id(id,name)')
     .eq('order_id', id)
     .eq('kot_printed', false);
   if (error) throw new Error(error.message);

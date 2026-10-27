@@ -737,7 +737,6 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string, isD
  */
 export async function printKot(order: FoodOrder, printerName: string): Promise<void> {
   const name = (printerName ?? '').trim();
-  console.log("printerName ", printerName)
   let isPickup = order.orderType === "pickup" || order.orderType === 'takeaway';
   let kotTitle = isPickup  ? 'TAKEAWAY' : 'WAITER KOT';
   let orderType = isPickup ? "Pick Up" : "Dine In";
@@ -821,7 +820,6 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
       printer.bold(false);
       printer.println(order.specialNotes);
     }
-
     solidLine(printer);
     printer.cut();
 
