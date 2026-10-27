@@ -912,7 +912,7 @@ function padRight(text: string, width: number): string {
 export async function printOrderPlainText(order: FoodOrder): Promise<void> {
   const printerName = config.cashierPrinter;
   const receipt = formatReceipt(order);
-  const tmpFile = join(tmpdir(), `order-${order.orderId}-${randomUUID()}.txt`);
+  const tmpFile = join(tmpdir(), `order-${order.invoiceNumber}-${randomUUID()}.txt`);
   await writeFile(tmpFile, receipt, 'utf8');
 
   try {

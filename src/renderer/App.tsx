@@ -6,7 +6,6 @@ import { Settings } from './pages/Settings';
 import { History } from './pages/History';
 import { SalesReport } from './pages/ReportSalesByOutlet';
 import { UserManagement } from './pages/UserManagement';
-import { TaxRates } from './pages/TaxRates';
 import { NewOrder } from './pages/NewOrder';
 import { TablesManagement } from './pages/TablesManagement';
 import { OrdersList } from './pages/OrdersList';

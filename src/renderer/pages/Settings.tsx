@@ -450,7 +450,7 @@ export function Settings() {
             ) : invoiceStatus ? (
               <div className={styles.printerCardWrap}>
                 <div className={styles.printerCard}>
-                  <div className={styles.printerInfo}>
+                  <div>
                     <div className={styles.printerName}>
                       {invoiceStatus.currentSeq} invoice{invoiceStatus.currentSeq === 1 ? '' : 's'}{' '}
                       issued since last reset
@@ -525,7 +525,7 @@ export function Settings() {
               ) : (
                 devices.map((d) => (
                   <div key={d.id} className={styles.printerCard}>
-                    <div className={styles.printerInfo}>
+                    <div>
                       <div className={styles.printerName}>
                         {d.name}
                         {d.userName ? ` (${d.userName})` : ''}

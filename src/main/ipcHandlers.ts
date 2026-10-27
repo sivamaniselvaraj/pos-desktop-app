@@ -9,7 +9,7 @@ import { listDevices, revokeDevice, resetDevicePin } from './api/apiSecurity';
 import { cancelCode, createCode } from './api/pairingCodes';
 
 import { getAllPrinters, updatePrinter, removePrinter, getMaxPrinters } from './settingsManager';
-//import { getInvoiceSequenceStatus, resetInvoiceSequence } from './invoiceManager';
+import { getInvoiceSequenceStatus, resetInvoiceSequence } from './invoiceManager';
 import { exportSalesReport } from './reportExport';
 import {
   listUsers,
@@ -26,7 +26,7 @@ import {
   setUserGroups,
   getUserAccess,
 } from './userAdmin';
-import { listMenuCategories, listMenuCategoriesAdmin, reorderMenuCategories, saveMenuCategory, setMenuCategoryActive, saveMenuItem } from './menuManager';
+import { listMenuCategories, listMenuCategoriesAdmin, reorderMenuCategories, saveMenuCategory, setMenuCategoryActive, saveMenuItem, getMenuItem } from './menuManager';
 import { getMyAccess } from './accessManager';
 import { getTaxRate, placeOrder } from './orderEntryManager';
 import { getKotBoard, getKotWorkflow, getUnprintedKots, moveKot, printKotNow, saveKotWorkflow } from './kotManager';
@@ -48,7 +48,13 @@ import {
   reprintOrder,
   reprintTableBill,
 } from './ordersListManager';
-import { getCachedMenuItems, refreshMenuCache, setCategoryActive, setMenuItemActive } from './menuCache';
+import { 
+  getCachedMenuItems, 
+  refreshMenuCache, 
+  setCategoryActive, 
+  setMenuItemActive, 
+  setMenuItemsActive 
+} from './menuCache';
 import {
   listTables,
   savePayment,
@@ -148,8 +154,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.GET_MAX_PRINTERS, () => getMaxPrinters());
 
   // Invoicing (admin-only — enforced server-side by the RPCs)
-  // ipcMain.handle(IpcChannels.GET_INVOICE_SEQUENCE_STATUS, () => getInvoiceSequenceStatus());
-  // ipcMain.handle(IpcChannels.RESET_INVOICE_SEQUENCE, () => resetInvoiceSequence());
+  ipcMain.handle(IpcChannels.GET_INVOICE_SEQUENCE_STATUS, () => getInvoiceSequenceStatus());
+  ipcMain.handle(IpcChannels.RESET_INVOICE_SEQUENCE, () => resetInvoiceSequence());
 
   ipcMain.handle(IpcChannels.GET_SERVER_STATUS, () => buildServerStatus());
   ipcMain.handle(IpcChannels.LIST_API_DEVICES, async () => {
@@ -258,6 +264,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   // in Promise.resolve() only so it matches the async invoke() contract.
   ipcMain.handle(IpcChannels.GET_MENU_ITEMS, () => Promise.resolve(getCachedMenuItems()));
   ipcMain.handle(IpcChannels.REFRESH_MENU_CACHE, () => refreshMenuCache());
+  ipcMain.handle(IpcChannels.SET_MENU_ITEMS_ACTIVE, (_e, ids: string[], isActive: boolean, reason?: string) =>
+    setMenuItemsActive(ids, isActive, reason),
+  );
   ipcMain.handle(IpcChannels.SET_CATEGORY_ACTIVE, (_e, categoryId: string, isActive: boolean, reason?: string) =>
     setCategoryActive(categoryId, isActive, reason),
   );
@@ -274,6 +283,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.SAVE_MENU_CATEGORY, (_e, payload: { id?: string; name: string }) => saveMenuCategory(payload));
   ipcMain.handle(IpcChannels.REORDER_MENU_CATEGORIES, (_e, ids: string[]) => reorderMenuCategories(ids));
   ipcMain.handle(IpcChannels.SET_MENU_CATEGORY_ACTIVE, (_e, id: string, isActive: boolean) => setMenuCategoryActive(id, isActive));
+  ipcMain.handle(IpcChannels.GET_MENU_ITEM, (_e, id: string) => getMenuItem(id));
   ipcMain.handle(IpcChannels.SAVE_MENU_ITEM, (_e, payload: SaveMenuItemPayload) => saveMenuItem(payload));
   ipcMain.handle(IpcChannels.GET_MY_ACCESS, () => getMyAccess());
   ipcMain.handle(IpcChannels.GET_KOT_BOARD, () => getKotBoard());

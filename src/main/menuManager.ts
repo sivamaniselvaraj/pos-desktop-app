@@ -13,6 +13,13 @@ import type { MenuCacheSnapshot, MenuCategory, MenuCategoryAdmin, SaveMenuItemPa
  * ---------------------------------------------------------------------------
  */
 
+/** The whole row of one item for the Edit form (the cached list carries only the list columns). */
+export function getMenuItem(id: string): Promise<Record<string, unknown>> {
+  if (!id || typeof id !== 'string') throw new Error('Choose a menu item.');
+  if (!config.outletId) throw new Error('OUTLET_ID is not configured for this machine.');
+  return db.menu.fetchItem(config.outletId, id);
+}
+
 export function listMenuCategories(): Promise<MenuCategory[]> {
   return db.menu.listCategories(config.outletId);
 }

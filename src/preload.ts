@@ -25,6 +25,7 @@ import type {
   OrderListPage,
   OrderActivityLogEntry,
   MenuCacheSnapshot,
+  MenuItemRecord,
   TableCard,
   ManagedTable,
   KotBoard,
@@ -144,9 +145,12 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.COMPLETE_ORDER, orderId) as Promise<void>,
   reprintOrder: (orderId) =>
     ipcRenderer.invoke(IpcChannels.REPRINT_ORDER, orderId) as Promise<void>,
-  getMenuItems: () => ipcRenderer.invoke(IpcChannels.GET_MENU_ITEMS) as Promise<MenuCacheSnapshot>,
+  getMenuItems: () =>
+    ipcRenderer.invoke(IpcChannels.GET_MENU_ITEMS) as Promise<MenuCacheSnapshot>,
   refreshMenuCache: () =>
     ipcRenderer.invoke(IpcChannels.REFRESH_MENU_CACHE) as Promise<MenuCacheSnapshot>,
+  setMenuItemsActive: (ids, isActive, reason) =>
+    ipcRenderer.invoke(IpcChannels.SET_MENU_ITEMS_ACTIVE, ids, isActive, reason) as Promise<MenuCacheSnapshot>,
   setCategoryActive: (categoryId, isActive, reason) =>
     ipcRenderer.invoke(IpcChannels.SET_CATEGORY_ACTIVE, categoryId, isActive, reason) as Promise<MenuCacheSnapshot>,
   setMenuItemActive: (menuItemId, isActive, reason) =>
@@ -167,6 +171,7 @@ const api: ElectronApi = {
   reorderMenuCategories: (ids) => ipcRenderer.invoke(IpcChannels.REORDER_MENU_CATEGORIES, ids) as Promise<void>,
   setMenuCategoryActive: (id, isActive) =>
     ipcRenderer.invoke(IpcChannels.SET_MENU_CATEGORY_ACTIVE, id, isActive) as Promise<{ itemsTurnedOff: number }>,
+  getMenuItem: (id) => ipcRenderer.invoke(IpcChannels.GET_MENU_ITEM, id) as Promise<MenuItemRecord>,
   saveMenuItem: (payload) =>
     ipcRenderer.invoke(IpcChannels.SAVE_MENU_ITEM, payload) as Promise<MenuCacheSnapshot>,
   getMyAccess: () => ipcRenderer.invoke(IpcChannels.GET_MY_ACCESS) as Promise<MyAccess | null>,
@@ -210,7 +215,8 @@ const api: ElectronApi = {
     ) as Promise<InvoiceSequenceStatus | null>,
   resetInvoiceSequence: () =>
     ipcRenderer.invoke(IpcChannels.RESET_INVOICE_SEQUENCE) as Promise<void>,
-  getServerStatus: () => ipcRenderer.invoke(IpcChannels.GET_SERVER_STATUS) as Promise<ServerStatus>,
+  getServerStatus: () =>
+    ipcRenderer.invoke(IpcChannels.GET_SERVER_STATUS) as Promise<ServerStatus>,
   listApiDevices: () => ipcRenderer.invoke(IpcChannels.LIST_API_DEVICES) as Promise<ApiDevice[]>,
   createPairingCode: () => ipcRenderer.invoke(IpcChannels.CREATE_PAIRING_CODE) as Promise<PairingCode>,
   cancelPairingCode: () => ipcRenderer.invoke(IpcChannels.CANCEL_PAIRING_CODE) as Promise<void>,

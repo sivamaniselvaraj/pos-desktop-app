@@ -96,6 +96,21 @@ export function offReason(isActive: boolean, reason: string | undefined): string
   return r;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_BULK = 500;
+
+/** Turn the selected items on or off in one database call, then refresh the cache for Android. */
+export async function setMenuItemsActive(ids: string[], isActive: boolean, reason?: string): Promise<MenuCacheState> {
+  if (!config.outletId) throw new Error('OUTLET_ID is not configured for this machine.');
+  const unique = [...new Set(Array.isArray(ids) ? ids : [])];
+  if (unique.length === 0) throw new Error('Select at least one item.');
+  if (unique.length > MAX_BULK) throw new Error(`Select at most ${MAX_BULK} items at a time.`);
+  if (unique.some((i) => typeof i !== 'string' || !UUID.test(i))) throw new Error('Invalid item selection.');
+  const changed = await db.menu.setItemsActive(config.outletId, unique, isActive, offReason(isActive, reason));
+  if (changed === 0) throw new Error(`Nothing to change: the selected items are already ${isActive ? 'on' : 'off'}.`);
+  return refreshMenuCache();
+}
+
 /** Turn a whole category on or off ("the whole category ran out"), then refresh the cache for Android. */
 export async function setCategoryActive(categoryId: string, isActive: boolean, reason?: string): Promise<MenuCacheState> {
   if (!config.outletId) throw new Error('OUTLET_ID is not configured for this machine.');

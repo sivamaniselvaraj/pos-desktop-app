@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import { MenuItemFormModal } from '../components/MenuItemFormModal';
@@ -64,21 +64,32 @@ function columnLabel(key: string): string {
 export function MenuItemsPage() {
   const { can } = useAuth();
   const [tab, setTab] = useState<'items' | 'categories'>('items');
+  const [orderUnsaved, setOrderUnsaved] = useState(false);
+  // Leaving the Categories tab with an unsaved order would lose it.
+  const goTab = (t: 'items' | 'categories') => {
+    if (t === tab) return;
+    if (orderUnsaved && !window.confirm('The category order is not saved. Leave without saving?')) return;
+    setOrderUnsaved(false);
+    setTab(t);
+  };
   if (!can('menu.categories.view')) return <MenuItemsList />;
   return (
     <div className={pageStyles.page}>
       <div className={tabStyles.tabs}>
-        <button className={tab === 'items' ? tabStyles.tabActive : tabStyles.tab} onClick={() => setTab('items')}>
+        <button className={tab === 'items' ? tabStyles.tabActive : tabStyles.tab} onClick={() => goTab('items')}>
           Items
         </button>
-        <button className={tab === 'categories' ? tabStyles.tabActive : tabStyles.tab} onClick={() => setTab('categories')}>
+        <button className={tab === 'categories' ? tabStyles.tabActive : tabStyles.tab} onClick={() => goTab('categories')}>
           Categories
         </button>
       </div>
-      {tab === 'items' ? <MenuItemsList embedded /> : <MenuCategories canManage={can('menu.categories.manage')} />}
+      {tab === 'items' ? <MenuItemsList embedded /> : <MenuCategories canManage={can('menu.categories.manage')} onDirtyChange={setOrderUnsaved} />}
     </div>
   );
 }
+
+/** Category filter value for items that have no category. */
+const NO_CATEGORY = '__none';
 
 function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
   const { can } = useAuth();
@@ -97,9 +108,16 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [togglingCat, setTogglingCat] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'on' | 'off'>('all');
+  // '' = every category, NO_CATEGORY = items without one, otherwise a category id.
+  const [categoryFilter, setCategoryFilter] = useState('');
+  // Ticked items (by id) for a bulk on/off.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   // Turning something off asks for a reason first.
   const [offAsk, setOffAsk] = useState<
     | { kind: 'item'; item: MenuItemRecord }
+    | { kind: 'bulk'; ids: string[] }
     | { kind: 'category'; group: { key: string; name: string; items: MenuItemRecord[] } }
     | null
   >(null);
@@ -159,7 +177,17 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
       list = [...seen.entries()].map(([id, name]) => ({ id, name }));
     }
     setCategories(list);
-    setFormItem(item);
+    // The list carries only some columns: read the whole row for the form.
+    let full = item;
+    if (item?.id) {
+      try {
+        full = await window.api.getMenuItem(String(item.id));
+      } catch (e) {
+        flash('error', e instanceof Error ? e.message : 'Could not load the item');
+        return;
+      }
+    }
+    setFormItem(full);
   }
 
   async function handleSaveItem(payload: SaveMenuItemPayload) {
@@ -195,13 +223,20 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  async function handleToggleCategory(group: { key: string; name: string; items: MenuItemRecord[] }) {
-    const allOn = group.items.every((i) => i.is_active !== false);
-    if (allOn) {
-      setOffAsk({ kind: 'category', group }); // turning off: ask why first
-      return;
+  async function applyBulk(ids: string[], next: boolean, reason?: string) {
+    try {
+      setBulkBusy(true);
+      const result = await window.api.setMenuItemsActive(ids, next, reason);
+      setSnapshot(result);
+      setOffAsk(null);
+      setSelected(new Set());
+      flash('success', `${ids.length} item${ids.length === 1 ? '' : 's'} turned ${next ? 'on' : 'off'}`);
+    } catch (err) {
+      setOffAsk(null);
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to update the items' });
+    } finally {
+      setBulkBusy(false);
     }
-    await applyCategory(group, true);
   }
 
   async function applyCategory(group: { key: string; name: string; items: MenuItemRecord[] }, next: boolean, reason?: string) {
@@ -236,25 +271,93 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
       .sort();
     return [...PRIORITY_KEYS.filter((k) => keys.has(k)), ...rest];
   }, [snapshot.items]);
-  const filteredItems = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return snapshot.items;
-    return snapshot.items.filter((item) => {return String(item.name ?? '').toLowerCase().includes(q) || String(item.search_key ?? '').toLowerCase().includes(q) });
-  }, [snapshot.items, searchQuery]);
 
-  // Items grouped by category (categories A-Z, uncategorised last).
-  const groups = useMemo(() => {
-    const m = new Map<string, { key: string; name: string; items: MenuItemRecord[] }>();
-    for (const item of filteredItems) {
-      const key = item.category_id ? String(item.category_id) : '';
-      const g = m.get(key) ?? { key, name: key ? String(item.category_name ?? 'Category') : 'No category', items: [] };
-      g.items.push(item);
+  // The category drop-down: the categories that have items, in the categories' order.
+  const categoryOptions = useMemo(() => {
+    const m = new Map<string, { key: string; name: string; sort: number; count: number }>();
+    for (const item of snapshot.items) {
+      const key = item.category_id ? String(item.category_id) : NO_CATEGORY;
+      const g = m.get(key) ?? {
+        key,
+        name: key === NO_CATEGORY ? 'No category' : String(item.category_name ?? 'Category'),
+        sort: item.category_sort_order == null ? Number.MAX_SAFE_INTEGER : Number(item.category_sort_order),
+        count: 0,
+      };
+      g.count++;
       m.set(key, g);
     }
     return [...m.values()].sort((a, b) =>
-      a.key === '' ? 1 : b.key === '' ? -1 : a.name.localeCompare(b.name),
+      a.key === NO_CATEGORY ? 1 : b.key === NO_CATEGORY ? -1 : a.sort - b.sort || a.name.localeCompare(b.name),
     );
+  }, [snapshot.items]);
+
+  // A category that no longer has items (e.g. after a refresh) stops filtering.
+  useEffect(() => {
+    if (categoryFilter && !categoryOptions.some((c) => c.key === categoryFilter)) setCategoryFilter('');
+  }, [categoryOptions, categoryFilter]);
+
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return snapshot.items.filter((item) => {
+      if (categoryFilter) {
+        const key = item.category_id ? String(item.category_id) : NO_CATEGORY;
+        if (key !== categoryFilter) return false;
+      }
+      return !q ||  String(item.name ?? '').toLowerCase().includes(q) || String(item.search_key ?? '').toLowerCase().includes(q) });
+  }, [snapshot.items, searchQuery, categoryFilter]);
+
+  // Items grouped by category (categories A-Z, uncategorised last).
+  const groups = useMemo(() => {
+    const m = new Map<string, { key: string; name: string; sort: number; items: MenuItemRecord[]; shown: MenuItemRecord[] }>();
+    for (const item of filteredItems) {
+      const key = item.category_id ? String(item.category_id) : '';
+      const sort = item.category_sort_order == null ? Number.MAX_SAFE_INTEGER : Number(item.category_sort_order);
+      const g = m.get(key) ?? { key, name: key ? String(item.category_name ?? 'Category') : 'No category', sort, items: [], shown: [] };
+      g.items.push(item);
+      const on = item.is_active !== false;
+      if (statusFilter === 'all' || (statusFilter === 'on' ? on : !on)) g.shown.push(item);
+      m.set(key, g);
+    }
+    return [...m.values()]
+      .filter((g) => g.shown.length > 0)
+      .sort((a, b) => (a.key === '' ? 1 : b.key === '' ? -1 : a.sort - b.sort || a.name.localeCompare(b.name)));
+  }, [filteredItems, statusFilter]);
+
+  const shownIds = useMemo(() => groups.flatMap((g) => g.shown.map((i) => String(i.id ?? ''))).filter(Boolean), [groups]);
+  const statusCounts = useMemo(() => {
+    const on = filteredItems.filter((i) => i.is_active !== false).length;
+    return { all: filteredItems.length, on, off: filteredItems.length - on };
   }, [filteredItems]);
+  const itemById = useMemo(() => new Map(snapshot.items.map((i) => [String(i.id ?? ''), i])), [snapshot.items]);
+
+  // Only items you can see stay ticked: a new search or filter drops the rest.
+  useEffect(() => {
+    setSelected((prev) => {
+      const visible = new Set(shownIds);
+      const next = new Set([...prev].filter((id) => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [shownIds]);
+
+  const selectedOn = [...selected].filter((id) => itemById.get(id)?.is_active !== false);
+  const selectedOff = [...selected].filter((id) => itemById.get(id)?.is_active === false);
+  const allShownTicked = shownIds.length > 0 && shownIds.every((id) => selected.has(id));
+  const someShownTicked = shownIds.some((id) => selected.has(id));
+  const headerBox = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (headerBox.current) headerBox.current.indeterminate = someShownTicked && !allShownTicked;
+  }, [someShownTicked, allShownTicked]);
+
+  function toggleIds(ids: string[], on: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (on) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }
 
   return (
     <div className={embedded ? undefined : pageStyles.page}>
@@ -282,13 +385,66 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
         Served to Android from this cache — refreshing here is the only way new items or price
         changes reach the app until the next automatic refresh (every 5 minutes).
       </p>
-      <input
-        type="text"
-        className={styles.searchInput}
-        placeholder="Search menu items by name…"
-        value={searchQuery}
-        onChange={(e) => setSearchQuery(e.target.value)}
-      />
+
+      <div className={styles.filterRow}>
+        <input
+          type="text"
+          className={styles.searchInput}
+          placeholder="Search menu items by name…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+        <select
+          className={styles.categorySelect}
+          aria-label="Filter by category"
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+        >
+          <option value="">All categories ({snapshot.items.length})</option>
+          {categoryOptions.map((c) => (
+            <option key={c.key} value={c.key}>
+              {c.name} ({c.count})
+            </option>
+          ))}
+        </select>
+        <div className={styles.seg} role="radiogroup" aria-label="Filter by status">
+          {(['all', 'on', 'off'] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              role="radio"
+              aria-checked={statusFilter === s}
+              className={statusFilter === s ? styles.segOn : styles.segBtn}
+              onClick={() => setStatusFilter(s)}
+            >
+              {s === 'all' ? 'All' : s === 'on' ? 'On' : 'Off'} ({statusCounts[s]})
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {canManage && selected.size > 0 && (
+        <div className={styles.bulkBar}>
+          <strong>{selected.size} selected</strong>
+          <button
+            className={styles.bulkOn}
+            disabled={bulkBusy || selectedOff.length === 0}
+            onClick={() => void applyBulk(selectedOff, true)}
+          >
+            Turn on ({selectedOff.length})
+          </button>
+          <button
+            className={styles.bulkOff}
+            disabled={bulkBusy || selectedOn.length === 0}
+            onClick={() => setOffAsk({ kind: 'bulk', ids: selectedOn })}
+          >
+            Turn off ({selectedOn.length})
+          </button>
+          <button className={styles.refreshBtn} disabled={bulkBusy} onClick={() => setSelected(new Set())}>
+            Clear
+          </button>
+        </div>
+      )}
 
       <Toast message={message} />
       {!message && snapshot.lastError && <p className={styles.error}>{snapshot.lastError}</p>}
@@ -300,11 +456,26 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
           No menu items cached yet. Check OUTLET_ID is configured for this machine, then Refresh.
         </p>
       ) : filteredItems.length === 0 ? (
-        <p className={pageStyles.muted}>No menu items match &quot;{searchQuery}&quot;.</p>
+        <p className={pageStyles.muted}>
+          No menu items match{searchQuery ? <> &quot;{searchQuery}&quot;</> : ' this category'}.
+        </p>
+      ) : groups.length === 0 ? (
+        <p className={pageStyles.muted}>No {statusFilter === 'on' ? 'items that are on' : 'items that are off'} {searchQuery ? 'match your search' : 'right now'}.</p>
       ) : (
         <table className={pageStyles.table}>
           <thead>
             <tr>
+              {canManage && (
+                <th style={{ width: 32 }}>
+                  <input
+                    ref={headerBox}
+                    type="checkbox"
+                    checked={allShownTicked}
+                    onChange={(e) => toggleIds(shownIds, e.target.checked)}
+                    aria-label="Select all shown items"
+                  />
+                </th>
+              )}
               {columns.map((col) => (
                 <th key={col}>{columnLabel(col)}</th>
               ))}
@@ -319,32 +490,58 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
             return (
               <tbody key={group.key || 'none'}>
                 <tr className={styles.groupRow}>
-                  <td colSpan={columns.length + 1 + (canManage ? 1 : 0)}>
+                  <td colSpan={columns.length + 2 + (canManage ? 1 : 0)}>
                     <div className={styles.groupBar}>
+                      {canManage && (
+                        <input
+                          type="checkbox"
+                          checked={group.shown.every((i) => selected.has(String(i.id ?? '')))}
+                          onChange={(e) => toggleIds(group.shown.map((i) => String(i.id ?? '')), e.target.checked)}
+                          aria-label={`Select all in ${group.name}`}
+                        />
+                      )}
                       <strong>{group.name}</strong>
                       <span className={pageStyles.muted}>
                         {group.items.length} item{group.items.length === 1 ? '' : 's'} · {onCount} on
                       </span>
                       {canManage && (
-                        <button
-                          className={`${styles.statusToggle} ${
-                            allOn ? styles.statusOn : state === 'Off' ? styles.statusOff : styles.statusMixed
-                          }`}
-                          onClick={() => void handleToggleCategory(group)}
-                          disabled={togglingCat === group.key}
-                          title={allOn ? 'Turn off the whole category' : 'Click to turn the whole category on'}
-                        >
-                          {togglingCat === group.key ? '…' : (allOn ? 'All on' : state === 'Off' ? 'All off' : 'Some on')}
-                        </button>
+                        <span className={styles.catActions}>
+                          <button
+                            className={styles.catOn}
+                            onClick={() => void applyCategory(group, true)}
+                            disabled={togglingCat === group.key || allOn}
+                            title={allOn ? 'Every item in this category is already on' : 'Turn every item in this category on'}
+                          >
+                            {togglingCat === group.key ? '…' : 'On'}
+                          </button>
+                          <button
+                            className={styles.catOff}
+                            onClick={() => setOffAsk({ kind: 'category', group })}
+                            disabled={togglingCat === group.key || state === 'Off'}
+                            title={state === 'Off' ? 'Every item in this category is already off' : 'Turn every item in this category off'}
+                          >
+                            Off
+                          </button>
+                        </span>
                       )}
                     </div>
                   </td>
                 </tr>
-            {group.items.map((item: MenuItemRecord, i) => {
+            {group.shown.map((item: MenuItemRecord, i) => {
               const id = String(item.id ?? i);
               const isActive = item.is_active !== false;
               return (
                 <tr key={id} className={isActive ? undefined : styles.inactiveRow}>
+                  {canManage && (
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(id)}
+                        onChange={(e) => toggleIds([id], e.target.checked)}
+                        aria-label={`Select ${String(item.name ?? 'item')}`}
+                      />
+                    </td>
+                  )}
                   {columns.map((col) => (
                     <td key={col}>{formatCell(item[col])} {col === 'name' ? <span className={`${styles.dot} ${item['is_veg'] ? '' : styles.dotNv}`} /> : ''}</td>
                   ))}
@@ -399,12 +596,28 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
       )}
       {offAsk && (
         <MenuOffReasonModal
-          title={offAsk.kind === 'item' ? `Turn off ${String(offAsk.item.name ?? 'this item')}?` : `Turn off "${offAsk.group.name}"?`}
-          subtitle={offAsk.kind === 'category' ? `All ${offAsk.group.items.length} item(s) in this category will be turned off.` : undefined}
-          busy={togglingId !== null || togglingCat !== null}
+          title={
+            offAsk.kind === 'item'
+              ? `Turn off ${String(offAsk.item.name ?? 'this item')}?`
+              : offAsk.kind === 'bulk'
+                ? `Turn off ${offAsk.ids.length} item${offAsk.ids.length === 1 ? '' : 's'}?`
+                : `Turn off "${offAsk.group.name}"?`
+          }
+          subtitle={
+            offAsk.kind === 'category'
+              ? `All ${offAsk.group.items.length} item(s) in this category will be turned off.`
+              : offAsk.kind === 'bulk'
+                ? 'The same reason is recorded for every selected item.'
+                : undefined
+          }
+          busy={togglingId !== null || togglingCat !== null || bulkBusy}
           onCancel={() => setOffAsk(null)}
           onConfirm={(reason) =>
-            offAsk.kind === 'item' ? void applyItem(offAsk.item, false, reason) : void applyCategory(offAsk.group, false, reason)
+            offAsk.kind === 'item'
+              ? void applyItem(offAsk.item, false, reason)
+              : offAsk.kind === 'bulk'
+                ? void applyBulk(offAsk.ids, false, reason)
+                : void applyCategory(offAsk.group, false, reason)
           }
         />
       )}

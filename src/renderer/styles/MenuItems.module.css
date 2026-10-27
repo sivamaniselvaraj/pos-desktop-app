@@ -136,3 +136,24 @@
   background: #fef3c7;
   color: #b45309;
 }
+
+.offReason { margin-top: 4px; font-size: 11px; color: #b71c1c; max-width: 160px; line-height: 1.3; }
+
+.filterRow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.filterRow .searchInput { margin-bottom: 0; }
+.seg { display: inline-flex; border: 1px solid #ccc; border-radius: 6px; overflow: hidden; background: white; }
+.segBtn, .segOn { padding: 8px 14px; font-size: 13px; border: none; background: white; cursor: pointer; color: #444; border-right: 1px solid #ddd; }
+.seg button:last-child { border-right: none; }
+.segOn { background: #4caf50; color: white; font-weight: 600; }
+.bulkBar { display: flex; align-items: center; gap: 10px; background: #e8f0fe; border: 1px solid #c3d4f7; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; position: sticky; top: 0; z-index: 5; }
+.bulkBar strong { margin-right: auto; }
+.bulkOn, .bulkOff { padding: 7px 14px; border-radius: 4px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; color: white; }
+.bulkOn { background: #2e7d32; }
+.bulkOff { background: #c62828; }
+.bulkOn:disabled, .bulkOff:disabled { opacity: 0.45; cursor: default; }
+.categorySelect { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; background: white; min-width: 200px; max-width: 280px; }
+.catActions { display: inline-flex; gap: 6px; margin-left: auto; }
+.catOn, .catOff { padding: 4px 14px; border-radius: 4px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; color: white; }
+.catOn { background: #2e7d32; }
+.catOff { background: #c62828; }
+.catOn:disabled, .catOff:disabled { opacity: 0.4; cursor: default; }

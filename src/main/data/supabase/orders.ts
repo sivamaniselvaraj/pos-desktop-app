@@ -44,7 +44,6 @@ function mapRow(row: Record<string, unknown>): FoodOrder {
 
   return {
     id: String(row.id ?? ''),
-    orderId: String(row.order_id ?? ''),
     orderNumber: Number(row.order_number ?? 0),
     //outletId: row.outlet_id ? String(row.outlet_id) : undefined,
     outlet: outletRaw ? mapOutlet(outletRaw) : undefined,

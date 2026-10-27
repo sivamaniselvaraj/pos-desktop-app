@@ -25,6 +25,12 @@ export const PICK_UP_ORDER_TYPE = 'takeaway' as const;
 
 export type OrderListStatus = 'active' | 'completed' | 'cancelled';
 
+
+// ---- HTTP contract (Android app -> local server) ----
+export type PrintType = 'bill' | 'kot' | 'settle';
+
+export type SettleOrderType = 'dine_in' | 'takeaway';
+
 export interface OutletInfo {
   id: string;
   name: string;
@@ -47,7 +53,6 @@ export interface HeaderConfig {
 
 export interface FoodOrder {
   id: string;
-  orderId: string;
   orderNumber: number;
   tokenNumber?: number;
   outlet?: OutletInfo;
@@ -151,10 +156,6 @@ export interface RemoteOrderResult {
   duplicate?: boolean;
 }
 
-// ---- HTTP contract (Android app -> local server) ----
-export type PrintType = 'bill' | 'kot' | 'settle';
-
-export type SettleOrderType = 'dine_in' | 'takeaway';
 
 // ---- HTTP contract (Android app -> local server) ----
 export interface PrintOrderRequest {
@@ -654,6 +655,10 @@ export interface PlaceOrderResult {
   invoiceNumber?: string;
   duplicate:boolean;
   total: number;
+  /** The discount taken off, when one was given. */
+  discountAmount?: number;
+  /** Set when the order was placed but the discount could not be applied (the order is not lost). */
+  discountError?: string;
 }
 
 export interface TaxRate {
@@ -1001,6 +1006,7 @@ export const IpcChannels = {
   REFRESH_MENU_CACHE: 'refresh-menu-cache',
   SET_MENU_ITEM_ACTIVE: 'set-menu-item-active',
   SET_CATEGORY_ACTIVE: 'set-category-active',
+  SET_MENU_ITEMS_ACTIVE: 'set-menu-items-active',
   LIST_TABLES: 'list-tables',
   LIST_MANAGED_TABLES: 'list-managed-tables',
   GET_KOT_BOARD: 'get-kot-board',
@@ -1020,6 +1026,7 @@ export const IpcChannels = {
   REORDER_MENU_CATEGORIES: 'reorder-menu-categories',
   SET_MENU_CATEGORY_ACTIVE: 'set-menu-category-active',
   SAVE_MENU_ITEM: 'save-menu-item',
+  GET_MENU_ITEM: 'get-menu-item',
   PLACE_ORDER: 'place-order',
   SAVE_MANAGED_TABLE: 'save-managed-table',
   DELETE_MANAGED_TABLE: 'delete-managed-table',
@@ -1110,6 +1117,8 @@ export interface ElectronApi {
   refreshMenuCache(): Promise<MenuCacheSnapshot>;
   /** `reason` is required when turning off. */
   setMenuItemActive(menuItemId: string, isActive: boolean, reason?: string): Promise<MenuCacheSnapshot>;
+  /** Turn the selected items on or off in ONE database call. Items already in that state are skipped. `reason` is required when turning off. */
+  setMenuItemsActive(menuItemIds: string[], isActive: boolean, reason?: string): Promise<MenuCacheSnapshot>;
   /** Turn every item of a category on or off (this outlet). categoryId '' = items without a category. */
   setCategoryActive(categoryId: string, isActive: boolean, reason?: string): Promise<MenuCacheSnapshot>;
   listTables(): Promise<TableCard[]>;
@@ -1137,6 +1146,8 @@ export interface ElectronApi {
   /** Deactivating turns the category's items off; activating leaves them off. Returns how many were turned off. */
   setMenuCategoryActive(id: string, isActive: boolean): Promise<{ itemsTurnedOff: number }>;
   saveMenuItem(payload: SaveMenuItemPayload): Promise<MenuCacheSnapshot>;
+  /** The whole row of one item (the list carries only some columns); for the Edit form. */
+  getMenuItem(id: string): Promise<MenuItemRecord>;
   placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrderResult>;
   saveManagedTable(payload: SaveManagedTablePayload): Promise<void>;
   deleteManagedTable(tableId: string): Promise<void>;

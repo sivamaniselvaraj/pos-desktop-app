@@ -27,6 +27,13 @@ function toRow(v: MenuItemValues) {
   };
 }
 
+/**
+ * The columns the menu list needs (Menu Items page, New order, the phone API). The wide
+ * ones (description, image_url, cost_price, cooking_time, the item's sort_order) are left
+ * out; the Edit form reads the full row with fetchItem.
+ */
+const MENU_LIST_COLUMNS = 'id, name, category_id, price, is_veg, is_active, is_available, container_charge,  search_key, tax_name, tax_rate_percent, price_includes_tax, incentive_applicable, incentive_type, incentive_value, inactive_reason, inactive_since, inactive_by_name';
+
 export const menu: MenuRepository = {
   // Two plain reads merged here (no dependence on a foreign-key name for an
   // embedded join): the item's columns plus category_id / category_name.
@@ -35,8 +42,8 @@ export const menu: MenuRepository = {
     const supabase = getAuthedClient();
     if (!supabase) throw new Error('Database client unavailable.');
     const [menuRes, catRes] = await Promise.all([
-      supabase.from('menu_items').select('*').eq('outlet_id', outletId).order('name'),
-      supabase.from('categories').select('id, name, sort_order').eq('outlet_id', outletId),
+      supabase.from('menu_items').select(MENU_LIST_COLUMNS).eq('outlet_id', outletId).order('name'),
+      supabase.from('categories').select('id, name, sort_order'),
     ]);
     if (menuRes.error) throw new Error(menuRes.error.message);
     if (catRes.error) throw new Error(catRes.error.message);
@@ -55,6 +62,14 @@ export const menu: MenuRepository = {
     });
   },
 
+  // The whole row of one item, for the Edit form. RLS limits it to the caller's outlet.
+  async fetchItem(outletId, menuItemId) {
+    const { data, error } = await getAuthedClient().from('menu_items').select('*').eq('outlet_id', outletId).eq('id', menuItemId).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error('Menu item not found.');
+    return data as Record<string, unknown>;
+  },
+
   // RLS ("managers manage own outlet menu") is the permission check: a caller
   // without menu.edit, or an item of another outlet, updates zero rows.
   async setItemActive(menuItemId, isActive, reason) {
@@ -65,6 +80,25 @@ export const menu: MenuRepository = {
       .select('id');
     if (error) throw new Error(error.message);
     if (!data || data.length === 0) throw new Error('Not authorized, or menu item not found');
+  },
+
+  // One update for the whole selection. Same RLS check as setItemActive; only this
+  // outlet's items are touched, and only those not already in the wanted state.
+  // The shared change_batch lets the availability log tell this selection apart.
+  async setItemsActive(outletId, menuItemIds, isActive, reason) {
+    const { data, error } = await getAuthedClient()
+      .from('menu_items')
+      .update({
+        ...(isActive ? { is_active: true } : { is_active: false, inactive_reason: reason ?? null }),
+        change_scope: 'item',
+        change_batch: randomUUID(),
+      })
+      .eq('outlet_id', outletId)
+      .eq('is_active', !isActive)
+      .in('id', menuItemIds)
+      .select('id');
+    if (error) throw new Error(error.message);
+    return data?.length ?? 0;
   },
 
   // Same RLS check as setItemActive; only this outlet's items are touched.

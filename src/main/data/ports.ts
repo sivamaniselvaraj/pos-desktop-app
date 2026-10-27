@@ -268,8 +268,12 @@ export interface MenuItemValues {
 export interface MenuRepository {
   /** The outlet's full menu as raw items plus category_id / category_name. Works without a signed-in user. */
   fetchMenu(outletId: string): Promise<Record<string, unknown>[]>;
+  /** The full row of one item (all columns, incl. description, image and cost price) for the Edit form. */
+  fetchItem(outletId: string, menuItemId: string): Promise<Record<string, unknown>>;
   /** Turning off needs a reason (the database refuses without one). */
   setItemActive(menuItemId: string, isActive: boolean, reason?: string): Promise<void>;
+  /** Several items of this outlet in one update (one batch id in the availability log). Returns how many rows changed. */
+  setItemsActive(outletId: string, menuItemIds: string[], isActive: boolean, reason?: string): Promise<number>;
   /** Every item of the category in this outlet (null = items with no category). Returns how many rows changed. */
   setCategoryActive(outletId: string, categoryId: string | null, isActive: boolean, reason?: string): Promise<number>;
   /** Active categories of the caller's outlet (for pickers). */

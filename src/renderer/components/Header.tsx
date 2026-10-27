@@ -16,8 +16,8 @@ export function Header({ server, onRefresh }: HeaderProps) {
   return (
     <header className={styles.header}>
       <div className={styles.titleBlock}>
-      <h1 className={styles.title}>VIRUNTHAGAM v1.0</h1>
-      {user?.outletName && <div className={styles.outletName}>{user.outletName}</div>}
+        <h1 className={styles.title}>VIRUNTHAGAM v1.0</h1>
+        {user?.outletName && <div className={styles.outletName}>{user.outletName}</div>}
       </div>
       <div className={styles.actions}>
         {server?.ipAddress && (
@@ -36,7 +36,7 @@ export function Header({ server, onRefresh }: HeaderProps) {
         </div>
         <button className={styles.btn} onClick={onRefresh}>
           <Icon name="retry" size={16} />
-          Refresh
+          Refresh App
         </button>
 
         {user && (
