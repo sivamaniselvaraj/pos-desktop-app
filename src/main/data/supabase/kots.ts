@@ -47,30 +47,15 @@ function mapBoard(data: unknown): KotBoard {
 }
 
 export const kots: KotRepository = {
-  async getBoard(): Promise<KotBoard> {
-    const { data, error } = await getAuthedClient().rpc('get_kot_board');
+  async getBoard(userId): Promise<KotBoard> {
+    const { data, error } = await getAuthedClient().rpc('get_kot_board', { p_user_id: userId });
     if (error) throw new Error(error.message);
      return mapBoard(data);
   },
 
-  async getBoardAs(userId) {
-    const { data, error } = await getAuthedClient().rpc('get_kot_board_as', { p_user: userId });
-    if (error) throw new Error(error.message);
-    return mapBoard(data);
-  },
-
-  async moveAs(userId, orderId, toStatusId, fromStatusId) {
-    const { error } = await getAuthedClient().rpc('move_kot_as', {
-      p_user: userId,
-      p_order_id: orderId,
-      p_to_status: toStatusId,
-      p_from_status: fromStatusId,
-    });
-    if (error) throw new Error(error.message);
-  },
-
-  async move(orderId, toStatusId, fromStatusId) {
+  async move(orderId, toStatusId, fromStatusId, userId) {
     const { error } = await getAuthedClient().rpc('move_kot', {
+      p_actor: userId,
       p_order_id: orderId,
       p_to_status: toStatusId,
       p_from_status: fromStatusId,

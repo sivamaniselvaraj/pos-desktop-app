@@ -1125,11 +1125,11 @@ export interface ElectronApi {
   setCategoryActive(categoryId: string, isActive: boolean, reason?: string): Promise<MenuCacheSnapshot>;
   listTables(): Promise<TableCard[]>;
   listManagedTables(): Promise<ManagedTable[]>;
-  getKotBoard(): Promise<KotBoard>;
+  getKotBoard(userId: string): Promise<KotBoard>;
   getUnprintedKots(): Promise<UnprintedKot[]>;
   /** Print the order's unprinted kitchen items now. Rejects with the printer's message on failure. */
   printKotNow(orderId: string): Promise<string>;
-  moveKot(orderId: string, toStatusId: string, fromStatusId: string): Promise<void>;
+  moveKot(orderId: string, toStatusId: string, fromStatusId: string, userId: string): Promise<void>;
   getKotWorkflow(): Promise<KotWorkflow>;
   saveKotWorkflow(workflow: KotWorkflow): Promise<void>;
   getTaxRate(): Promise<TaxRates>;

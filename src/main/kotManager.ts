@@ -9,13 +9,13 @@ import type { KotBoard, KotWorkflow, UnprintedKot } from '../shared/types';
  * checks here only give friendlier messages.
  */
 
-export function getKotBoard(): Promise<KotBoard> {
-  return db.kots.getBoard();
+export function getKotBoard(userId:string): Promise<KotBoard> {
+  return db.kots.getBoard(userId);
 }
 
-export function moveKot(orderId: string, toStatusId: string, fromStatusId: string): Promise<void> {
+export function moveKot(orderId: string, toStatusId: string, fromStatusId: string, userId:string): Promise<void> {
   if (!orderId || !toStatusId || !fromStatusId) throw new Error('Choose the order and the step to move it to.');
-  return db.kots.move(orderId, toStatusId, fromStatusId);
+  return db.kots.move(orderId, toStatusId, fromStatusId, userId);
 }
 
 export function getKotWorkflow(): Promise<KotWorkflow> {

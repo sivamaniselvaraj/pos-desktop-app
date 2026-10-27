@@ -26,7 +26,7 @@ const isDine = (k: KotCard) => k.orderType === DINE_IN_ORDER_TYPE;
 
 /** Active KOTs in columns, one per workflow step. Cards move with one tap. */
 export function KotBoardPage() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const canMove = can('kot.move');
   const [board, setBoard] = useState<Board | null>(null);
   const [tab, setTab] = useState<Tab>('all');
@@ -38,7 +38,7 @@ export function KotBoardPage() {
 
   const load = useCallback(async () => {
     try {
-      const b = await window.api.getKotBoard();
+      const b = await window.api.getKotBoard(user!.id);
       offset.current = new Date(b.now).getTime() - Date.now();
       setBoard(b);
       setError(null);
@@ -86,7 +86,7 @@ export function KotBoardPage() {
   async function move(k: KotCard, toId: string) {
     setBusy(k.id);
     try {
-      await window.api.moveKot(k.orderId, toId, k.statusId);
+      await window.api.moveKot(k.orderId, toId, k.statusId, user!.id);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not move the KOT');

@@ -2254,7 +2254,7 @@ grant execute on function assert_can_create_user(uuid, text) to authenticated;
 -- A card = the items of one OPEN order that have the same order_items.status
 -- (hidden / final steps, and orders that are cancelled or already billed, are
 -- left out), with ALL its items. Needs kot.view.
-create or replace function get_kot_board()
+create or replace function get_kot_board(p_user_id uuid)
 returns jsonb
 language plpgsql
 stable
@@ -2264,11 +2264,11 @@ as $$
 declare
   v_outlet uuid;
 begin
-  if not has_permission('kot.view') then
+   if not user_has_permission(p_user_id, 'kot.view') then
     raise exception 'Not allowed to see the KOT board';
   end if;
   select p.outlet_id into v_outlet
-    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+    from profiles p where p.user_id = p_user_id and coalesce(p.is_active, true);
   if v_outlet is null then
     raise exception 'Your account has no outlet';
   end if;
@@ -2321,7 +2321,7 @@ begin
   );
 end;
 $$;
-grant execute on function get_kot_board() to authenticated;
+grant execute on function get_kot_board(uuid) to authenticated;
 
 -- move_kot(order, to, from): sets order_items.status of the order's items that
 -- are in step `from` to step `to`, along ONE allowed transition (forward or
@@ -2330,7 +2330,7 @@ grant execute on function get_kot_board() to authenticated;
 -- changed_at = now(), order_details {status-from, status-to}. Needs kot.move;
 -- the order must belong to the caller's outlet. If nothing is in `from` any
 -- more (someone else just moved it) it fails with a clear message.
-create or replace function move_kot(p_order_id uuid, p_to_status uuid, p_from_status uuid)
+create or replace function move_kot(p_order_id uuid, p_to_status uuid, p_from_status uuid, p_actor uuid)
 returns void
 language plpgsql
 security definer
@@ -2341,11 +2341,11 @@ declare
   v_from   text;
   v_to     text;
 begin
-  if not has_permission('kot.move') then
+   if not user_has_permission(p_actor, 'kot.move') then
     raise exception 'Not allowed to move KOTs';
   end if;
   select p.outlet_id into v_outlet
-    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+    from profiles p where p.user_id = p_actor and coalesce(p.is_active, true);
 
   select code into v_from from kot_statuses where id = p_from_status and outlet_id = v_outlet;
   select code into v_to   from kot_statuses where id = p_to_status   and outlet_id = v_outlet;
@@ -2369,12 +2369,12 @@ begin
 
   insert into app_activity_log
     (order_id, changed_by, changed_at, created_at, order_details, reason, activity)
-  values (p_order_id, auth.uid(), now(), now(),
+  values (p_order_id, p_actor, now(), now(),
           jsonb_build_object('status-from', v_from, 'status-to', v_to)::json,
           v_from || ' to ' || v_to, 'order.item.status.updated');
 end;
 $$;
-grant execute on function move_kot(uuid, uuid, uuid) to authenticated;
+grant execute on function move_kot(uuid, uuid, uuid, uuid) to authenticated;
 
 -- get_kot_workflow(): the settings view. Steps in order with their button
 -- label, flags, how many KOTs sit in each, and "back_to" as the 1-based

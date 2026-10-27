@@ -336,12 +336,9 @@ export interface DevicePairingRepository {
 }
 
 export interface KotRepository {
-  getBoard(): Promise<KotBoard>;
+  getBoard(userId: string): Promise<KotBoard>;
   /** The board for a paired kitchen screen, acting as that device's user (get_kot_board_as). */
-  getBoardAs(userId: string): Promise<KotBoard>;
-  /** Moves a card as the kitchen screen's user (move_kot_as). */
-  moveAs(userId: string, orderId: string, toStatusId: string, fromStatusId: string): Promise<void>;
-  move(orderId: string, toStatusId: string, fromStatusId: string): Promise<void>;
+  move(orderId: string, toStatusId: string, fromStatusId: string, userId: string): Promise<void>;
   getWorkflow(): Promise<KotWorkflow>;
   saveWorkflow(workflow: KotWorkflow): Promise<void>;
 }
