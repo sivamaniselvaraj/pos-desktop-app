@@ -767,14 +767,13 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
     if(order.orderNumbers && order.orderNumbers?.length > 0){
       printer.println('Running Table');
     }
-    printer.println(`Time   : ${new Date(order.createdAt).toLocaleString('en-IN')}`);
     printer.bold(true);
     printer.setTextSize(1, 1);
     printer.println(kotTitle);
     printer.setTextSize(0, 0);
     printer.println(`Time   : ${new Date(order.createdAt).toLocaleString('en-IN')}`);
-    if(order.tokenNumber){
-      printer.println("KOT - " + order.tokenNumber);
+    if(order.orderNumber){
+      printer.println("KOT - " + order.orderNumber);
     }
 
     printer.bold(true);

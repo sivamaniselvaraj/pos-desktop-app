@@ -14,7 +14,7 @@ function mapItem(row: Record<string, unknown>): OrderItem {
   return {
     id: String(row.id ?? row.item_id ?? ''),
     menuItemId: row.menu_item_id != null ? String(row.menu_item_id) : undefined,
-    name: String(row.name ?? row.item_name ?? 'Item'),
+    name: String(row.name),
     quantity: Number(row.quantity ?? row.qty ?? 1),
     unitPrice: Number(row.price ?? row.unit_price ?? 0),
     specialInstructions: row.special_instructions
