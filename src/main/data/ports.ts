@@ -132,6 +132,7 @@ export interface OrderRepository {
   findOrdersWithPendingKot(): Promise<{ orderId: string; orderType: string }[]>;
   /** Open orders with kitchen items not yet printed, with those items (get_unprinted_kots). */
   listUnprintedKots(): Promise<import('../../shared/types').UnprintedKot[]>;
+  checkForRunningOrder(orderId: string) : Promise<number | 0>;
 }
 
 // ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@ import { db } from './data';
 import { printOrderEscpos, printKot } from './printerManager';
 import { getPrinterFor } from './settingsManager';
 import { config } from './config';
+import { mergeTaxBreakdowns } from '../shared/orderTotals';
 import {
   DINE_IN_ORDER_TYPE,
   PICK_UP_ORDER_TYPE,
@@ -91,6 +92,10 @@ class OrderManager extends EventEmitter {
         }
 
     const deltaItems = await db.orders.fetchUnprintedItems(orderId);
+    const orderCount = await db.orders.checkForRunningOrder(order.invoiceNumber!)
+    if(orderCount > 0){
+      order.isRunningOrder = true;
+    }
     if (deltaItems.length === 0) {
       // Nothing new since the last KOT — idempotent no-op, nothing to cache.
       const existing = this.orders.get(orderId);
@@ -184,7 +189,7 @@ class OrderManager extends EventEmitter {
           error: 'NOT_FOUND',
         };
       }
-  
+      console.log("handleSettleByNumbers ", orders)
       const anchor = orders[0];
   
       // Idempotency guard: second settle on an already-completed batch prints
@@ -221,15 +226,17 @@ class OrderManager extends EventEmitter {
   
       const billOrder: OrderWithStatus = {
         ...anchor,
-        items,
+        items, 
         subtotal: summed.subtotal,
         tax: summed.tax,
+        taxBreakdown: mergeTaxBreakdowns(orders.map((o) => o.taxBreakdown)),
         total: summed.total,
         discount: summed.discount || undefined,
+        isComplimentary: orders.every((o) => o.isComplimentary === true),
         containerCharge: summed.containerCharge || undefined,
         orderNumbers: isGrouped
           ? orders.map((o) => o.orderNumber).sort((a, b) => a - b)
-          : undefined,
+          : [Number(anchor.orderNumber)],
         printStatus: 'printing',
         retryCount: 0,
       };

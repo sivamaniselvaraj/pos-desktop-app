@@ -4,6 +4,7 @@ import { getAnonClient, getAuthedClient } from './sessionClient';
 import { aggregateItems } from '../helpers';
 import type { OrderRepository, TableBatch } from '../ports';
 import type { FoodOrder, OrderItem, OutletInfo, OrderType, UnprintedKot } from '../../../shared/types';
+import { config } from '../../config';
 
 const ITEMS_TABLE = 'order_items';
 const ORDER_RPC = 'get_order_with_items';
@@ -94,6 +95,7 @@ function mapRow(row: Record<string, unknown>): FoodOrder {
     status: row.status != null ? String(row.status) : undefined,
     placedBy: row.placed_by_name ? String(row.placed_by_name) : undefined,
     invoiceNumber: row.invoice_number ? String(row.invoice_number) : undefined,
+    isRunningOrder: row.is_running_order === true,
   };
 }
 
@@ -263,12 +265,32 @@ async function fetchUnprintedItems(orderId: string): Promise<OrderItem[]> {
   if (!id) return [];
   const { data, error } = await supabase
     .from(ITEMS_TABLE_NAME)
-    .select('*, menu_item:menu_items!menu_item_id(id,name)')
+    .select('*, menu_item:menu_items!menu_item_id(id, name)')
     .eq('order_id', id)
     .eq('kot_printed', false);
   if (error) throw new Error(error.message);
   return (data as Record<string, unknown>[] | null)?.map(mapItem) ?? [];
 }
+
+async function checkForRunningOrder(orderId: string): Promise<number|0> {
+  const supabase = getClient();
+  if (!supabase) throw new Error('Database is not configured.');
+  const id = await resolveOrderId(orderId);
+  if (!id) return 0;
+
+  // 2. Open orders of the same outlet on the same invoice, plus the order itself
+  const { count, error: e2 } = await supabase
+    .from('orders')
+    .select('id', { count: 'exact', head: true })
+    .eq('outlet_id', config.outletId)
+    .eq('invoice_number', id)
+    .not('status', 'in', '(completed,cancelled)');
+    
+  if (e2) throw new Error(e2.message);
+  return count ?? 0;
+}
+
+
 
 /**
  * KOT claim: atomically take the unprinted items of this order (see
@@ -590,4 +612,5 @@ export const orders: OrderRepository = {
   listUnprintedKots,
   claimUnprintedItems,
   releaseKotClaim,
+  checkForRunningOrder,
 };

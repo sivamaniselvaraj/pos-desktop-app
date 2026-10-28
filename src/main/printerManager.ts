@@ -6,6 +6,7 @@ import { promisify } from 'util';
 import { randomUUID } from 'crypto';
 import { ThermalPrinter, PrinterTypes, CharacterSet } from 'node-thermal-printer';
 import { config } from './config';
+import { taxBillLines } from '../shared/orderTotals';
 import type { FoodOrder, PrinterInfo, HeaderConfig } from '../shared/types';
 
 const electron = typeof process !== 'undefined' && process.versions && !!process.versions.electron;
@@ -501,7 +502,9 @@ export function formatReceipt(order: FoodOrder): string {
   rows.push(totalQtyStr + rightAlign('Subtotal: ' + subtotalStr, width - totalQtyStr.length));
   rows.push('');
 
-  rows.push(rightAlign('Tax (GST): ' + formatCurrency(order.tax), width));
+  for (const t of taxBillLines(order.taxBreakdown, order.tax)) {
+    rows.push(rightAlign(t.label + ': ' + formatCurrency(t.amount), width));
+  }
 
   if (order.containerCharge && order.containerCharge > 0) {
     rows.push(rightAlign('Container Charge: ' + formatCurrency(order.containerCharge), width));
@@ -566,7 +569,7 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string, isD
     printer.alignCenter();
     printer.setTextSize(1, 1);
     printer.bold(true);
-    printer.println(header?.restaurantName?.trim() || order.outlet?.name || 'Virunthagam');
+    printer.println(order.outlet?.name || 'Virunthagam');
     printer.bold(false);
     printer.setTextSize(0, 0);
  
@@ -596,10 +599,12 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string, isD
           printer.bold(false);
           solidLineThick(printer);
         }
-
-    printer.alignLeft();
-    printer.println(`Name: ${order.customerName}`);
-    solidLineThick(printer);
+    
+    if(order.customerName.trim() !== '' && order.customerName !== 'Unknown'){
+      printer.alignLeft();
+      printer.println(`Name: ${order.customerName}`);
+      solidLineThick(printer);
+    }
     //printer.println('');
 
     const dateTime = new Date(order.createdAt).toLocaleString('en-IN', {day:'2-digit', month: '2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false});
@@ -620,7 +625,7 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string, isD
     ]);
     if(orderType === "Pick Up"){
       printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
-        { text:formatKeyValue('Token No.', String(order.tokenNumber)), align:"LEFT", bold:true},
+        { text:formatKeyValue('Token No.', String(order.orderNumbers)), align:"LEFT", bold:true},
         { text:"", align:"LEFT"},
       ]);
     }
@@ -664,14 +669,23 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string, isD
       { text: "Sub Total", align:"RIGHT",  cols:INFO_COL, bold:true },
       { text: formatCurrency(order.subtotal), align:"RIGHT", cols:AMT_COL, bold:true },
     ]);
+    if(orderType === "Pick Up" && order.containerCharge && order.containerCharge > 0){
+      printer.tableCustom([                                       
+        { text: "Container Charge", align:"RIGHT",  cols:INFO_COL, bold:true },
+        { text: formatCurrency(order.containerCharge??0), align:"RIGHT", cols:AMT_COL, bold:true },
+      ]);
+    }
+
+    for (const t of taxBillLines(order.taxBreakdown, order.tax)) {
     printer.tableCustom([                                      
       { text: "CGST 2.5%", align:"RIGHT", cols:INFO_COL, bold:true },
-      { text: formatCurrency(order.tax / 2), align:"RIGHT", cols:AMT_COL, bold:true },
+      { text: formatCurrency(t.amount / 2), align:"RIGHT", cols:AMT_COL, bold:true },
     ]);
     printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
       { text: "SGST 2.5%", align:"RIGHT", cols:INFO_COL, bold:true },
-      { text: formatCurrency(order.tax / 2), align:"RIGHT", cols:AMT_COL, bold:true },
+      { text: formatCurrency(t.amount / 2), align:"RIGHT", cols:AMT_COL, bold:true },
     ]);
+    }
 
     if (order.discount && order.discount > 0) {
        printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
@@ -763,13 +777,18 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
 
     // Title
     printer.alignCenter();
-    if(order.orderNumbers && order.orderNumbers?.length > 0){
-      printer.println('Running Table');
-    }
     printer.bold(true);
     printer.setTextSize(1, 1);
     printer.println(kotTitle);
     printer.setTextSize(0, 0);
+
+     // A dine-in round added to a table that already has orders: tell the kitchen it is a running order.
+        if (order.orderType !== 'pickup' && order.isRunningOrder) {
+          printer.bold(true);
+          printer.println('** RUNNING ORDER **');
+        }
+        printer.bold(false);
+        solidLine(printer);
     printer.println(`Time   : ${new Date(order.createdAt).toLocaleString('en-IN')}`);
     if(order.orderNumber){
       printer.println("KOT - " + order.orderNumber);
@@ -778,8 +797,10 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
     printer.bold(true);
     printer.println(orderType);
     if(!isPickup){ 
+      printer.setTextSize(1, 1);
       printer.println(`Table No: ${tableLabel}`);
     }
+    printer.setTextSize(0, 0);
     printer.bold(false);
     solidLine(printer);
     printer.println(order.placedBy? order.placedBy : 'Biller');

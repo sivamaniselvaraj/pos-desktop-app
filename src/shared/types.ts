@@ -88,6 +88,8 @@ export interface FoodOrder {
   orderNumbers?: number[];
   /** Staff member who placed the order (orders.waiter_id -> profiles.full_name), printed as "Placed By" on the KOT. Undefined if not set/resolvable. */
   placedBy?: string;
+  /** Dine-in order that is not its table's first round (the table already had an earlier, not cancelled order on the same invoice). The KOT prints "RUNNING ORDER". */
+  isRunningOrder?: boolean;
   /**
    * Format YYYY-MM-DD-NNNNN (assign_invoice_number() trigger, db/schema.sql).
    * Assigned once per dine-in table batch (every round on that table shares
