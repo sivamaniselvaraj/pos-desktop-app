@@ -93,7 +93,7 @@ class OrderManager extends EventEmitter {
 
     const deltaItems = await db.orders.fetchUnprintedItems(orderId);
     const orderCount = await db.orders.checkForRunningOrder(order.invoiceNumber!)
-    if(orderCount > 0){
+    if(orderCount > 1){
       order.isRunningOrder = true;
     }
     if (deltaItems.length === 0) {
@@ -168,7 +168,6 @@ class OrderManager extends EventEmitter {
      * Dashboard's Save button (save_order_payment RPC).
      */
     async handleSettleByNumbers(invoiceNumber: string, outletId: string): Promise<PrintOrderResponse> {
-      console.log('handleSettleByNumbers ', invoiceNumber)
       if (invoiceNumber.trim() === '') {
         return {
           success: false,
@@ -189,7 +188,6 @@ class OrderManager extends EventEmitter {
           error: 'NOT_FOUND',
         };
       }
-      console.log("handleSettleByNumbers ", orders)
       const anchor = orders[0];
   
       // Idempotency guard: second settle on an already-completed batch prints

@@ -171,11 +171,7 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
   async function handlePrint(row: OrderListRow) {
     try {
       setBusyOrderId(row.orderId);
-      if (row.orderType === DINE_IN_ORDER_TYPE) {
-        await window.api.reprintTableBill(row.orderId);
-      } else {
-        await window.api.reprintOrder(row.orderId);
-      }
+      await window.api.reprintOrder(row.invoiceNumber!);
       flash('success', 'Sent to printer');
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Print failed');

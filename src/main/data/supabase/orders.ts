@@ -356,11 +356,10 @@ async function fetchAggregatedItems(orderId: string): Promise<OrderItem[]> {
 
   const { data, error } = await supabase
     .from(ITEMS_TABLE_NAME)
-    .select('*')
+    .select('*, menu_item:menu_items!menu_item_id(id, name)')
     .eq('order_id', id)
     .eq('is_deleted', false);
   if (error) throw new Error(error.message);
-
   return aggregateItems((data as Record<string, unknown>[] | null)?.map(mapItem) ?? []);
 }
 
@@ -500,7 +499,7 @@ async function fetchOrdersByInvoiceNumbers(
 
   const { data, error } = await supabase
     .from('orders')
-    .select(`*, outlet:outlets!outlet_id(id)`)
+    .select(`*, outlet:outlets!outlet_id(id, name, address, phone, email, gst_number)`)
     .eq('invoice_number', invoiceNumber)
     .eq('outlet_id', outletId)
     .neq('status', 'cancelled');
@@ -520,7 +519,7 @@ async function fetchAggregatedItemsForOrders(orderIds: string[]): Promise<OrderI
 
   const { data, error } = await supabase
     .from(ITEMS_TABLE_NAME)
-    .select('*')
+    .select('*, menu_item:menu_items!menu_item_id(id, name)')
     .in('order_id', orderIds)
     .eq('is_deleted', false);
   if (error) throw new Error(error.message);

@@ -678,12 +678,8 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string, isD
 
     for (const t of taxBillLines(order.taxBreakdown, order.tax)) {
     printer.tableCustom([                                      
-      { text: "CGST 2.5%", align:"RIGHT", cols:INFO_COL, bold:true },
-      { text: formatCurrency(t.amount / 2), align:"RIGHT", cols:AMT_COL, bold:true },
-    ]);
-    printer.tableCustom([                                       // Prints table with custom settings (text, align, width, cols, bold)
-      { text: "SGST 2.5%", align:"RIGHT", cols:INFO_COL, bold:true },
-      { text: formatCurrency(t.amount / 2), align:"RIGHT", cols:AMT_COL, bold:true },
+      { text: t.label, align:"RIGHT", cols:INFO_COL, bold:true },
+      { text: formatCurrency(t.amount), align:"RIGHT", cols:AMT_COL, bold:true },
     ]);
     }
 

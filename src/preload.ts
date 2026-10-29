@@ -143,8 +143,8 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.COMPLETE_INVOICE, invoiceNumber) as Promise<number>,
   completeOrder: (orderId) =>
     ipcRenderer.invoke(IpcChannels.COMPLETE_ORDER, orderId) as Promise<void>,
-  reprintOrder: (orderId) =>
-    ipcRenderer.invoke(IpcChannels.REPRINT_ORDER, orderId) as Promise<void>,
+  reprintOrder: (invoiceNumber) =>
+    ipcRenderer.invoke(IpcChannels.REPRINT_ORDER, invoiceNumber) as Promise<void>,
   getMenuItems: () =>
     ipcRenderer.invoke(IpcChannels.GET_MENU_ITEMS) as Promise<MenuCacheSnapshot>,
   refreshMenuCache: () =>
@@ -199,8 +199,6 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.DELETE_MANAGED_TABLE, tableId) as Promise<void>,
   savePayment: (payload: SavePaymentPayload) =>
     ipcRenderer.invoke(IpcChannels.SAVE_ORDER_PAYMENT, payload) as Promise<void>,
-  reprintTableBill: (orderId) =>
-    ipcRenderer.invoke(IpcChannels.REPRINT_TABLE_BILL, orderId) as Promise<void>,
   testPrint: (target) => ipcRenderer.invoke(IpcChannels.TEST_PRINT, target) as Promise<string>,
   getSettings: () =>
     ipcRenderer.invoke(IpcChannels.GET_SETTINGS) as Promise<Record<string, string>>,

@@ -46,7 +46,6 @@ import {
   completeOrder,
   completeInvoice,
   reprintOrder,
-  reprintTableBill,
 } from './ordersListManager';
 import { 
   getCachedMenuItems, 
@@ -258,7 +257,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   );
   ipcMain.handle(IpcChannels.COMPLETE_ORDER, (_e, orderId: string) => completeOrder(orderId));
   ipcMain.handle(IpcChannels.COMPLETE_INVOICE, (_e, invoiceNumber: string) => completeInvoice(invoiceNumber));
-  ipcMain.handle(IpcChannels.REPRINT_ORDER, (_e, orderId: string) => reprintOrder(orderId));
+  ipcMain.handle(IpcChannels.REPRINT_ORDER, (_e, invoiceNumber: string) => reprintOrder(invoiceNumber));
 
   // Menu cache: getCachedMenuItems() is synchronous (no DB call) — wrapped
   // in Promise.resolve() only so it matches the async invoke() contract.
@@ -309,9 +308,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   );
   ipcMain.handle(IpcChannels.SAVE_ORDER_PAYMENT, (_e, payload: SavePaymentPayload) =>
     savePayment(payload),
-  );
-  ipcMain.handle(IpcChannels.REPRINT_TABLE_BILL, (_e, orderId: string) =>
-    reprintTableBill(orderId),
   );
 
   // main -> renderer (forward manager events to the active window)

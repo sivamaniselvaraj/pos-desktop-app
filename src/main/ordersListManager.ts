@@ -1,6 +1,6 @@
 import { db } from './data';
 import { config } from './config';
-import { printOrderEscpos } from './printerManager';
+import { orderManager } from './orderManager';
 import { printQueue } from './printQueue';
 import { mergeTaxBreakdowns } from '../shared/orderTotals';
 import type {
@@ -195,75 +195,10 @@ export function completeOrder(orderId: string): Promise<void> {
  * incoming Android order must never write to the printer at the same time,
  * regardless of which one arrived first.
  */
-export async function reprintOrder(orderId: string): Promise<void> {
+export async function reprintOrder(invoiceNumber: string): Promise<void> {
   await printQueue.enqueue(async () => {
-    const order = await db.orders.fetchOrderById(orderId, config.outletId);
-    if (!order) throw new Error(`Order ${orderId} not found.`);
-
-    // Same aggregation settle uses: non-deleted items only, merged by dish so
-    // an edited quantity or a deleted line reflects correctly on the reprint.
-    const items = await db.orders.fetchAggregatedItems(orderId);
-    const billOrder = { ...order, items };
-
-    const isDuplicate = order.status === 'completed';
-
-    await printOrderEscpos(billOrder, config.cashierPrinter, isDuplicate);
+    //const order = await db.orders.fetchOrderById(orderId, config.outletId);
+    orderManager.handleSettleByNumbers(invoiceNumber, config.outletId);
   });
 }
 
-  /**
-   * Table Dashboard's "duplicate bill" reprint for a settled-awaiting-payment
-   * table card. Unlike reprintOrder above (single order), this reprints the
-   * WHOLE table batch merged together — the same grouping handleSettle used
-   * when it originally printed the bill — so a reprint after multiple rounds
-   * were settled together still shows every order# and every item, not just
-   * whichever single order id the card happened to carry.
-   */
-  export async function reprintTableBill(tableId: string): Promise<void> {
-    await printQueue.enqueue(async () => {
-       
-      const group = await db.orders.fetchTableBatchOrders(tableId);
-       if (!group) throw new Error(`Orders found for table ${tableId}`);
-
-      const groupIds = group.orderIds.length > 0 ? group.orderIds : [];
-
-      const order = await db.orders.fetchOrderById(groupIds[0], config.outletId);
-      if (!order) throw new Error(`Orders found for table ${tableId}`);
-      
-      const isGrouped = groupIds.length > 1;
-
-      if (!isGrouped) {
-            const items = await db.orders.fetchAggregatedItems(tableId);
-            await printOrderEscpos({ ...order, items }, config.cashierPrinter, true);
-            return;
-          }
-  
-      const items = await db.orders.fetchAggregatedItemsForOrders(groupIds);
-      const groupOrders = (await Promise.all(groupIds.map((id) => db.orders.fetchOrderById(id, config.outletId)))).filter(
-        (o): o is FoodOrder => o != null,
-      );
-      const summed = groupOrders.reduce(
-        (acc, o) => ({
-          subtotal: acc.subtotal + o.subtotal,
-          tax: acc.tax + o.tax,
-          total: acc.total + o.total,
-          discount: acc.discount + (o.discount ?? 0),
-          containerCharge: acc.containerCharge + (o.containerCharge ?? 0),
-        }),
-        { subtotal: 0, tax: 0, total: 0, discount: 0, containerCharge: 0 },
-      );
-      const billOrder: FoodOrder = {
-        ...order,
-        items,
-        subtotal: summed.subtotal,
-        tax: summed.tax,
-        taxBreakdown: mergeTaxBreakdowns(groupOrders.map((o) => o.taxBreakdown)),
-        total: summed.total,
-        discount: summed.discount || undefined,
-        isComplimentary: groupOrders.every((o) => o.isComplimentary === true),
-        containerCharge: summed.containerCharge || undefined,
-        orderNumbers: group.orderNumbers,
-      };
-      await printOrderEscpos(billOrder, config.cashierPrinter, true);
-    });
-}

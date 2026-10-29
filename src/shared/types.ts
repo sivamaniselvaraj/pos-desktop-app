@@ -1036,7 +1036,6 @@ export const IpcChannels = {
   DELETE_MANAGED_TABLE: 'delete-managed-table',
   SET_MANAGED_TABLE_STATUS: 'set-managed-table-status',
   SAVE_ORDER_PAYMENT: 'save-order-payment',
-  REPRINT_TABLE_BILL: 'reprint-table-bill',
   TEST_PRINT: 'test-print',
   // settings (renderer -> main, invoke)
   GET_SETTINGS: 'get-settings',
@@ -1116,7 +1115,7 @@ export interface ElectronApi {
   completeOrder(orderId: string): Promise<void>;
   /** Complete every open round of an invoice. Resolves with how many orders were completed. */
   completeInvoice(invoiceNumber: string): Promise<number>;
-  reprintOrder(orderId: string): Promise<void>;
+  reprintOrder(invoiceNumber: string): Promise<void>;
   getMenuItems(): Promise<MenuCacheSnapshot>;
   refreshMenuCache(): Promise<MenuCacheSnapshot>;
   /** `reason` is required when turning off. */
@@ -1158,7 +1157,6 @@ export interface ElectronApi {
   /** Quick status toggle from the Tables list; refused while the table has a live order. */
   setManagedTableStatus(tableId: string, status: ManagedTableStatus): Promise<void>;
   savePayment(payload: SavePaymentPayload): Promise<void>;
-  reprintTableBill(orderId: string): Promise<void>;
   testPrint(target?: string): Promise<string>;
   getSettings(): Promise<Record<string, string>>;
   updateSettings(printerType: string, deviceName: string): Promise<void>;
