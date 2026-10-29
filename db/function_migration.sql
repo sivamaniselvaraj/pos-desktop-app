@@ -3889,7 +3889,7 @@ select to_jsonb(o)
   )
 from orders o
 left join tables tbls on tbls.id = o.table_id
-left join profiles wp on wp.id = o.waiter_id and wp.is_active = true and wp.outlet_id = o.outlet_id
+left join profiles wp on wp.user_id = o.waiter_id and wp.is_active = true and wp.outlet_id = o.outlet_id
 where o.id = p_order_id
 and o.outlet_id = p_outlet_id;
 $$;
