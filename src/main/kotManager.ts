@@ -43,7 +43,7 @@ export function getUnprintedKots(): Promise<UnprintedKot[]> {
  */
 export async function printKotNow(orderId: string): Promise<string> {
   if (!orderId) throw new Error('Choose an order to print.');
-  const result = await printQueue.enqueue(() => orderManager.handleIncoming(orderId, 'kot'));
+  const result = await printQueue.enqueue(() => orderManager.handleIncoming(orderId, 'kot-only'));
   if (!result.success) throw new Error(result.message || 'Print failed');
   return result.message;
 }

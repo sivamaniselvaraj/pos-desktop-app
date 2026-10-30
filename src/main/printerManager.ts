@@ -8,6 +8,7 @@ import { ThermalPrinter, PrinterTypes, CharacterSet } from 'node-thermal-printer
 import { config } from './config';
 import { taxBillLines } from '../shared/orderTotals';
 import type { FoodOrder, PrinterInfo, HeaderConfig } from '../shared/types';
+import { printHtml, renderBillHtml, renderKotHtml, renderTestHtml } from './htmlPrint';
 
 const electron = typeof process !== 'undefined' && process.versions && !!process.versions.electron;
 
@@ -251,57 +252,57 @@ function line(printer: RawPrinter & { newLine(): void }, text: string): void {
  * Returns a human-readable success line; throws with a friendly message on
  * failure so the UI can surface it directly.
  */
-export async function testPrint(target?: string): Promise<string> {
-  const name = (target ?? config.cashierPrinter ?? '').trim();
+// export async function testPrint(target?: string): Promise<string> {
+//   const name = (target ?? config.cashierPrinter ?? '').trim();
 
-  if (!name) {
-    throw new Error('No printer selected. Choose a printer first.');
-  }
+//   if (!name) {
+//     throw new Error('No printer selected. Choose a printer first.');
+//   }
 
-  try {
-    const printer = loadPrinterDriver(name);
+//   try {
+//     const printer = loadPrinterDriver(name);
 
-    const connected = await printer.isPrinterConnected();
-    if (!connected) {
-      throw new Error(
-        `Printer "${name}" was not found or is unavailable. Check it is installed in the OS and the name matches exactly.`,
-      );
-    }
+//     const connected = await printer.isPrinterConnected();
+//     if (!connected) {
+//       throw new Error(
+//         `Printer "${name}" was not found or is unavailable. Check it is installed in the OS and the name matches exactly.`,
+//       );
+//     }
 
-    printer.alignCenter();
-    printer.bold(true);
-    printer.setTextSize(1, 1);
-    printer.println('TEST PRINT');
-    printer.bold(false);
-    printer.setTextSize(0, 0);
-    solidLine(printer);
-    printer.alignLeft();
-    printer.println(`Printer : ${name}`);
-    printer.println(`Time    : ${new Date().toLocaleString('en-IN')}`);
-    printer.println('Status  : Spooler OK');
-    solidLine(printer);
-    printer.alignCenter();
-    printer.println('If you can read this,');
-    printer.println('the printer is configured correctly.');
-    printer.println('');
-    printer.println('');
-    printer.cut();
+//     printer.alignCenter();
+//     printer.bold(true);
+//     printer.setTextSize(1, 1);
+//     printer.println('TEST PRINT');
+//     printer.bold(false);
+//     printer.setTextSize(0, 0);
+//     solidLine(printer);
+//     printer.alignLeft();
+//     printer.println(`Printer : ${name}`);
+//     printer.println(`Time    : ${new Date().toLocaleString('en-IN')}`);
+//     printer.println('Status  : Spooler OK');
+//     solidLine(printer);
+//     printer.alignCenter();
+//     printer.println('If you can read this,');
+//     printer.println('the printer is configured correctly.');
+//     printer.println('');
+//     printer.println('');
+//     printer.cut();
 
-    await printer.execute();
-    return `Test slip sent to "${name}"`;
-  } catch (err) {
-    let message = 'Test print failed';
-    if (err instanceof Error) {
-      message = err.message;
-      if (message.includes('No driver set')) {
-        message = `Print driver not initialized. The @grandchef/node-printer module is missing or not rebuilt for Electron.`;
-      } else if (/not found|unavailable|NOT-AVAILABLE/i.test(message)) {
-        message = `Printer "${name}" not found in the OS spooler. Verify the name matches Get-Printer / lpstat -p exactly and the printer is online.`;
-      }
-    }
-    throw new Error(message);
-  }
-}
+//     await printer.execute();
+//     return `Test slip sent to "${name}"`;
+//   } catch (err) {
+//     let message = 'Test print failed';
+//     if (err instanceof Error) {
+//       message = err.message;
+//       if (message.includes('No driver set')) {
+//         message = `Print driver not initialized. The @grandchef/node-printer module is missing or not rebuilt for Electron.`;
+//       } else if (/not found|unavailable|NOT-AVAILABLE/i.test(message)) {
+//         message = `Printer "${name}" not found in the OS spooler. Verify the name matches Get-Printer / lpstat -p exactly and the printer is online.`;
+//       }
+//     }
+//     throw new Error(message);
+//   }
+// }
  
 /**
  * Parse the header config, which may arrive as a JSON string or an already
@@ -545,6 +546,11 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string, isD
     throw new Error('No printer configured. Set KITCHEN_PRINTER in .env.local');
   }
 
+  if (config.printMethod === 'html') {
+    await printHtml(renderBillHtml(order, isDuplicate), printerName);
+    //return;
+  }
+
   try {
 
      // Print through the OS spooler. node-thermal-printer's `printer:Name`
@@ -762,6 +768,11 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
     );
   }
 
+    if (config.printMethod === 'html') {
+      await printHtml(renderKotHtml(order), name);
+      //return;
+    }
+
   try {
     const printer = loadPrinterDriver(printerName);
     const connected = await printer.isPrinterConnected();
@@ -856,6 +867,71 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
 }
  
 // Helper functions
+/**
+ * Send a short diagnostic slip to an OS-installed printer to verify it is
+ * reachable through the spooler. `target` is the printer name; if omitted,
+ * the configured kitchen printer is used.
+ *
+ * Returns a human-readable success line; throws with a friendly message on
+ * failure so the UI can surface it directly.
+ */
+export async function testPrint(target?: string): Promise<string> {
+  const name = (target ?? config.cashierPrinter ?? '').trim();
+  if (!name) {
+    throw new Error('No printer selected. Choose a printer first.');
+  }
+
+  if (config.printMethod === 'html') {
+    await printHtml(renderTestHtml(name), name);
+    //return `Test slip (HTML) sent to "${name}"`;
+  }
+
+  try {
+
+    const printer = loadPrinterDriver(name);
+
+
+    const connected = await printer.isPrinterConnected();
+    if (!connected) {
+      throw new Error(
+        `Printer "${name}" was not found or is unavailable. Check it is installed in the OS and the name matches exactly.`,
+      );
+    }
+
+    printer.alignCenter();
+    printer.bold(true);
+    printer.setTextSize(1, 1);
+    printer.println('TEST PRINT');
+    printer.bold(false);
+    printer.setTextSize(0, 0);
+    solidLine(printer);
+    printer.alignLeft();
+    printer.println(`Printer : ${name}`);
+    printer.println(`Time    : ${new Date().toLocaleString('en-IN')}`);
+    printer.println('Status  : Spooler OK');
+    solidLine(printer);
+    printer.alignCenter();
+    printer.println('If you can read this,');
+    printer.println('the printer is configured correctly.');
+    printer.println('');
+    printer.println('');
+    printer.cut();
+
+    await printer.execute();
+    return `Test slip sent to "${name}"`;
+  } catch (err) {
+    let message = 'Test print failed';
+    if (err instanceof Error) {
+      message = err.message;
+      if (message.includes('No driver set')) {
+        message = `Print driver not initialized. The @grandchef/node-printer module is missing or not rebuilt for Electron.`;
+      } else if (/not found|unavailable|NOT-AVAILABLE/i.test(message)) {
+        message = `Printer "${name}" not found in the OS spooler. Verify the name matches Get-Printer / lpstat -p exactly and the printer is online.`;
+      }
+    }
+    throw new Error(message);
+  }
+}
 
 // ---- Solid rules (ESC/POS) -------------------------------------------------
 // NOTE: printer.drawLine() appends its character with Buffer.from(), with NO

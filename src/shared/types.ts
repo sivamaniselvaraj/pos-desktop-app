@@ -27,7 +27,7 @@ export type OrderListStatus = 'active' | 'completed' | 'cancelled';
 
 
 // ---- HTTP contract (Android app -> local server) ----
-export type PrintType = 'bill' | 'kot' | 'settle';
+export type PrintType = 'bill' | 'kot' | 'settle' | 'kot-only';
 
 export type SettleOrderType = 'dine_in' | 'takeaway';
 
