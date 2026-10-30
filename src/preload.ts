@@ -63,6 +63,8 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.RETRY_PRINT, orderId) as Promise<PrintOrderResponse>,
   cancelOrder: (orderId) => ipcRenderer.invoke(IpcChannels.CANCEL_ORDER, orderId) as Promise<void>,
   clearPrinted: () => ipcRenderer.invoke(IpcChannels.CLEAR_PRINTED) as Promise<void>,
+  getPrintMethod: () => ipcRenderer.invoke(IpcChannels.GET_PRINT_METHOD) as Promise<'direct' | 'html'>,
+  setPrintMethod: (method) => ipcRenderer.invoke(IpcChannels.SET_PRINT_METHOD, method) as Promise<void>,
   getPrinters: () => ipcRenderer.invoke(IpcChannels.GET_PRINTERS) as Promise<PrinterInfo[]>,
   getSalesReport: (from, to, bucket) =>
     ipcRenderer.invoke(IpcChannels.GET_SALES_REPORT, from, to, bucket) as Promise<SalesReportRow[]>,
@@ -174,6 +176,7 @@ const api: ElectronApi = {
   getMenuItem: (id) => ipcRenderer.invoke(IpcChannels.GET_MENU_ITEM, id) as Promise<MenuItemRecord>,
   saveMenuItem: (payload) =>
     ipcRenderer.invoke(IpcChannels.SAVE_MENU_ITEM, payload) as Promise<MenuCacheSnapshot>,
+  saveBrandColor: (color) => ipcRenderer.invoke(IpcChannels.SAVE_BRAND_COLOR, color) as Promise<string | null>,
   getMyAccess: () => ipcRenderer.invoke(IpcChannels.GET_MY_ACCESS) as Promise<MyAccess | null>,
   getUnprintedKots: () => ipcRenderer.invoke(IpcChannels.GET_UNPRINTED_KOTS) as Promise<UnprintedKot[]>,
   printKotNow: (orderId: string) =>

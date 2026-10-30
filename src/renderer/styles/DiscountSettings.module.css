@@ -9,7 +9,7 @@
 .input { height: 36px; border: 1px solid #bdc3c7; border-radius: 2px; padding: 0 10px; font-size: 14px; background: #fff; color: #2c3e50; min-width: 0; width: 100%; box-sizing: border-box; }
 .btn { height: 36px; padding: 0 14px; border: none; border-radius: 2px; font-size: 13px; font-weight: 700; cursor: pointer; background: #bdc3c7; color: #2c3e50; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.primary { background: #27ae60; color: #fff; height: 40px; font-size: 14px; }
+.primary { background: var(--brand); color: var(--on-brand); height: 40px; font-size: 14px; }
 .danger { background: transparent; color: #c0392b; }
 .hint { font-size: 12px; color: #7f8c8d; }
 .flag { font-size: 13px; color: #34495e; display: flex; align-items: center; gap: 4px; }

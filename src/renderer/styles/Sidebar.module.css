@@ -89,7 +89,7 @@
 
 .navActive {
   background: var(--primary);
-  color: #fff;
+  color: var(--on-brand);
   font-weight: 600;
 }
 

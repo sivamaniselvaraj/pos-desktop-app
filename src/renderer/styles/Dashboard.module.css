@@ -30,7 +30,7 @@
 
 .badge {
   background: var(--primary);
-  color: #fff;
+  color: var(--on-brand);
   padding: 4px 12px;
   border-radius: 20px;
   font-size: 12px;

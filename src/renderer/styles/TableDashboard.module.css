@@ -31,8 +31,8 @@
   align-items: center;
   gap: 6px;
   padding: 8px 14px;
-  background: #4CAF50;
-  color: white;
+  background: var(--brand);
+  color: var(--on-brand);
   border: none;
   border-radius: 6px;
   font-size: 13px;
@@ -41,7 +41,7 @@
 }
 
 .addBtn:hover {
-  background: #43a047;
+  background: var(--brand-dark);
 }
 
 .muted {
@@ -97,7 +97,7 @@
 .floorTabOn {
   background: var(--primary);
   border-color: var(--primary);
-  color: white;
+  color: var(--on-brand);
 }
 
 .legend {
@@ -376,8 +376,8 @@
 
 .saveBtn {
   padding: 8px 16px;
-  background: #4CAF50;
-  color: white;
+  background: var(--brand);
+  color: var(--on-brand);
   border: none;
   border-radius: 6px;
   font-size: 13px;
@@ -464,8 +464,8 @@
 
 .smallBtn {
   padding: 4px 10px;
-  background: #4CAF50;
-  color: white;
+  background: var(--brand);
+  color: var(--on-brand);
   border: none;
   border-radius: 4px;
   font-size: 12px;

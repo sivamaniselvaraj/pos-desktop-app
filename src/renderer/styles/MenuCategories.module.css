@@ -15,11 +15,11 @@
 .btn { padding: 6px 12px; background: white; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600; color: #333; }
 .btn:disabled { opacity: 0.6; cursor: default; }
 .danger { color: #b71c1c; border-color: #e0b4b4; }
-.add { padding: 8px 14px; background: #4caf50; color: white; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.add { padding: 8px 14px; background: var(--brand); color: var(--on-brand); border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 .empty { padding: 24px; text-align: center; color: #888; }
 .tabs { display: flex; gap: 4px; border-bottom: 2px solid #bdc3c7; margin-bottom: 16px; }
 .tab, .tabActive { padding: 10px 20px; font-size: 15px; background: none; border: none; cursor: pointer; color: #7f8c8d; font-weight: 500; margin-bottom: -2px; }
-.tabActive { color: #1e8449; font-weight: 700; border-bottom: 3px solid #1e8449; }
+.tabActive { color: var(--brand-text); font-weight: 700; border-bottom: 3px solid var(--brand); }
 .warn { background: #fff3e0; color: #8a4b00; border-radius: 6px; padding: 10px 12px; font-size: 13px; margin: 0 0 14px 0; line-height: 1.4; }
 
 .unsaved { display: flex; align-items: center; gap: 10px; background: #fff8e1; border: 1px solid #ffe08a; color: #7a5b00; border-radius: 6px; padding: 8px 12px; margin: 0 0 12px 0; font-size: 13px; }

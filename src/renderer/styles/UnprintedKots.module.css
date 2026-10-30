@@ -4,7 +4,7 @@
 .sub { margin: 0; font-size: 13px; color: var(--gray); max-width: 560px; }
 .headActions { display: flex; gap: 8px; }
 .primary, .ghost { white-space: nowrap; flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
-.primary { background: var(--primary); color: #fff; border: none; }
+.primary { background: var(--primary); color: var(--on-brand); border: none; }
 .primary:hover:not(:disabled) { background: var(--primary-dark); }
 .ghost { background: #fff; color: var(--dark); border: 1px solid var(--border); }
 .primary:disabled, .ghost:disabled { opacity: 0.55; cursor: not-allowed; }

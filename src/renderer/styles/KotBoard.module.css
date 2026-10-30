@@ -8,9 +8,9 @@
 .sw { width: 12px; height: 12px; display: inline-block; box-sizing: border-box; }
 .tabs { display: flex; align-items: flex-end; gap: 4px; border-bottom: 2px solid #bdc3c7; }
 .tab, .tabActive { padding: 10px 20px; font-size: 15px; background: none; border: none; cursor: pointer; color: #5b6576; font-weight: 500; display: flex; gap: 8px; align-items: center; margin-bottom: -2px; font-family: inherit; }
-.tabActive { color: #1e8449; font-weight: 700; border-bottom: 3px solid #1e8449; }
+.tabActive { color: var(--brand-text); font-weight: 700; border-bottom: 3px solid var(--brand); }
 .count { background: #bdc3c7; color: #2c3e50; font-size: 12px; padding: 2px 8px; border-radius: 2px; }
-.tabActive .count { background: #1e8449; color: #fff; }
+.tabActive .count { background: var(--brand-text); color: #fff; }
 .board { display: grid; gap: 16px; align-items: start; }
 .col { display: flex; flex-direction: column; gap: 12px; background: #d9e0e3; padding: 12px; min-width: 0; }
 .colHead { display: flex; align-items: center; gap: 8px; padding: 2px 4px; }

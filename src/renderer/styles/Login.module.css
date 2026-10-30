@@ -29,7 +29,7 @@
   width: 40px;
   height: 40px;
   background: var(--primary);
-  color: #fff;
+  color: var(--on-brand);
   border-radius: 8px;
   display: flex;
   align-items: center;
@@ -74,7 +74,7 @@
 
 .field input:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent);
 }
 
 .error {
@@ -99,7 +99,7 @@
   padding: 11px;
   margin-top: 4px;
   background: var(--primary);
-  color: #fff;
+  color: var(--on-brand);
   border: none;
   border-radius: 6px;
   font-size: 14px;

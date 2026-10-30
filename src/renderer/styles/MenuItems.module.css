@@ -144,7 +144,7 @@
 .seg { display: inline-flex; border: 1px solid #ccc; border-radius: 6px; overflow: hidden; background: white; }
 .segBtn, .segOn { padding: 8px 14px; font-size: 13px; border: none; background: white; cursor: pointer; color: #444; border-right: 1px solid #ddd; }
 .seg button:last-child { border-right: none; }
-.segOn { background: #4caf50; color: white; font-weight: 600; }
+.segOn { background: var(--brand); color: var(--on-brand); font-weight: 600; }
 .bulkBar { display: flex; align-items: center; gap: 10px; background: #e8f0fe; border: 1px solid #c3d4f7; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; position: sticky; top: 0; z-index: 5; }
 .bulkBar strong { margin-right: auto; }
 .bulkOn, .bulkOff { padding: 7px 14px; border-radius: 4px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; color: white; }

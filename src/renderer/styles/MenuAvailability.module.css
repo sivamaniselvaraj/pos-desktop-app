@@ -13,7 +13,7 @@
 .tile span { font-size: 12px; color: var(--gray); }
 .tile b { font-size: 18px; color: var(--dark); }
 .tile small { font-size: 11px; color: var(--gray); }
-.tileKey { border-color: var(--primary); background: #f3f8ff; }
+.tileKey { border-color: var(--primary); background: var(--brand-softer); }
 .empty { background: #fff; border: 1px dashed var(--border); border-radius: 10px; padding: 36px; text-align: center; color: var(--gray); font-size: 14px; }
 .card { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 18px; }
 .card h3 { margin: 0 0 12px; font-size: 15px; display: flex; align-items: center; gap: 10px; }
@@ -27,7 +27,7 @@
 .strong { font-weight: 700; }
 .clickRow { cursor: pointer; }
 .clickRow:hover { background: #fafafa; }
-.rowOn { background: #f3f8ff; }
+.rowOn { background: var(--brand-softer); }
 .note { margin: 10px 0 0; font-size: 12px; color: var(--gray); line-height: 1.5; }
 .chipOff { margin-left: 8px; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: #fdecea; color: #b71c1c; text-transform: uppercase; white-space: nowrap; }
 .chipCat { margin-left: 8px; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: #eef2ff; color: #3949ab; text-transform: uppercase; }

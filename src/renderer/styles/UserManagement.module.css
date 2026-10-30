@@ -14,8 +14,8 @@
   align-items: center;
   gap: 6px;
   padding: 8px 14px;
-  background: #4CAF50;
-  color: white;
+  background: var(--brand);
+  color: var(--on-brand);
   border: none;
   border-radius: 6px;
   font-size: 13px;
@@ -24,7 +24,7 @@
 }
 
 .addBtn:hover {
-  background: #43a047;
+  background: var(--brand-dark);
 }
 
 .filters {
@@ -62,7 +62,7 @@
 
 /* Status badges */
 .active {
-  background: #2563eb;
+  background: var(--brand);
 }
 .inactive {
   background: #9ca3af;
@@ -202,8 +202,8 @@
 
 .saveBtn {
   padding: 8px 16px;
-  background: #4CAF50;
-  color: white;
+  background: var(--brand);
+  color: var(--on-brand);
   border: none;
   border-radius: 6px;
   font-size: 13px;
@@ -237,8 +237,8 @@
 }
 
 .tabActive {
-  color: #2e7d32;
-  border-bottom-color: #4CAF50;
+  color: var(--brand-text);
+  border-bottom-color: var(--brand);
 }
 
 .checkList {
@@ -271,8 +271,8 @@
   margin: 0 4px 2px 0;
   padding: 2px 8px;
   border-radius: 10px;
-  background: #e8f5e9;
-  color: #2e7d32;
+  background: var(--brand-soft);
+  color: var(--brand-text);
   font-size: 11px;
   font-weight: 600;
 }
@@ -302,32 +302,32 @@
 .gmTabs { display: flex; gap: 4px; margin-top: 14px; border-bottom: 1px solid #e5e7eb; }
 .gmTab { padding: 10px 16px; border: 0; background: none; font: inherit; font-weight: 600; color: #6b7280; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; }
 .gmTab small { margin-left: 6px; padding: 1px 8px; border-radius: 10px; background: #eef0f2; color: #555; font-size: 11px; font-weight: 700; }
-.gmTabOn { color: #2e7d32; border-bottom-color: #4CAF50; }
-.gmTabOn small { background: #e8f5e9; color: #2e7d32; }
+.gmTabOn { color: var(--brand-text); border-bottom-color: var(--brand); }
+.gmTabOn small { background: var(--brand-soft); color: var(--brand-text); }
 .gmBody { flex: 1; min-height: 0; padding: 16px 28px 0; display: flex; flex-direction: column; }
 .gmBar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
 .gmSearch { flex: 1; padding: 9px 12px; border: 1px solid #d9dce1; border-radius: 8px; font-size: 13px; }
-.gmSearch:focus { outline: 0; border: 1px solid #4CAF50; box-shadow: 0 0 0 1px #4CAF50; }
-.gmLink { border: 0; background: none; color: #2e7d32; font-weight: 600; font-size: 13px; cursor: pointer; padding: 4px; }
+.gmSearch:focus { outline: 0; border: 1px solid var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+.gmLink { border: 0; background: none; color: var(--brand-text); font-weight: 600; font-size: 13px; cursor: pointer; padding: 4px; }
 .gmLinkMuted { color: #6b7280; }
 .gmCount { font-size: 12px; color: #6b7280; margin-bottom: 8px; }
 .gmList { flex: 1; min-height: 0; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 10px; }
 .gmGroup { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; padding: 7px 14px; background: #f7f8fa; border-bottom: 1px solid #eef0f2; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #6b7280; }
-.gmGroup span { text-transform: none; letter-spacing: 0; color: #2e7d32; font-weight: 600; }
+.gmGroup span { text-transform: none; letter-spacing: 0; color: var(--brand-text); font-weight: 600; }
 .gmRow { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid #f1f2f4; cursor: pointer; font-size: 13.5px; }
 .gmRow:hover { background: #fafbfc; }
 .gmText { flex: 1; min-width: 0; }
 .gmText b { display: block; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; }
 .gmText i { display: block; font-style: normal; font-size: 12px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; }
-.gmAvatar { width: 32px; height: 32px; flex: none; border-radius: 50%; background: #e8f5e9; color: #2e7d32; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.gmAvatar { width: 32px; height: 32px; flex: none; border-radius: 50%; background: var(--brand-soft); color: var(--brand-text); font-weight: 700; display: flex; align-items: center; justify-content: center; }
 .gmSwitch { appearance: none; -webkit-appearance: none; flex: none; width: 36px; height: 20px; margin: 0; border-radius: 10px; background: #d1d5db; position: relative; cursor: pointer; transition: background .15s; }
 .gmSwitch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; }
-.gmSwitch:checked { background: #4CAF50; }
+.gmSwitch:checked { background: var(--brand); }
 .gmSwitch:checked::after { left: 18px; }
 .gmRow input[type="checkbox"]:not(.gmSwitch) { width: 18px; height: 18px; flex: none; margin: 0; cursor: pointer; }
 .gmSeg { display: inline-flex; background: #e9ebef; border-radius: 8px; padding: 3px; }
 .gmSeg button { border: 0; background: transparent; padding: 6px 12px; border-radius: 6px; font: inherit; font-size: 12px; font-weight: 600; color: #555; cursor: pointer; white-space: nowrap; }
-.gmSeg .gmSegOn { background: #fff; color: #2e7d32; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+.gmSeg .gmSegOn { background: #fff; color: var(--brand-text); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
 .gmEmpty { padding: 40px 0; text-align: center; color: #9aa0a6; font-size: 13px; }
 .gmFoot { margin-top: 12px; padding: 14px 28px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #e5e7eb; }
 .gmFoot > span { font-size: 12px; color: #6b7280; }

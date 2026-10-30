@@ -127,8 +127,8 @@
 
 .smallBtn {
   padding: 4px 10px;
-  background: #4CAF50;
-  color: white;
+  background: var(--brand);
+  color: var(--on-brand);
   border: none;
   border-radius: 4px;
   font-size: 12px;
@@ -257,7 +257,7 @@
 .addItemsBtn {
   padding: 8px 16px;
   background: var(--primary);
-  color: white;
+  color: var(--on-brand);
   border: none;
   border-radius: 6px;
   font-size: 13px;

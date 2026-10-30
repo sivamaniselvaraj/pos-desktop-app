@@ -1,6 +1,14 @@
 :root {
-  --primary: #2563eb;
-  --primary-dark: #1d4ed8;
+  /* Brand colour: the default below is replaced at runtime by the business's own colour
+     (Settings > Appearance), see lib/brand.ts. Everything that is "the app's colour" uses these. */
+  --brand: #4caf50;
+  --brand-dark: #419544;      /* hover / pressed */
+  --brand-soft: #eaf5ea;      /* light tint: selected backgrounds */
+  --brand-softer: #f6fbf6;    /* very light tint */
+  --brand-text: #367d39;      /* the brand as text or a thin line on white (always readable) */
+  --on-brand: #ffffff;        /* text on a brand-coloured background */
+  --primary: var(--brand);
+  --primary-dark: var(--brand-dark);
   --success: #10b981;
   --warning: #f59e0b;
   --danger: #ef4444;

@@ -77,9 +77,9 @@
   font-size: 14px;
 }
 .save {
-  background: #2563eb;
-  border-color: #2563eb;
-  color: white;
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--on-brand);
 }
 .save:disabled,
 .cancel:disabled {
@@ -100,7 +100,7 @@
   font-size: 14px;
 }
 .chipOn {
-  background: #2563eb;
-  border-color: #2563eb;
-  color: white;
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--on-brand);
 }

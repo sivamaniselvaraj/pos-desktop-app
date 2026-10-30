@@ -69,8 +69,8 @@
 
 .saveBtn {
   padding: 8px 16px;
-  background: #4CAF50;
-  color: white;
+  background: var(--brand);
+  color: var(--on-brand);
   border: none;
   border-radius: 6px;
   font-size: 13px;

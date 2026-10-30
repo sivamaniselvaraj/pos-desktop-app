@@ -527,6 +527,8 @@ export interface OrgSettings {
   /** IANA timezone of the user's outlet (its override, else the organization's). */
   timezone: string;
   taxLabel: string;
+  /** The business's app colour (#rrggbb); null/absent = the default green. Set in Settings > Appearance. */
+  brandColor?: string | null;
 }
 
 export interface MyAccess {
@@ -971,7 +973,8 @@ export const IpcChannels = {
   CLEAR_PRINTED: 'clear-printed',
   // printers (renderer -> main, invoke)
   GET_PRINTERS: 'get-printers',
-  //report (renderer -> main, invoke)
+  GET_PRINT_METHOD: 'get-print-method',
+  SET_PRINT_METHOD: 'set-print-method',
   GET_SALES_REPORT: 'get-sales-report',
   GET_SALES_BY_WAITER: 'get-sales-by-waiter',
   GET_MENU_AVAILABILITY: 'get-menu-availability',
@@ -1024,6 +1027,7 @@ export const IpcChannels = {
   ADD_TAX_RATE: 'add-tax-rate',
   DELETE_TAX_RATE: 'delete-tax-rate',
   GET_MY_ACCESS: 'get-my-access',
+  SAVE_BRAND_COLOR: 'save-brand-color',
   LIST_MENU_CATEGORIES: 'list-menu-categories',
   LIST_MENU_CATEGORIES_ADMIN: 'list-menu-categories-admin',
   SAVE_MENU_CATEGORY: 'save-menu-category',
@@ -1068,6 +1072,9 @@ export interface ElectronApi {
   cancelOrder(orderId: string): Promise<void>;
   clearPrinted(): Promise<void>;
   getPrinters(): Promise<PrinterInfo[]>;
+  /** 'direct' = ESC/POS (default), 'html' = HTML via the OS driver. */
+  getPrintMethod(): Promise<'direct' | 'html'>;
+  setPrintMethod(method: 'direct' | 'html'): Promise<void>;
   getSalesReport(from: string, to: string, bucket: ReportBucket): Promise<SalesReportRow[]>;
   getSalesByWaiter(from: string, to: string): Promise<SalesByWaiterRow[]>;
   getMenuAvailability(from: string, to: string): Promise<MenuAvailabilityReport>;
@@ -1138,6 +1145,8 @@ export interface ElectronApi {
   addTaxRate(payload: AddTaxRatePayload): Promise<void>;
   deleteTaxRate(id: string): Promise<void>;
   getMyAccess(): Promise<MyAccess | null>;
+  /** Set the business's app colour (#rrggbb), or null for the default. Needs branding.manage. Returns the saved colour. */
+  saveBrandColor(color: string | null): Promise<string | null>;
   /** Active categories of this outlet, for pickers. */
   listMenuCategories(): Promise<MenuCategory[]>;
   /** Every category of this outlet with item counts (needs menu.categories). */
