@@ -1015,6 +1015,19 @@ create table if not exists organizations (
   created_at    timestamptz not null default now()
 );
 
+-- BRAND COLOUR: the colour of the desktop app for the whole business, set in Settings > Appearance
+-- by a user with branding.manage (set_org_brand_color()). Null = the app's default green.
+alter table organizations add column if not exists brand_color    text;
+alter table organizations add column if not exists brand_color_by uuid;
+alter table organizations add column if not exists brand_color_at timestamptz;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'organizations_brand_color_chk') then
+    alter table organizations add constraint organizations_brand_color_chk
+      check (brand_color is null or brand_color ~ '^#[0-9a-fA-F]{6}$');
+  end if;
+end $$;
+
 alter table outlets  add column if not exists org_id   uuid references organizations(id);
 alter table outlets  add column if not exists timezone text;   -- optional per-outlet override of the organization's
 alter table profiles add column if not exists org_id   uuid references organizations(id);
@@ -1866,6 +1879,15 @@ on conflict (code) do nothing;
 insert into role_permissions (role, permission_code)
 select r.role, 'orders.discount'
 from (values ('manager'), ('owner'), ('admin')) as r(role)
+on conflict do nothing;
+
+insert into permissions (code, description) values
+  ('branding.manage', 'Change the app colour for the whole business')
+on conflict (code) do nothing;
+
+insert into role_permissions (role, permission_code)
+select r.role, 'branding.manage'
+from (values ('owner'), ('admin')) as r(role)
 on conflict do nothing;
 
 -- Groups that could cancel orders get the new permission once (admins need no group).

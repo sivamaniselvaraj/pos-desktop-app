@@ -14,6 +14,13 @@ import type { MyAccess } from '../shared/types';
  * gets null and the UI shows no access rather than guessing from the role.
  * ---------------------------------------------------------------------------
  */
+/** The business's app colour: #rrggbb, or null to go back to the default. The database checks branding.manage. */
+export async function saveBrandColor(color: string | null): Promise<string | null> {
+  const c = typeof color === 'string' ? color.trim() : '';
+  if (c !== '' && !/^#[0-9a-fA-F]{6}$/.test(c)) throw new Error('Enter a colour as # and six letters or digits, for example #4caf50.');
+  return db.access.setBrandColor(c === '' ? null : c.toLowerCase());
+}
+
 export function getMyAccess(): Promise<MyAccess | null> {
   return db.access.fetchMyAccess();
 }

@@ -38,6 +38,8 @@ interface PersistedSettings {
   waiterPrinter?: string;
   kitchenPrinter?: string;
   autoRetry?: boolean;
+  /** 'direct' = ESC/POS raw (default); 'html' = HTML rendered and printed through the OS driver. */
+  printMethod?: 'direct' | 'html';
   retryCount?: number;
   /** Paired API devices. Only a SHA-256 of each token's secret is stored. */
   apiDevices?: StoredApiDevice[];
@@ -192,6 +194,12 @@ export const config = {
   },
   set apiDevices(value: StoredApiDevice[]) {
     persist({ apiDevices: value });
+  },
+  get printMethod(): 'direct' | 'html' {
+    return loadFile().printMethod === 'html' ? 'html' : 'direct';
+  },
+  set printMethod(value: 'direct' | 'html') {
+    persist({ printMethod: value === 'html' ? 'html' : 'direct' });
   },
   get autoRetry(): boolean {
     return loadFile().autoRetry ?? true;

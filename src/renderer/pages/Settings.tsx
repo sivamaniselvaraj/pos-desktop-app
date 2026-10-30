@@ -14,6 +14,7 @@ import { formatDateTime } from '../lib/format';
 import { KotWorkflow } from '../components/KotWorkflowSettings';
 import { DiscountSettings } from '../components/DiscountSettings';
 import { TaxRates } from './TaxRates';
+import { AppearanceSettings } from '../components/AppearanceSettings';
 
 interface PrinterConfigs {
   [key: string]: string; // e.g., { printer_kitchen: "USB001", printer_cashier: "COM1" }
@@ -38,7 +39,8 @@ export function Settings() {
   const canKot = can('kot.manage');
   const canDiscounts = can('discount.manage');
   const canTax = can('tax.manage');
-  const [tab, setTab] = useState<'general' | 'kot' | 'discounts' | 'tax'>('general');
+  const canBranding = can('branding.manage');
+  const [tab, setTab] = useState<'general' | 'kot' | 'discounts' | 'tax' | 'appearance'>('general');
 
   const [invoiceStatus, setInvoiceStatus] = useState<InvoiceSequenceStatus | null>(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
@@ -51,6 +53,7 @@ export function Settings() {
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
 
+  const [printMethod, setPrintMethodState] = useState<'direct' | 'html'>('direct');
   const [configs, setConfigs] = useState<PrinterConfigs>({});
   // Separate from `configs` (the SAVED mapping) — this is what the dropdowns
   // actually display and what the user edits. Kept apart so a selection
@@ -120,6 +123,7 @@ export function Settings() {
 
       const list = await window.api.getPrinters();
       setOsPrinters(list ?? []);
+      setPrintMethodState((await window.api.getPrintMethod()) === 'html' ? 'html' : 'direct');
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to load settings';
       setMessage({ type: 'error', text: errorMsg });
@@ -269,6 +273,16 @@ export function Settings() {
     }
   }
 
+  async function handlePrintMethod(method: 'direct' | 'html') {
+    try {
+      await window.api.setPrintMethod(method);
+      setPrintMethodState(method);
+      flash('success', method === 'html' ? 'Printing bills and KOTs as HTML' : 'Printing bills and KOTs directly (ESC/POS)');
+    } catch (err) {
+      flash('error', err instanceof Error ? err.message : 'Could not save print method');
+    }
+  }
+
   async function handleTestPrint(role: string) {
     // Tests whatever's currently shown in the dropdown, even if not yet
     // saved — lets the operator verify before committing to it.
@@ -305,7 +319,7 @@ export function Settings() {
         <h1>Settings</h1>
       </div>
 
-      {(canKot || canDiscounts || canTax) && (
+      {(canKot || canDiscounts || canTax || canBranding) && (
         <div className={styles.tabs}>
           <button className={tab === 'general' ? styles.tabActive : styles.tab} onClick={() => setTab('general')}>
             General
@@ -323,6 +337,11 @@ export function Settings() {
           {canTax && (
             <button className={tab === 'tax' ? styles.tabActive : styles.tab} onClick={() => setTab('tax')}>
               Tax
+            </button>
+          )}
+          {canBranding && (
+            <button className={tab === 'appearance' ? styles.tabActive : styles.tab} onClick={() => setTab('appearance')}>
+              Appearance
             </button>
           )}
         </div>
@@ -352,10 +371,16 @@ export function Settings() {
         </div>
       )}
 
+      {tab === 'appearance' && canBranding && (
+        <div className={styles.container}>
+          <AppearanceSettings />
+        </div>
+      )}
+
       <div
         className={styles.container}
         style={
-          (tab === 'kot' && canKot) || (tab === 'discounts' && canDiscounts) || (tab === 'tax' && canTax)
+          (tab === 'kot' && canKot) || (tab === 'discounts' && canDiscounts) || (tab === 'tax' && canTax) || (tab === 'appearance' && canBranding)
             ? { display: 'none' }
             : undefined
         }
@@ -374,6 +399,24 @@ export function Settings() {
               Printers &amp; Scanners), then reopen this page.
             </small>
           )}
+
+          <div className={styles.printerCard} style={{ marginBottom: 12 }}>
+            <div className={styles.printerInfo}>
+              <div className={styles.printerName}>Print method</div>
+              <small className={styles.hint}>
+                Direct sends ESC/POS to the printer. HTML renders the bill and KOT as a page and prints it through
+                the printer driver (80 mm, no dialog). Use Test to compare.
+              </small>
+            </div>
+            <select
+              className={styles.roleSelect}
+              value={printMethod}
+              onChange={(e) => handlePrintMethod(e.target.value as 'direct' | 'html')}
+            >
+              <option value="direct">Direct (ESC/POS)</option>
+              <option value="html">HTML (via driver)</option>
+            </select>
+          </div>
 
           <div className={styles.printersList}>
             {PRINTER_ROLES.map((role) => {
@@ -558,18 +601,18 @@ export function Settings() {
           </div>
         )}
 
-            {/* Messages */}
-            {message && (
-              <div className={`${styles.message} ${styles[message.type]}`}>
-                {message.type === 'success' ? (
-                  <Icon name="check" size={16} />
-                ) : (
-                  <Icon name="alert" size={16} />
-                )}
-                {message.text}
-              </div>
+        {/* Messages */}
+        {message && (
+          <div className={`${styles.message} ${styles[message.type]}`}>
+            {message.type === 'success' ? (
+              <Icon name="check" size={16} />
+            ) : (
+              <Icon name="alert" size={16} />
             )}
+            {message.text}
           </div>
+        )}
+      </div>
     </div>
   );
 }

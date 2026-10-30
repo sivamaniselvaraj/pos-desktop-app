@@ -242,7 +242,7 @@ begin
 
   select jsonb_build_object(
            'id', g.id, 'name', g.name, 'currency_code', g.currency_code, 'locale', g.locale,
-           'timezone', my_timezone(), 'tax_label', g.tax_label)
+           'timezone', my_timezone(), 'tax_label', g.tax_label, 'brand_color', g.brand_color)
     into v_org
   from profiles p join organizations g on g.id = p.org_id
   where p.user_id = auth.uid();
@@ -3986,3 +3986,35 @@ end;
 $$;
 
 grant execute on function reset_invoice_sequence() to authenticated;
+
+
+-- set_org_brand_color(): the colour of the desktop app for the caller's whole organization
+-- (Settings > Appearance). Needs branding.manage. Pass null to go back to the default green.
+create or replace function set_org_brand_color(p_color text)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_org   uuid;
+  v_color text := nullif(btrim(coalesce(p_color, '')), '');
+begin
+  if not has_permission('branding.manage') then
+    raise exception 'Not allowed to change the app colour';
+  end if;
+  if v_color is not null and v_color !~ '^#[0-9a-fA-F]{6}$' then
+    raise exception 'The colour must be # followed by six letters or digits, for example #4caf50';
+  end if;
+  select p.org_id into v_org
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_org is null then
+    raise exception 'Your account has no organization';
+  end if;
+  update organizations
+     set brand_color = lower(v_color), brand_color_by = auth.uid(), brand_color_at = now()
+   where id = v_org;
+  return lower(v_color);
+end;
+$$;
+grant execute on function set_org_brand_color(text) to authenticated;

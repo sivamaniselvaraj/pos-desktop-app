@@ -91,6 +91,8 @@ export interface AuthRepository {
 export interface AccessRepository {
   /** Permissions + menus + organization settings, all derived from the user's groups. null when the backend can't provide it. */
   fetchMyAccess(): Promise<MyAccess | null>;
+  /** set_org_brand_color: the organization's app colour (null = default). Needs branding.manage. */
+  setBrandColor(color: string | null): Promise<string | null>;
 }
 
 // ---------------------------------------------------------------------------

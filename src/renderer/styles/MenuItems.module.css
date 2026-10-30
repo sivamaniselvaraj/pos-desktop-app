@@ -30,6 +30,24 @@
 .dotNv { border-color: #b91c1c; }
 .dotNv::after { background: #b91c1c; }
 
+.addBtn {
+  display: flex;
+  padding: 8px 14px;
+
+  background: var(--brand);
+  color: var(--on-brand);
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.addBtn:disabled{
+  opacity: 0.6;
+  cursor: default;
+}
+
 .refreshBtn {
   display: flex;
   align-items: center;

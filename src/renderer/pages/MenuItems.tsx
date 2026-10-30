@@ -365,7 +365,7 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
         <h2>Menu Items</h2>
         <div style={{ display: 'flex', gap: 8 }}>
           {canManage && (
-            <button className={styles.refreshBtn} onClick={() => void openForm(null)}>
+            <button className={styles.addBtn} onClick={() => void openForm(null)}>
               <Icon name="plus" size={14} />
               Add Item
             </button>

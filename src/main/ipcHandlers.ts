@@ -27,7 +27,7 @@ import {
   getUserAccess,
 } from './userAdmin';
 import { listMenuCategories, listMenuCategoriesAdmin, reorderMenuCategories, saveMenuCategory, setMenuCategoryActive, saveMenuItem, getMenuItem } from './menuManager';
-import { getMyAccess } from './accessManager';
+import { getMyAccess, saveBrandColor } from './accessManager';
 import { getTaxRate, placeOrder } from './orderEntryManager';
 import { getKotBoard, getKotWorkflow, getUnprintedKots, moveKot, printKotNow, saveKotWorkflow } from './kotManager';
 import { addTaxRate, deleteTaxRate, listTaxRates } from './taxManager';
@@ -140,6 +140,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.CANCEL_ORDER, (_e, orderId: string) => orderManager.cancel(orderId));
   ipcMain.handle(IpcChannels.CLEAR_PRINTED, () => orderManager.clearPrinted());
   ipcMain.handle(IpcChannels.GET_PRINTERS, () => getPrinters());
+  ipcMain.handle(IpcChannels.GET_PRINT_METHOD, () => config.printMethod);
+  ipcMain.handle(IpcChannels.SET_PRINT_METHOD, (_e, method: 'direct' | 'html') => {
+    config.printMethod = method === 'html' ? 'html' : 'direct';
+  });
   ipcMain.handle(IpcChannels.TEST_PRINT, (_e, target?: string) => testPrint(target));
 
   // Printers & Settings (multi-printer support)
@@ -284,6 +288,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.SET_MENU_CATEGORY_ACTIVE, (_e, id: string, isActive: boolean) => setMenuCategoryActive(id, isActive));
   ipcMain.handle(IpcChannels.GET_MENU_ITEM, (_e, id: string) => getMenuItem(id));
   ipcMain.handle(IpcChannels.SAVE_MENU_ITEM, (_e, payload: SaveMenuItemPayload) => saveMenuItem(payload));
+  ipcMain.handle(IpcChannels.SAVE_BRAND_COLOR, (_e, color: string | null) => saveBrandColor(color));
   ipcMain.handle(IpcChannels.GET_MY_ACCESS, () => getMyAccess());
   ipcMain.handle(IpcChannels.GET_KOT_BOARD, (_e, userId: string) => getKotBoard(userId));
   ipcMain.handle(IpcChannels.GET_UNPRINTED_KOTS, () => getUnprintedKots());

@@ -36,6 +36,24 @@ as $$
 select to_jsonb(o)
   || jsonb_build_object('table_number', tbls.table_number)
   || jsonb_build_object('placed_by_name', wp.full_name)
+  -- is_running_order: a dine-in order that is not the first round of its table, i.e. an earlier,
+  -- not cancelled order exists on the same invoice (or, for an old order with no invoice number,
+  -- an earlier open order on the same table). The KOT prints "RUNNING ORDER" for it.
+  || jsonb_build_object(
+    'is_running_order',
+    o.order_type = 'dine-in' and exists (
+      select 1 from orders e
+      where e.outlet_id = o.outlet_id
+        and e.id <> o.id
+        and e.order_number < o.order_number
+        and e.status <> 'cancelled'
+        and (
+          (o.invoice_number is not null and e.invoice_number = o.invoice_number)
+          or (o.invoice_number is null and o.table_id is not null and e.table_id = o.table_id
+              and e.status not in ('cancelled', 'completed'))
+        )
+    )
+  )
   || jsonb_build_object(
     'outlet',
     (select to_jsonb(out) from outlets out where out.id = o.outlet_id)
@@ -960,6 +978,83 @@ drop function if exists list_orders(uuid, text, text, date, date, integer, integ
 -- 'cancelled' filter matches any invoice that has at least one cancelled round.
 -- Semantics note: p_from/p_to/p_search apply to a group's ANCHOR order (its
 -- first round); a search also matches any other round of the invoice.
+-- orders_kitchen_for(anchor ids): the Kitchen state of Orders list rows, shared by
+-- list_orders() and list_orders_live(). An anchor is the first round of an invoice (or a
+-- single order); its group is every order of the same invoice. Per group: live dishes
+-- (quantity) per order_items.status, per round, the dishes not yet sent to the kitchen
+-- printer, and `since` (the KOT board's clock). Not callable by clients: the callers check
+-- orders.view and the outlet first.
+create or replace function orders_kitchen_for(p_anchor_ids uuid[])
+returns table (anchor_id uuid, kitchen jsonb)
+language sql
+stable
+security definer
+set search_path = public
+set jit = off
+as $$
+  with anchors as (
+    select o.id as order_id, o.outlet_id, o.invoice_number
+    from orders o
+    where o.id = any(p_anchor_ids)
+  ),
+  -- Kitchen state of the page's groups: live dishes (quantity) per order_items.status,
+  -- per round, plus the dishes not yet sent to the kitchen printer. Cancelled orders,
+  -- deleted lines and cancelled lines are left out.
+  kr as (
+    select p.order_id as anchor_id, m.order_number, oi.status,
+           coalesce(sum(oi.quantity), 0) as qty,
+           coalesce(sum(oi.quantity) filter (where not coalesce(oi.kot_printed, false)), 0) as unprinted
+    from anchors p
+    join orders m
+      on m.id = p.order_id
+      or (p.invoice_number is not null
+          and m.outlet_id = p.outlet_id
+          and m.invoice_number = p.invoice_number)
+    join order_items oi on oi.order_id = m.id
+    where m.status <> 'cancelled'
+      and not coalesce(oi.is_deleted, false)
+      and oi.status <> 'cancelled'
+    group by p.order_id, m.order_number, oi.status
+  ),
+  -- The KOT board's clock: when the longest-waiting dish still on the board (a visible,
+  -- not final step) was ordered.
+  ks as (
+    select p.order_id as anchor_id, min(coalesce(oi.created_at, oi.kot_printed_at)) as since
+    from anchors p
+    join orders m
+      on m.id = p.order_id
+      or (p.invoice_number is not null
+          and m.outlet_id = p.outlet_id
+          and m.invoice_number = p.invoice_number)
+    join order_items oi on oi.order_id = m.id
+    join kot_statuses st on st.outlet_id = m.outlet_id and st.code = oi.status
+    where m.status not in ('cancelled', 'completed')
+      and not coalesce(oi.is_deleted, false)
+      and st.show_on_board and not st.is_final
+    group by p.order_id
+  ),
+  kitchen as (
+    select a.anchor_id,
+           jsonb_build_object('counts', a.counts, 'unprinted', a.unprinted, 'rounds', r.rounds,
+                              'since', ks.since, 'now', now()) as k
+    from (select s.anchor_id, jsonb_object_agg(s.status, s.qty) as counts, sum(s.unprinted) as unprinted
+            from (select anchor_id, status, sum(qty) as qty, sum(unprinted) as unprinted
+                    from kr group by anchor_id, status) s
+           group by s.anchor_id) a
+    join (select z.anchor_id,
+                 jsonb_agg(jsonb_build_object('order_number', z.order_number, 'counts', z.c, 'unprinted', z.u)
+                           order by z.order_number) as rounds
+            from (select anchor_id, order_number, jsonb_object_agg(status, qty) as c, sum(unprinted) as u
+                    from kr group by anchor_id, order_number) z
+           group by z.anchor_id) r on r.anchor_id = a.anchor_id
+    left join ks on ks.anchor_id = a.anchor_id
+  )
+  select kt.anchor_id, kt.k from kitchen kt;
+$$;
+revoke all on function orders_kitchen_for(uuid[]) from public, anon, authenticated;
+
+-- (the result gained the `kitchen` column, so the old signature is dropped first)
+drop function if exists list_orders(uuid, text, text, date, date, integer, integer);
 create or replace function list_orders(
   p_outlet_id uuid,
   p_status text default null, -- 'active' | 'completed' | 'cancelled' | null (all)
@@ -986,7 +1081,8 @@ returns table (
   order_count integer,
   cancelled_count integer,
   order_source text,
-  total_rows bigint
+  total_rows bigint,
+  kitchen jsonb
 )
 language sql
 stable
@@ -1085,7 +1181,8 @@ as $$
       where oi.order_id = m.id
     ) items on true
     group by p.order_id
-  )
+  ),
+  kitchen as (select kk.anchor_id, kk.kitchen as k from orders_kitchen_for((select array_agg(order_id) from paged)) kk)
   select
     p.order_id,
     p.order_type,
@@ -1103,14 +1200,88 @@ as $$
     p.order_count,
     p.cancelled_count,
     coalesce(t.order_source, 'pos') as order_source,
-    p.fetched::bigint as total_rows
+    p.fetched::bigint as total_rows,
+    kt.k as kitchen
   from paged p
   left join totals t on t.anchor_id = p.order_id
+  left join kitchen kt on kt.anchor_id = p.order_id
   left join tables tb on tb.id = p.table_id
   order by p.created_at desc;
 $$;
 
 grant execute on function list_orders(uuid, text, text, date, date, integer, integer) to authenticated;
+
+-- list_orders_live(outlet, anchor ids): the light refresh of the Orders list. For the rows
+-- already on screen (their anchor order ids) it returns only what changes while the
+-- kitchen works: the row's status, how many rounds / cancelled rounds it has, and the
+-- Kitchen state. The page reloads the full list when a status or round count differs.
+-- Needs orders.view; at most 200 ids.
+create or replace function list_orders_live(p_outlet_id uuid, p_order_ids uuid[])
+returns table (order_id uuid, status text, order_count integer, cancelled_count integer, kitchen jsonb)
+language sql
+stable
+security definer
+set search_path = public
+set jit = off
+as $$
+  with caller as (
+    select p.outlet_id
+    from profiles p
+    where p.user_id = auth.uid()
+      and coalesce(p.is_active, true)
+      and has_permission('orders.view')
+      and p.outlet_id = p_outlet_id
+  ),
+  anchors as (
+    select o.id, o.outlet_id, o.invoice_number
+    from caller c
+    join orders o on o.outlet_id = c.outlet_id
+    where o.id = any(p_order_ids)
+    limit 200
+  )
+  select a.id, g.status, g.order_count, g.cancelled_count, k.kitchen
+  from anchors a
+  cross join lateral (
+    select count(*)::integer as order_count,
+           (count(*) filter (where m.status = 'cancelled'))::integer as cancelled_count,
+           case when bool_or(m.status not in ('cancelled', 'completed')) then 'open'
+                when bool_or(m.status = 'completed') then 'completed'
+                else (array_agg(m.status order by m.order_number desc))[1] end as status
+    from orders m
+    where m.id = a.id
+       or (a.invoice_number is not null
+           and m.outlet_id = a.outlet_id
+           and m.invoice_number = a.invoice_number)
+  ) g
+  left join orders_kitchen_for(array(select id from anchors)) k on k.anchor_id = a.id;
+$$;
+grant execute on function list_orders_live(uuid, uuid[]) to authenticated;
+
+-- get_order_kot_setup(): the outlet's kitchen steps (name, colour, order) and waiting-time
+-- levels (the same ones the KOT board uses) so the Orders list can draw its Kitchen pill in
+-- the colours of the KOT workflow and flag delayed orders. Needs orders.view (the workflow
+-- settings need kot.manage, so they cannot be used here).
+drop function if exists get_order_kot_steps();
+create or replace function get_order_kot_setup()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'steps', coalesce((select jsonb_agg(jsonb_build_object('code', s.code, 'name', s.name, 'color', s.color,
+                                                           'sort_order', s.sort_order, 'is_final', s.is_final) order by s.sort_order)
+                         from kot_statuses s where s.outlet_id = p.outlet_id), '[]'::jsonb),
+    'levels', coalesce((select jsonb_agg(jsonb_build_object('name', l.name, 'from_minutes', l.from_minutes, 'color', l.color)
+                                         order by l.from_minutes)
+                          from kot_time_levels l where l.outlet_id = p.outlet_id), '[]'::jsonb))
+    from profiles p
+   where p.user_id = auth.uid()
+     and coalesce(p.is_active, true)
+     and has_permission('orders.view');
+$$;
+grant execute on function get_order_kot_setup() to authenticated;
 
 
 -- ============================================================================
@@ -2735,7 +2906,7 @@ begin
 
   select jsonb_build_object(
            'id', g.id, 'name', g.name, 'currency_code', g.currency_code, 'locale', g.locale,
-           'timezone', my_timezone(), 'tax_label', g.tax_label)
+           'timezone', my_timezone(), 'tax_label', g.tax_label, 'brand_color', g.brand_color)
     into v_org
   from profiles p join organizations g on g.id = p.org_id
   where p.user_id = auth.uid();
@@ -2752,6 +2923,37 @@ end;
 $$;
 
 grant execute on function get_my_access() to authenticated;
+
+-- set_org_brand_color(): the colour of the desktop app for the caller's whole organization
+-- (Settings > Appearance). Needs branding.manage. Pass null to go back to the default green.
+create or replace function set_org_brand_color(p_color text)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_org   uuid;
+  v_color text := nullif(btrim(coalesce(p_color, '')), '');
+begin
+  if not has_permission('branding.manage') then
+    raise exception 'Not allowed to change the app colour';
+  end if;
+  if v_color is not null and v_color !~ '^#[0-9a-fA-F]{6}$' then
+    raise exception 'The colour must be # followed by six letters or digits, for example #4caf50';
+  end if;
+  select p.org_id into v_org
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_org is null then
+    raise exception 'Your account has no organization';
+  end if;
+  update organizations
+     set brand_color = lower(v_color), brand_color_by = auth.uid(), brand_color_at = now()
+   where id = v_org;
+  return lower(v_color);
+end;
+$$;
+grant execute on function set_org_brand_color(text) to authenticated;
 
 
 -- ============================================================================

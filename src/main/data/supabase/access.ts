@@ -18,6 +18,7 @@ export const access: AccessRepository = {
         locale: string;
         timezone: string;
         tax_label: string;
+        brand_color?: string | null;
       } | null;
     };
     const org: OrgSettings | null = d.org
@@ -28,11 +29,18 @@ export const access: AccessRepository = {
           locale: d.org.locale,
           timezone: d.org.timezone,
           taxLabel: d.org.tax_label,
+          brandColor: d.org.brand_color ?? null,
         }
       : null;
     if (d.role) {
       return { role: d.role, org, permissions: d.permissions ?? [], menus: d.menus ?? [], groups: d.groups ?? [] };
     }
     return { role: null, org: null, permissions: [], menus: [] };
+  },
+
+  async setBrandColor(color) {
+    const { data, error } = await getAuthedClient().rpc('set_org_brand_color', { p_color: color });
+    if (error) throw new Error(error.message);
+    return typeof data === 'string' ? data : null;
   },
 };

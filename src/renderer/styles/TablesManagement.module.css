@@ -63,17 +63,13 @@
   align-items: center;
   gap: 6px;
   padding: 10px 14px;
-  background: #4CAF50;
-  color: white;
+  background: var(--brand);
+  color: var(--on-brand);
   border: none;
   border-radius: 6px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-}
-
-.addBtn:hover {
-  background: #43a047;
 }
 
 .clearBtn {

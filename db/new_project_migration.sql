@@ -1033,3 +1033,14 @@ drop trigger if exists menu_items_track_active on menu_items;
 create trigger menu_items_track_active
   before insert or update on menu_items
   for each row execute function menu_items_track_active();
+
+
+-- BRAND COLOUR: the colour of the desktop app for the whole business, set in Settings > Appearance
+-- by a user with branding.manage (set_org_brand_color()). Null = the app's default green.
+alter table organizations add column if not exists brand_color    text;
+alter table organizations add column if not exists brand_color_by uuid;
+alter table organizations add column if not exists brand_color_at timestamptz;
+
+insert into permissions (code, description) values
+  ('branding.manage', 'Change the app colour for the whole business')
+on conflict (code) do nothing;
