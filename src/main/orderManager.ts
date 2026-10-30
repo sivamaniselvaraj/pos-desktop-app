@@ -62,12 +62,13 @@ class OrderManager extends EventEmitter {
         error: 'NOT_FOUND',
       };
     }
-    console.log("bill type ", type)
-    console.log("order type ", order.orderType)
+
     if(order.orderType === PICK_UP_ORDER_TYPE && type != 'kot-only') {
       this.handleSettleByNumbers(order.invoiceNumber!, config.outletId);
     }
-    if (type === 'kot' || type === 'kot-only') return this.handleKot(orderId, order);
+    if (type === 'kot' || type === 'kot-only') {
+      return this.handleKot(orderId, order);
+    }
    
     return {
       success: false,

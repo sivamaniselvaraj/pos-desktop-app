@@ -178,12 +178,25 @@ export function renderTestHtml(printerName: string): string {
   );
 }
 
-/** Print an HTML document silently to a named OS printer. */
-export async function printHtml(html: string, printerName: string): Promise<void> {
+// Jobs are printed strictly one at a time. A KOT and a bill fired together (same
+// printer, two hidden windows) otherwise collide in the driver and one is lost.
+let queue: Promise<void> = Promise.resolve();
+const GAP_MS = 700; // let the driver/spooler finish taking one job before the next starts
+
+/** Print an HTML document silently to a named OS printer (queued, one job at a time). */
+export function printHtml(html: string, printerName: string): Promise<void> {
+  const job = queue.then(() => printHtmlNow(html, printerName));
+  // Keep the chain alive after a failure, and pause between jobs.
+  queue = job.then(
+    () => new Promise<void>((r) => setTimeout(r, GAP_MS)),
+    () => new Promise<void>((r) => setTimeout(r, GAP_MS)),
+  );
+  return job;
+}
+
+async function printHtmlNow(html: string, printerName: string): Promise<void> {
   const name = (printerName ?? '').trim();
   if (!name) throw new Error('No printer selected.');
-
-  console.log("htmlPint html" ,html)
 
   const win = new BrowserWindow({
     show: false,
