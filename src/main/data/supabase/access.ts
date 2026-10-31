@@ -38,6 +38,26 @@ export const access: AccessRepository = {
     return { role: null, org: null, permissions: [], menus: [] };
   },
 
+  async getReceiptText(outletId) {
+    const { data, error } = await getAuthedClient()
+      .from('outlets')
+      .select('receipt_header, receipt_footer')
+      .eq('id', outletId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    const r = (data ?? {}) as Record<string, unknown>;
+    return { header: String(r.receipt_header ?? ''), footer: String(r.receipt_footer ?? '') };
+  },
+
+  async setReceiptText(outletId, text) {
+    const { error } = await getAuthedClient().rpc('set_outlet_receipt_text', {
+      p_outlet_id: outletId,
+      p_header: text.header,
+      p_footer: text.footer,
+    });
+    if (error) throw new Error(error.message);
+  },
+
   async setBrandColor(color) {
     const { data, error } = await getAuthedClient().rpc('set_org_brand_color', { p_color: color });
     if (error) throw new Error(error.message);

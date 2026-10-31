@@ -1,5 +1,6 @@
 import { db } from './data';
-import type { MyAccess } from '../shared/types';
+import { config } from './config';
+import type { MyAccess, ReceiptText } from '../shared/types';
 
 /**
  * accessManager.ts
@@ -23,4 +24,31 @@ export async function saveBrandColor(color: string | null): Promise<string | nul
 
 export function getMyAccess(): Promise<MyAccess | null> {
   return db.access.fetchMyAccess();
+}
+
+const RECEIPT_MAX_LINES = 8;
+const RECEIPT_MAX_LINE = 48; // characters on an 80 mm bill
+
+/** One line per row; trims, drops blank lines and checks the limits the paper allows. */
+function cleanReceiptLines(label: string, raw: string): string {
+  const lines = String(raw ?? '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l !== '');
+  if (lines.length > RECEIPT_MAX_LINES) throw new Error(`The ${label} can have at most ${RECEIPT_MAX_LINES} lines.`);
+  const long = lines.findIndex((l) => l.length > RECEIPT_MAX_LINE);
+  if (long >= 0) throw new Error(`${label[0].toUpperCase()}${label.slice(1)} line ${long + 1} is longer than ${RECEIPT_MAX_LINE} characters.`);
+  return lines.join('\n');
+}
+
+/** The signed-in outlet's bill header/footer lines. */
+export function getReceiptText(): Promise<ReceiptText> {
+  return db.access.getReceiptText(config.outletId);
+}
+
+/** Saves the header/footer lines for the signed-in outlet. The database checks receipt.manage. */
+export async function saveReceiptText(text: ReceiptText): Promise<ReceiptText> {
+  const clean = { header: cleanReceiptLines('header', text?.header), footer: cleanReceiptLines('footer', text?.footer) };
+  await db.access.setReceiptText(config.outletId, clean);
+  return clean;
 }

@@ -27,7 +27,7 @@ import {
   getUserAccess,
 } from './userAdmin';
 import { listMenuCategories, listMenuCategoriesAdmin, reorderMenuCategories, saveMenuCategory, setMenuCategoryActive, saveMenuItem, getMenuItem } from './menuManager';
-import { getMyAccess, saveBrandColor } from './accessManager';
+import { getMyAccess,getReceiptText, saveBrandColor, saveReceiptText } from './accessManager';
 import { getTaxRate, placeOrder } from './orderEntryManager';
 import { getKotBoard, getKotWorkflow, getUnprintedKots, moveKot, printKotNow, saveKotWorkflow } from './kotManager';
 import { addTaxRate, deleteTaxRate, listTaxRates } from './taxManager';
@@ -66,6 +66,7 @@ import { config } from './config';
 
 import { IpcChannels } from '../shared/types';
 import type {
+  ReceiptText,
   ServerStatus,
   SalesReportExportPayload,
   CreateUserPayload,
@@ -288,6 +289,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.SET_MENU_CATEGORY_ACTIVE, (_e, id: string, isActive: boolean) => setMenuCategoryActive(id, isActive));
   ipcMain.handle(IpcChannels.GET_MENU_ITEM, (_e, id: string) => getMenuItem(id));
   ipcMain.handle(IpcChannels.SAVE_MENU_ITEM, (_e, payload: SaveMenuItemPayload) => saveMenuItem(payload));
+  ipcMain.handle(IpcChannels.GET_RECEIPT_TEXT, () => getReceiptText());
+  ipcMain.handle(IpcChannels.SAVE_RECEIPT_TEXT, (_e, text: ReceiptText) => saveReceiptText(text));
   ipcMain.handle(IpcChannels.SAVE_BRAND_COLOR, (_e, color: string | null) => saveBrandColor(color));
   ipcMain.handle(IpcChannels.GET_MY_ACCESS, () => getMyAccess());
   ipcMain.handle(IpcChannels.GET_KOT_BOARD, (_e, userId: string) => getKotBoard(userId));

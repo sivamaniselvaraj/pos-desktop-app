@@ -1,0 +1,19 @@
+.wrap { display: flex; flex-direction: column; gap: 14px; max-width: 980px; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start; }
+.form { display: flex; flex-direction: column; gap: 14px; }
+@media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+.wrap h3 { margin: 0; font-size: 16px; }
+.muted { margin: 0; font-size: 13px; color: var(--gray); }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
+.field textarea { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-family: monospace; font-size: 13px; resize: vertical; font-weight: 400; }
+.preview { position: sticky; top: 0; border: 1px dashed var(--border); border-radius: 8px; padding: 12px; background: #fff; display: flex; flex-direction: column; gap: 8px; }
+.previewTitle { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.slip { width: 300px; max-width: 100%; align-self: center; text-align: center; font-family: monospace; font-size: 12px; line-height: 1.4; padding: 8px; border: 1px solid var(--border); }
+.slip hr { border: 0; border-top: 1px solid #000; margin: 6px 0; }
+.big { font-size: 16px; }
+.dim { color: var(--gray); }
+.actions { display: flex; gap: 10px; }
+.save { background: var(--brand); color: var(--on-brand); border: none; border-radius: 6px; padding: 9px 18px; font-weight: 600; cursor: pointer; }
+.save:disabled { opacity: 0.45; cursor: default; }
+.error { margin: 0; color: #b91c1c; font-size: 13px; font-weight: 400; }
+.ok { margin: 0; color: #15803d; font-size: 13px; }

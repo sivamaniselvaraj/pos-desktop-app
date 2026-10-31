@@ -814,28 +814,6 @@ create table if not exists discount_presets (
 
 alter table discount_presets enable row level security;  -- no policies: read through get_discount_options()
 
-insert into discount_presets (outlet_id, percent)
-select o.id, p.percent from outlets o cross join (values (10), (20), (25)) as p(percent)
-on conflict do nothing;
-
-
-insert into permissions (code, description) values
-  ('orders.discount', 'Give a discount on an order or mark it complimentary')
-insert into permissions (code, description) values
-  ('orders.complimentary', 'Mark an order complimentary (customer pays nothing)')
-  insert into permissions (code, description) values
-  ('discount.manage', 'Change the allowed discount percentages')
-
-
-insert into app_menus (code, label, icon, sort_order, required_permission) values
-  ('kot-board', 'KOT Board', 'menu', 45, 'kot.view')
-on conflict (code) do nothing;
-
--- Unprinted KOTs: tickets that never reached the kitchen printer, with a manual print.
-insert into app_menus (code, label, icon, sort_order, required_permission) values
-  ('unprinted-kots', 'Unprinted KOTs', 'print', 46, 'orders.view')
-on conflict (code) do nothing;
-
 
 -- Which phone placed the order, and the phone's own request id (a retry of the
 -- same request returns the same order instead of creating a second one).
@@ -1041,6 +1019,3 @@ alter table organizations add column if not exists brand_color    text;
 alter table organizations add column if not exists brand_color_by uuid;
 alter table organizations add column if not exists brand_color_at timestamptz;
 
-insert into permissions (code, description) values
-  ('branding.manage', 'Change the app colour for the whole business')
-on conflict (code) do nothing;

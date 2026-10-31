@@ -1890,6 +1890,19 @@ select r.role, 'branding.manage'
 from (values ('owner'), ('admin')) as r(role)
 on conflict do nothing;
 
+-- Receipt header / footer lines (Settings > Receipt): one text per outlet, one line per row.
+alter table outlets add column if not exists receipt_header text;
+alter table outlets add column if not exists receipt_footer text;
+
+insert into permissions (code, description) values
+  ('receipt.manage', 'Change the header and footer lines printed on bills')
+on conflict (code) do nothing;
+
+insert into role_permissions (role, permission_code)
+select r.role, 'receipt.manage'
+from (values ('manager'), ('owner'), ('admin')) as r(role)
+on conflict do nothing;
+
 -- Groups that could cancel orders get the new permission once (admins need no group).
 do $$
 begin
@@ -2366,3 +2379,8 @@ begin
 exception when others then
   raise notice 'tables outlet constraints skipped: %', sqlerrm;
 end $$;
+
+
+-- Receipt header / footer lines (Settings > Receipt): one text per outlet, one line per row.
+alter table outlets add column if not exists receipt_header text;
+alter table outlets add column if not exists receipt_footer text;

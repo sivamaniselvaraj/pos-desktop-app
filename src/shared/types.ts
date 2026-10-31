@@ -31,6 +31,12 @@ export type PrintType = 'bill' | 'kot' | 'settle' | 'kot-only';
 
 export type SettleOrderType = 'dine_in' | 'takeaway';
 
+/** Lines printed at the top and bottom of a bill, one per line. */
+export interface ReceiptText {
+  header: string;
+  footer: string;
+}
+
 export interface OutletInfo {
   id: string;
   name: string;
@@ -38,6 +44,9 @@ export interface OutletInfo {
   phone?: string;
   gstNumber?: string;
   address?: string;
+  /** Custom lines for the top / bottom of the bill (one per line). Set in Settings > Receipt. */
+  receiptHeader?: string;
+  receiptFooter?: string;
 }
 
 /**
@@ -1028,6 +1037,8 @@ export const IpcChannels = {
   DELETE_TAX_RATE: 'delete-tax-rate',
   GET_MY_ACCESS: 'get-my-access',
   SAVE_BRAND_COLOR: 'save-brand-color',
+  GET_RECEIPT_TEXT: 'get-receipt-text',
+  SAVE_RECEIPT_TEXT: 'save-receipt-text',
   LIST_MENU_CATEGORIES: 'list-menu-categories',
   LIST_MENU_CATEGORIES_ADMIN: 'list-menu-categories-admin',
   SAVE_MENU_CATEGORY: 'save-menu-category',
@@ -1145,6 +1156,10 @@ export interface ElectronApi {
   addTaxRate(payload: AddTaxRatePayload): Promise<void>;
   deleteTaxRate(id: string): Promise<void>;
   getMyAccess(): Promise<MyAccess | null>;
+  /** The signed-in outlet's custom bill header/footer lines. */
+  getReceiptText(): Promise<ReceiptText>;
+  /** Needs receipt.manage. Blank = print the outlet's address / phone / GST as before. */
+  saveReceiptText(text: ReceiptText): Promise<ReceiptText>;
   /** Set the business's app colour (#rrggbb), or null for the default. Needs branding.manage. Returns the saved colour. */
   saveBrandColor(color: string | null): Promise<string | null>;
   /** Active categories of this outlet, for pickers. */

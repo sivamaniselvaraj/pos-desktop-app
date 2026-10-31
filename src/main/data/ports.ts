@@ -93,6 +93,10 @@ export interface AccessRepository {
   fetchMyAccess(): Promise<MyAccess | null>;
   /** set_org_brand_color: the organization's app colour (null = default). Needs branding.manage. */
   setBrandColor(color: string | null): Promise<string | null>;
+  /** The outlet's bill header/footer lines. */
+  getReceiptText(outletId: string): Promise<import('../../shared/types').ReceiptText>;
+  /** set_outlet_receipt_text. Needs receipt.manage. */
+  setReceiptText(outletId: string, text: import('../../shared/types').ReceiptText): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------

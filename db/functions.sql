@@ -2956,6 +2956,35 @@ $$;
 grant execute on function set_org_brand_color(text) to authenticated;
 
 
+-- set_outlet_receipt_text(): the header and footer lines printed on bills for one outlet
+-- (Settings > Receipt). Needs receipt.manage; the outlet must belong to the caller's organization.
+-- Blank text clears the lines (the bill then prints the outlet's address / phone / GST as before).
+create or replace function set_outlet_receipt_text(p_outlet_id uuid, p_header text, p_footer text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_org uuid := current_org_id();
+  v_h text := nullif(btrim(coalesce(p_header, ''), E' \n\r'), '');
+  v_f text := nullif(btrim(coalesce(p_footer, ''), E' \n\r'), '');
+begin
+  if not has_permission('receipt.manage') or v_org is null then
+    raise exception 'Not allowed to change the receipt text';
+  end if;
+  if not exists (select 1 from outlets o where o.id = p_outlet_id and o.org_id = v_org) then
+    raise exception 'That outlet does not belong to your organization';
+  end if;
+  if length(coalesce(v_h, '')) > 600 or length(coalesce(v_f, '')) > 600 then
+    raise exception 'The header and footer must each be 600 characters or fewer';
+  end if;
+  update outlets set receipt_header = v_h, receipt_footer = v_f where id = p_outlet_id;
+end;
+$$;
+grant execute on function set_outlet_receipt_text(uuid, text, text) to authenticated;
+
+
 -- ============================================================================
 -- Multi-tenant helpers used by the app
 -- ============================================================================

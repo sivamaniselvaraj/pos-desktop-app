@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IpcChannels } from './shared/types';
 import type {
+  ReceiptText,
   AuthResult,
   AuthUser,
   DiscountOptions,
@@ -176,6 +177,8 @@ const api: ElectronApi = {
   getMenuItem: (id) => ipcRenderer.invoke(IpcChannels.GET_MENU_ITEM, id) as Promise<MenuItemRecord>,
   saveMenuItem: (payload) =>
     ipcRenderer.invoke(IpcChannels.SAVE_MENU_ITEM, payload) as Promise<MenuCacheSnapshot>,
+  getReceiptText: () => ipcRenderer.invoke(IpcChannels.GET_RECEIPT_TEXT) as Promise<ReceiptText>,
+  saveReceiptText: (text) => ipcRenderer.invoke(IpcChannels.SAVE_RECEIPT_TEXT, text) as Promise<ReceiptText>,
   saveBrandColor: (color) => ipcRenderer.invoke(IpcChannels.SAVE_BRAND_COLOR, color) as Promise<string | null>,
   getMyAccess: () => ipcRenderer.invoke(IpcChannels.GET_MY_ACCESS) as Promise<MyAccess | null>,
   getUnprintedKots: () => ipcRenderer.invoke(IpcChannels.GET_UNPRINTED_KOTS) as Promise<UnprintedKot[]>,

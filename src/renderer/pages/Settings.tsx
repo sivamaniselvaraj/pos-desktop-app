@@ -15,6 +15,7 @@ import { KotWorkflow } from '../components/KotWorkflowSettings';
 import { DiscountSettings } from '../components/DiscountSettings';
 import { TaxRates } from './TaxRates';
 import { AppearanceSettings } from '../components/AppearanceSettings';
+import { ReceiptSettings } from '../components/ReceiptSettings';
 
 interface PrinterConfigs {
   [key: string]: string; // e.g., { printer_kitchen: "USB001", printer_cashier: "COM1" }
@@ -40,7 +41,8 @@ export function Settings() {
   const canDiscounts = can('discount.manage');
   const canTax = can('tax.manage');
   const canBranding = can('branding.manage');
-  const [tab, setTab] = useState<'general' | 'kot' | 'discounts' | 'tax' | 'appearance'>('general');
+  const canReceipt = can('receipt.manage');
+  const [tab, setTab] = useState<'general' | 'kot' | 'discounts' | 'tax' | 'receipt' | 'appearance'>('general');
 
   const [invoiceStatus, setInvoiceStatus] = useState<InvoiceSequenceStatus | null>(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
@@ -319,7 +321,7 @@ export function Settings() {
         <h1>Settings</h1>
       </div>
 
-      {(canKot || canDiscounts || canTax || canBranding) && (
+      {(canKot || canDiscounts || canTax || canReceipt || canBranding) && (
         <div className={styles.tabs}>
           <button className={tab === 'general' ? styles.tabActive : styles.tab} onClick={() => setTab('general')}>
             General
@@ -337,6 +339,11 @@ export function Settings() {
           {canTax && (
             <button className={tab === 'tax' ? styles.tabActive : styles.tab} onClick={() => setTab('tax')}>
               Tax
+            </button>
+          )}
+          {canReceipt && (
+            <button className={tab === 'receipt' ? styles.tabActive : styles.tab} onClick={() => setTab('receipt')}>
+              Receipt
             </button>
           )}
           {canBranding && (
@@ -371,6 +378,12 @@ export function Settings() {
         </div>
       )}
 
+      {tab === 'receipt' && canReceipt && (
+        <div className={styles.container}>
+          <ReceiptSettings />
+        </div>
+      )}
+
       {tab === 'appearance' && canBranding && (
         <div className={styles.container}>
           <AppearanceSettings />
@@ -380,7 +393,7 @@ export function Settings() {
       <div
         className={styles.container}
         style={
-          (tab === 'kot' && canKot) || (tab === 'discounts' && canDiscounts) || (tab === 'tax' && canTax) || (tab === 'appearance' && canBranding)
+          (tab === 'kot' && canKot) || (tab === 'discounts' && canDiscounts) || (tab === 'tax' && canTax) || (tab === 'receipt' && canReceipt) || (tab === 'appearance' && canBranding)
             ? { display: 'none' }
             : undefined
         }
