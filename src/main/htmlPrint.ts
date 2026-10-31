@@ -1,7 +1,7 @@
 import { BrowserWindow } from 'electron';
 import { taxBillLines } from '../shared/orderTotals';
 import type { FoodOrder } from '../shared/types';
-import { parseHeaderConfig, splitBrLines } from './printerManager';
+import { parseHeaderConfig, billFooterLines, billHeaderLines, } from './printerManager';
 
 /**
  * htmlPrint.ts
@@ -67,14 +67,7 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
   out.push(
     `<div class="c lg">${esc(header?.restaurantName?.trim() || order.outlet?.name || 'FOOD ORDER PRINTER')}</div>`,
   );
-  const headerLines = splitBrLines(header?.headerText);
-  if (headerLines.length > 0) {
-    for (const l of headerLines) out.push(`<div class="c">${esc(l)}</div>`);
-  } else {
-    if (order.outlet?.address) out.push(`<div class="c">${esc(order.outlet.address)}</div>`);
-    const meta = [order.outlet?.city, order.outlet?.phone, order.outlet?.gstNumber].filter(Boolean).join(' | ');
-    if (meta) out.push(`<div class="c">${esc(meta)}</div>`);
-  }
+  for (const l of billHeaderLines(order)) out.push(`<div class="c">${esc(l)}</div>`);
   out.push('<div class="rule"></div>');
 
   if (isDuplicate) {
@@ -126,7 +119,7 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
   if (order.specialNotes) {
     out.push(`<div class="c b">Special Notes</div><div>${esc(order.specialNotes)}</div><div style="height:4px"></div>`);
   }
-  const footer = splitBrLines(header?.footerText);
+  const footer = billFooterLines(order);
   for (const f of footer) out.push(`<div class="c">${esc(f)}</div>`);
   if (footer.length) out.push('<div style="height:4px"></div>');
   out.push('<div class="c">Thank you! Please visit again.</div><div class="c">Powered by PrintPro</div>');

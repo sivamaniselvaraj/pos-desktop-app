@@ -411,7 +411,29 @@ function rightAlign(text: string, width: number): string {
 }
 
 function formatCurrency(amount: number): string {
-  return `${amount.toFixed(2)}`;
+  return `₹ ${amount.toFixed(2)}`;
+}
+
+/**
+ * Lines under the business name on a bill. The outlet's own lines (Settings > Receipt)
+ * win; otherwise the legacy header config, otherwise address and "city | phone | GST".
+ */
+export function billHeaderLines(order: FoodOrder): string[] {
+  const own = (order.outlet?.receiptHeader ?? '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (own.length > 0) return own;
+  const legacy = splitBrLines(parseHeaderConfig(order.headerConfig)?.headerText);
+  if (legacy.length > 0) return legacy;
+  const lines: string[] = [];
+  if (order.outlet?.address) lines.push(order.outlet.address);
+  const meta = [order.outlet?.city, order.outlet?.phone, order.outlet?.gstNumber].filter(Boolean).join(' | ');
+  if (meta) lines.push(meta);
+  return lines;
+}
+
+/** Lines above "Thank you!" on a bill: the outlet's own footer, else the legacy footer config. */
+export function billFooterLines(order: FoodOrder): string[] {
+  const own = (order.outlet?.receiptFooter ?? '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  return own.length > 0 ? own : splitBrLines(parseHeaderConfig(order.headerConfig)?.footerText);
 }
 
 export function formatReceipt(order: FoodOrder): string {
@@ -578,20 +600,8 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string, isD
     printer.println(order.outlet?.name || 'Virunthagam');
     printer.bold(false);
     printer.setTextSize(0, 0);
- 
-    const headerLines = splitBrLines(header?.headerText);
-    const footerLines = splitBrLines(header?.footerText);
 
-    if (headerLines.length > 0) {
-      for (const hl of headerLines) printer.println(hl);
-    } else {
-      // Fall back to the outlet fields when no headerText is configured.
-      if (order.outlet?.address) printer.println(order.outlet.address);
-      const metaLine = [order.outlet?.city, order.outlet?.phone, order.outlet?.gstNumber]
-        .filter(Boolean)
-        .join(' | ');
-      if (metaLine) printer.println(metaLine);
-    }
+    for (const hl of billHeaderLines(order)) printer.println(hl);
 
     printer.setTextSize(0, 0);
     solidLineThick(printer);
@@ -724,21 +734,29 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string, isD
     }
 
     printer.alignCenter();
-    printer.bold(true);
-    if (footerLines.length > 0) {
-      for (const fl of footerLines) printer.println(fl);
-    }else{
-      printer.println('Thank you! Please visit again.');
-    } 
-    printer.bold(false);
-    //printer.setTextSize(0, 0);
-    //solidLine(printer);
-    printer.cut();
+    const footerLines = billFooterLines(order);
+    for (const fl of footerLines) printer.println(fl);
+    if (footerLines.length > 0) printer.println('');
+
+    solidLine(printer);
+    printer.println('');
+    printer.println('');
 
     await printer.execute();
- 
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to print with ESC/POS';
+    let message = 'Failed to print';
+
+    if (err instanceof Error) {
+      message = err.message;
+
+      // Enhance common spooler errors
+      if (message.includes('No driver set')) {
+        message = `Print driver not initialized for "${printerName}". The @grandchef/node-printer module is missing or not rebuilt for Electron.`;
+      } else if (/not found|unavailable|NOT-AVAILABLE/i.test(message)) {
+        message = `Printer "${printerName}" not found in the OS spooler. Verify the name matches Get-Printer / lpstat -p exactly and the printer is online.`;
+      }
+    }
+
     throw new Error(message);
   }
 }
