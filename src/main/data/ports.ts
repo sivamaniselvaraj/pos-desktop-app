@@ -134,6 +134,8 @@ export interface OrderRepository {
   fetchOrdersByInvoiceNumbers(invoiceNumber: string, outletId: string): Promise<FoodOrder[]>;
   /** Marks orders completed (settled). Does not free the table. */
   markOrdersCompleted(orderIds: string[]): Promise<void>;
+  /** Marks the bill printed (is_printed, printed_at) on orders not printed before; printed_at keeps the first print time. */
+  markOrdersBillPrinted(orderIds: string[]): Promise<void>;
   /** Orders of one outlet whose kitchen items are still unprinted. */
   findOrdersWithPendingKot(): Promise<{ orderId: string; orderType: string }[]>;
   /** Open orders with kitchen items not yet printed, with those items (get_unprinted_kots). */

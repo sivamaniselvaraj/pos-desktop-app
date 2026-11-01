@@ -4,7 +4,7 @@ import { getMyAccess } from './accessManager';
 import { orderManager } from './orderManager';
 import { printQueue } from './printQueue';
 import { listManagedTables } from './tablesManager';
-import { ApiMyOrder, DINE_IN_ORDER_TYPE, type ApiTable, type PhoneKotSettings, type RemoteOrderRequest, type RemoteOrderResult } from '../shared/types';
+import { ApiMyOrder, DINE_IN_ORDER_TYPE, PRINT_KOT_ONLY, type ApiTable, type PhoneKotSettings, type RemoteOrderRequest, type RemoteOrderResult } from '../shared/types';
 import { BadRemoteOrder } from './remoteOrderValidation';
 
 export { BadRemoteOrder, validateRemoteOrder } from './remoteOrderValidation';
@@ -123,7 +123,7 @@ export async function placeRemoteOrder(
 
   if (config.outletId) {
     printQueue
-      .enqueue(() => orderManager.handleIncoming(String(result.orderId), 'kot'))
+      .enqueue(() => orderManager.handleIncoming(String(result.orderId), PRINT_KOT_ONLY))
       .then((r) => {
         if (!r.success) console.warn(`[remote] KOT for order ${result.orderNumber} not printed: ${r.message}`);
       })

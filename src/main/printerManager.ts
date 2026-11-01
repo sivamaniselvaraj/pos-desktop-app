@@ -1,14 +1,12 @@
 import { execFile } from 'child_process';
-import { writeFile, unlink } from 'fs/promises';
-import { tmpdir } from 'os';
-import { join } from 'path';
 import { promisify } from 'util';
-import { randomUUID } from 'crypto';
+import { BrowserWindow } from 'electron';
 import { ThermalPrinter, PrinterTypes, CharacterSet } from 'node-thermal-printer';
 import { config } from './config';
 import { taxBillLines } from '../shared/orderTotals';
 import type { FoodOrder, PrinterInfo, HeaderConfig } from '../shared/types';
 import { printHtml, renderBillHtml, renderKotHtml, renderTestHtml } from './htmlPrint';
+import { journalPrint } from './logger';
 
 const electron = typeof process !== 'undefined' && process.versions && !!process.versions.electron;
 
@@ -93,9 +91,55 @@ export function isVirtualPrinter(name: string): boolean {
   return VIRTUAL_PRINTER_PATTERNS.some((pattern) => n.includes(pattern));
 }
 
-export async function getPrinters(): Promise<PrinterInfo[]> {
-  const names = isWindows ? await listPrintersWindows() : await listPrintersUnix();
-  const defaultName = config.kitchenPrinter;
+// ---- Printer list cache ---------------------------------------------------
+// The status bar and Settings both need the printer list. Listing used to run
+// `powershell Get-Printer` (a new process) on every call, and the status bar
+// asked every 10 s. Now the names are cached for PRINTER_CACHE_MS, read from
+// Electron's own getPrintersAsync() (no child process) when a window exists,
+// and the UI is told about changes by startPrinterWatch() over the
+// PRINTER_STATUS event instead of polling. PowerShell / lpstat stay as the
+// fallback when no window is open yet or Electron returns nothing.
+const PRINTER_CACHE_MS = 60_000;
+let printerNameCache: { at: number; names: string[] } | null = null;
+let printerNamesInFlight: Promise<string[]> | null = null;
+
+async function listPrinterNames(): Promise<string[]> {
+  const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+  if (win) {
+    try {
+      const list = await win.webContents.getPrintersAsync();
+      if (list.length > 0) return list.map((p) => p.name);
+    } catch (err) {
+      console.warn('[printerManager] getPrintersAsync failed; falling back to the OS command:', err instanceof Error ? err.message : err);
+    }
+  }
+  return isWindows ? listPrintersWindows() : listPrintersUnix();
+}
+
+async function cachedPrinterNames(refresh: boolean): Promise<string[]> {
+  if (!refresh && printerNameCache && Date.now() - printerNameCache.at < PRINTER_CACHE_MS) {
+    return printerNameCache.names;
+  }
+  // Callers arriving together share one lookup.
+  printerNamesInFlight ??= listPrinterNames()
+    .then((names) => {
+      printerNameCache = { at: Date.now(), names };
+      return names;
+    })
+    .finally(() => {
+      printerNamesInFlight = null;
+    });
+  return printerNamesInFlight;
+}
+
+/**
+ * Printers installed in the OS, without virtual ones (PDF, OneNote...).
+ * Served from a 60 s cache; `refresh` reads the OS again (Settings does this
+ * when it opens, so a printer installed a moment ago shows up).
+ */
+export async function getPrinters(refresh = false): Promise<PrinterInfo[]> {
+  const names = await cachedPrinterNames(refresh);
+  const defaultName = config.cashierPrinter;
   return names
     .filter((name) => !isVirtualPrinter(name))
     .map((name) => ({
@@ -103,6 +147,37 @@ export async function getPrinters(): Promise<PrinterInfo[]> {
       isDefault: name === defaultName,
       online: true, // OS only lists installed printers; treat listed as available.
     }));
+}
+
+let printerWatchTimer: NodeJS.Timeout | null = null;
+
+/**
+ * Check the printer list every PRINTER_CACHE_MS and call `onChange` with the
+ * new list whenever it differs from the last one sent (a printer added or
+ * removed, or the cashier printer changed). Sends the first list straight away.
+ */
+export function startPrinterWatch(onChange: (printers: PrinterInfo[]) => void): void {
+  stopPrinterWatch();
+  let last = '';
+  const check = async () => {
+    try {
+      const list = await getPrinters(true);
+      const key = JSON.stringify(list);
+      if (key !== last) {
+        last = key;
+        onChange(list);
+      }
+    } catch (err) {
+      console.warn('[printerManager] Printer list check failed:', err instanceof Error ? err.message : err);
+    }
+  };
+  void check();
+  printerWatchTimer = setInterval(() => void check(), PRINTER_CACHE_MS);
+}
+
+export function stopPrinterWatch(): void {
+  if (printerWatchTimer) clearInterval(printerWatchTimer);
+  printerWatchTimer = null;
 }
 
 // ---- Receipt formatting (80mm thermal, 48-char width) -----------------------
@@ -207,40 +282,6 @@ function buildRupeeImage(): Buffer {
 /** Emit the rupee glyph inline as a raw bit-image buffer. */
 function emitRupeeImage(printer: RawPrinter): void {
   printer.append(buildRupeeImage());
-}
-
-/**
- * Print a line, emitting any '₹' via the configured RUPEE_MODE rather than
- * letting iconv mangle it to '?'. Column maths are unaffected: '₹' counts as
- * one character in the padded string and prints as ~one character width.
- */
-function line(printer: RawPrinter & { newLine(): void }, text: string): void {
-  if (RUPEE_MODE === 'text' || !text.includes('₹')) {
-    printer.append(text.replace(/₹/g, 'Rs.'));
-    printer.newLine();
-    return;
-  }
-
-  if (RUPEE_MODE === 'byte' && RUPEE_BYTE === null) {
-    // byte mode requested but not configured — degrade to "Rs." safely.
-    printer.append(text.replace(/₹/g, 'Rs.'));
-    printer.newLine();
-    return;
-  }
-
-  const parts = text.split('₹');
-  for (let i = 0; i < parts.length; i++) {
-    if (i > 0) {
-      if (RUPEE_MODE === 'image') {
-        emitRupeeImage(printer);
-      } else {
-        if (RUPEE_CODEPAGE !== null) selectCodePage(printer, RUPEE_CODEPAGE);
-        raw(printer, [RUPEE_BYTE as number]);
-      }
-    }
-    if (parts[i]) printer.append(parts[i]);
-  }
-  printer.newLine();
 }
 
 // ---- Header / footer config -----------------------------------------------
@@ -395,21 +436,6 @@ function wrapText(text: string, width: number): string[] {
   if (current) lines.push(current);
   return lines;
 }
-
-// ---- Receipt formatting (80mm thermal, 48-char width) -----------------------
-
-function center(text: string, width: number): string {
-  const padding = Math.max(0, width - text.length);
-  const left = Math.floor(padding / 2);
-  const right = padding - left;
-  return ' '.repeat(left) + text + ' '.repeat(right);
-}
-
-function rightAlign(text: string, width: number): string {
-  const padding = Math.max(0, width - text.length);
-  return ' '.repeat(padding) + text;
-}
-
 function formatCurrency(amount: number): string {
   return `₹ ${amount.toFixed(2)}`;
 }
@@ -443,7 +469,21 @@ export function billFooterLines(order: FoodOrder): string[] {
  * Requires a connected USB or network thermal printer.
  */
 export async function printOrderEscpos(order: FoodOrder, printerName:string, isDuplicate = false): Promise<void> {
- 
+  return journalPrint(
+    {
+      job: 'bill',
+      printer: config.cashierPrinter ?? '',
+      method: config.printMethod,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      orderNumbers: order.orderNumbers,
+      items: order.items?.length,
+      duplicate: isDuplicate,
+    },
+    () => printOrderNow(order, printerName, isDuplicate),
+  );
+}
+async function printOrderNow(order: FoodOrder, printerName:string, isDuplicate: boolean): Promise<void> {
   // Validate printer is configured
   if (!printerName || printerName.trim() === '') {
     throw new Error('No printer configured. Set KITCHEN_PRINTER in .env.local');
@@ -667,10 +707,10 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
     );
   }
 
-    if (config.printMethod === 'html') {
-      await printHtml(renderKotHtml(order), name);
-      return;
-    }
+  if (config.printMethod === 'html') {
+    await printHtml(renderKotHtml(order), name);
+    return;
+  }
 
   try {
     const printer = loadPrinterDriver(printerName);
@@ -688,13 +728,13 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
     printer.println(kotTitle);
     printer.setTextSize(0, 0);
 
-     // A dine-in round added to a table that already has orders: tell the kitchen it is a running order.
-        if (order.orderType !== 'pickup' && order.isRunningOrder) {
-          printer.bold(true);
-          printer.println('** RUNNING ORDER **');
-        }
-        printer.bold(false);
-        solidLine(printer);
+    // A dine-in round added to a table that already has orders: tell the kitchen it is a running order.
+    if (order.orderType !== 'pickup' && order.isRunningOrder) {
+      printer.bold(true);
+      printer.println('** RUNNING ORDER **');
+    }
+    printer.bold(false);
+    solidLine(printer);
     printer.println(`Time   : ${new Date(order.createdAt).toLocaleString('en-IN')}`);
     if(order.orderNumber){
       printer.println("KOT - " + order.orderNumber);
@@ -776,6 +816,10 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
  */
 export async function testPrint(target?: string): Promise<string> {
   const name = (target ?? config.cashierPrinter ?? '').trim();
+  return journalPrint({ job: 'test', printer: name, method: config.printMethod }, () => testPrintNow(name));
+}
+
+async function testPrintNow(name: string): Promise<string> {
   if (!name) {
     throw new Error('No printer selected. Choose a printer first.');
   }

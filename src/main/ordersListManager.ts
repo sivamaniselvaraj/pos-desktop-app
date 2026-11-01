@@ -2,7 +2,6 @@ import { db } from './data';
 import { config } from './config';
 import { orderManager } from './orderManager';
 import { printQueue } from './printQueue';
-import { mergeTaxBreakdowns } from '../shared/orderTotals';
 import type {
   OrderListFilter,
   OrderListPage,
@@ -15,7 +14,6 @@ import type {
   DiscountSettings,
   DiscountPreset,
   OrderDiscountInfo,
-  FoodOrder,
 } from '../shared/types';
 
 /**

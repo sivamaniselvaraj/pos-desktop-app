@@ -1,7 +1,8 @@
 import { BrowserWindow } from 'electron';
 import { taxBillLines } from '../shared/orderTotals';
 import type { FoodOrder } from '../shared/types';
-import { parseHeaderConfig, billFooterLines, billHeaderLines, } from './printerManager';
+import { billFooterLines, billHeaderLines, getPrinters, parseHeaderConfig } from './printerManager';
+import { PrintTimeoutError, withTimeout } from './printQueue';
 
 /**
  * htmlPrint.ts
@@ -121,8 +122,6 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
   }
   const footer = billFooterLines(order);
   for (const f of footer) out.push(`<div class="c">${esc(f)}</div>`);
-  if (footer.length) out.push('<div style="height:4px"></div>');
-  out.push('<div class="c">Thank you! Please visit again.</div><div class="c">Powered by PrintPro</div>');
   return page(out.join(''));
 }
 
@@ -171,16 +170,63 @@ export function renderTestHtml(printerName: string): string {
   );
 }
 
-// Jobs are printed strictly one at a time. A KOT and a bill fired together (same
-// printer, two hidden windows) otherwise collide in the driver and one is lost.
-let queue: Promise<void> = Promise.resolve();
+// One hidden window prints every HTML job, one job at a time.
+//
+// The window is created on the first job and kept for the life of the app
+// (before, every job built and destroyed its own BrowserWindow, which is slow
+// on a busy service). Jobs must still run strictly one after another: the one
+// window can hold only one document, and a KOT and a bill fired together to
+// the same printer otherwise collide in the driver. Most callers already go
+// through the shared printQueue; this small chain also covers the ones that
+// do not (Retry and Test print from the UI) and adds the 0.7 s gap.
+let chain: Promise<void> = Promise.resolve();
 const GAP_MS = 700; // let the driver/spooler finish taking one job before the next starts
+// One HTML job (load, measure, print) may take at most this long. Shorter than the
+// shared print queue's 45 s limit, so the HTML job fails first with a clear message.
+// A job that times out throws the window away (it may be stuck in the driver); the
+// next job gets a fresh one.
+const HTML_JOB_TIMEOUT_MS = 30_000;
+
+let printWindow: BrowserWindow | null = null;
+
+function getPrintWindow(): BrowserWindow {
+  if (printWindow && !printWindow.isDestroyed()) return printWindow;
+  const win = new BrowserWindow({
+    show: false,
+    width: 400,
+    height: 800,
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: true },
+  });
+  // A crashed renderer cannot print again: drop it so the next job makes a new one.
+  win.webContents.on('render-process-gone', () => destroyHtmlPrintWindow());
+  win.on('closed', () => {
+    if (printWindow === win) printWindow = null;
+  });
+  printWindow = win;
+  return win;
+}
+
+/**
+ * Close the hidden print window. index.ts calls this when the main window
+ * closes, otherwise the hidden window would keep the app running.
+ */
+export function destroyHtmlPrintWindow(): void {
+  const win = printWindow;
+  printWindow = null;
+  if (win && !win.isDestroyed()) win.destroy();
+}
+
+/** True if `name` is an installed OS printer. Uses the 60 s printer cache, re-reading the OS on a miss. */
+async function printerExists(name: string): Promise<boolean> {
+  if ((await getPrinters()).some((p) => p.name === name)) return true;
+  return (await getPrinters(true)).some((p) => p.name === name);
+}
 
 /** Print an HTML document silently to a named OS printer (queued, one job at a time). */
 export function printHtml(html: string, printerName: string): Promise<void> {
-  const job = queue.then(() => printHtmlNow(html, printerName));
+  const job = chain.then(() => printHtmlNow(html, printerName));
   // Keep the chain alive after a failure, and pause between jobs.
-  queue = job.then(
+  chain = job.then(
     () => new Promise<void>((r) => setTimeout(r, GAP_MS)),
     () => new Promise<void>((r) => setTimeout(r, GAP_MS)),
   );
@@ -190,45 +236,43 @@ export function printHtml(html: string, printerName: string): Promise<void> {
 async function printHtmlNow(html: string, printerName: string): Promise<void> {
   const name = (printerName ?? '').trim();
   if (!name) throw new Error('No printer selected.');
-
-  const win = new BrowserWindow({
-    show: false,
-    width: 400,
-    height: 800,
-    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: true },
-  });
-  try {
-    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-
-    const printers = await win.webContents.getPrintersAsync();
-    if (!printers.some((p) => p.name === name)) {
-      throw new Error(
-        `Printer "${name}" was not found in the OS. Check it is installed and the name matches exactly.`,
-      );
-    }
-
-    const px = (await win.webContents.executeJavaScript(
-      'Math.ceil(document.documentElement.getBoundingClientRect().height)',
-    )) as number;
-    // Slight over-allowance so the last line is never clipped; the roll is continuous.
-    const heightMicrons = Math.max(20000, Math.ceil((px + 12) * PX_TO_MICRONS));
-
-    await new Promise<void>((resolve, reject) => {
-      win.webContents.print(
-        {
-          silent: true,
-          deviceName: name,
-          printBackground: true,
-          margins: { marginType: 'none' },
-          pageSize: { width: PAPER_MM * 1000, height: heightMicrons },
-        },
-        (success, reason) => {
-          if (success) resolve();
-          else reject(new Error(`Printing to "${name}" failed${reason ? `: ${reason}` : ''}.`));
-        },
-      );
-    });
-  } finally {
-    if (!win.isDestroyed()) win.destroy();
+  if (!(await printerExists(name))) {
+    throw new Error(
+      `Printer "${name}" was not found in the OS. Check it is installed and the name matches exactly.`,
+    );
   }
+
+  const win = getPrintWindow();
+  try {
+    await withTimeout(renderAndPrint(win, html, name), HTML_JOB_TIMEOUT_MS, `HTML print to "${name}"`);
+  } catch (err) {
+    if (err instanceof PrintTimeoutError) destroyHtmlPrintWindow();
+    throw err;
+  }
+}
+
+async function renderAndPrint(win: BrowserWindow, html: string, name: string): Promise<void> {
+  await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+
+  const px = (await win.webContents.executeJavaScript(
+    'Math.ceil(document.documentElement.getBoundingClientRect().height)',
+  )) as number;
+  // Slight over-allowance so the last line is never clipped; the roll is continuous.
+  const heightMicrons = Math.max(20000, Math.ceil((px + 12) * PX_TO_MICRONS));
+
+  await new Promise<void>((resolve, reject) => {
+    win.webContents.print(
+      {
+        silent: true,
+        deviceName: name,
+        printBackground: true,
+        margins: { marginType: 'none' },
+        pageSize: { width: PAPER_MM * 1000, height: heightMicrons },
+      },
+      (success, reason) => {
+        if (success) resolve();
+        else reject(new Error(`Printing to "${name}" failed${reason ? `: ${reason}` : ''}.`));
+      },
+    );
+  });
 }

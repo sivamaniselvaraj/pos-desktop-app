@@ -1,3 +1,4 @@
+import { PRINT_KOT_ONLY } from '../shared/types';
 import { db } from './data';
 import { orderManager } from './orderManager';
 import { printQueue } from './printQueue';
@@ -59,7 +60,7 @@ export async function reconcilePendingKots(): Promise<void> {
         console.log(`[kotReconciliation] logic pending`);
         // Same queue as every other print entry point — never a direct call.
         const result = await printQueue.enqueue(() =>
-          orderManager.handleIncoming(row.orderId, 'kot-only'),
+          orderManager.handleIncoming(row.orderId, PRINT_KOT_ONLY),
         );
         if (result.success) {
           console.log(`[kotReconciliation] Order ${row.orderId}: ${result.message}`);

@@ -140,7 +140,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.RETRY_PRINT, (_e, orderId: string) => orderManager.retry(orderId));
   ipcMain.handle(IpcChannels.CANCEL_ORDER, (_e, orderId: string) => orderManager.cancel(orderId));
   ipcMain.handle(IpcChannels.CLEAR_PRINTED, () => orderManager.clearPrinted());
-  ipcMain.handle(IpcChannels.GET_PRINTERS, () => getPrinters());
+  ipcMain.handle(IpcChannels.GET_PRINTERS, (_e, refresh?: boolean) => getPrinters(refresh === true));
   ipcMain.handle(IpcChannels.GET_PRINT_METHOD, () => config.printMethod);
   ipcMain.handle(IpcChannels.SET_PRINT_METHOD, (_e, method: 'direct' | 'html') => {
     config.printMethod = method === 'html' ? 'html' : 'direct';

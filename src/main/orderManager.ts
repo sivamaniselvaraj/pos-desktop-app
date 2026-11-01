@@ -4,9 +4,12 @@ import { printOrderEscpos, printKot } from './printerManager';
 import { getPrinterFor } from './settingsManager';
 import { config } from './config';
 import { mergeTaxBreakdowns } from '../shared/orderTotals';
+import { loadPendingPrintState, type PersistentIdSet } from './pendingPrintState';
 import {
   DINE_IN_ORDER_TYPE,
   PICK_UP_ORDER_TYPE,
+  PRINT_KOT,
+  PRINT_KOT_ONLY,
   type FoodOrder,
   type OrderWithStatus,
   type PrintOrderResponse,
@@ -16,6 +19,40 @@ import {
 // Backoff delays per attempt (ms): attempt 1 immediate, then 5s, then 10s.
 const RETRY_DELAYS = [0, 5000, 10000];
 
+// A repeated plain-bill request for the same order inside this window gets the
+// earlier result instead of printing again (Android retry after a timeout, a
+// double tap). Orders List "Reprint" does not go through handleBill.
+// Every bill print sets orders.is_printed (first time only, keeping printed_at);
+// a bill for an order already printed carries the DUPLICATE BILL heading.
+const BILL_DEDUPE_MS = 30_000;
+
+/** Retry a short database write a few times before giving up. */
+async function withDbRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      last = err;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 300 * (i + 1) ** 2));
+    }
+  }
+  throw last;
+}
+
+/**
+ * Record that a bill printed for these orders (is_printed, printed_at). The
+ * bill is already on paper, so a failure is logged and never fails the print;
+ * at worst the next print of that order is not headed DUPLICATE BILL.
+ */
+export async function recordBillPrinted(orderIds: string[]): Promise<void> {
+  try {
+    await withDbRetry(() => db.orders.markOrdersBillPrinted(orderIds));
+  } catch (err) {
+    console.error('[orderManager] Bill printed but is_printed could not be saved:', err instanceof Error ? err.message : err);
+  }
+}
+
 class OrderManager extends EventEmitter {
   // Display cache ONLY. This is populated after a print attempt concludes
   // (success or failure) so the operator console has something to show and
@@ -24,6 +61,16 @@ class OrderManager extends EventEmitter {
   // the DB first (see handleIncoming). This avoids the earlier bug where a
   // pre-populated cache went stale relative to the database.
   private orders = new Map<string, OrderWithStatus>();
+
+    // Printed on paper but the database update failed. Remembered so the next
+    // attempt only retries the update and never prints the same thing again.
+    // Saved to pending-print-state.json (see pendingPrintState.ts) so a restart
+    // between the print and the update does not print the ticket or bill again.
+    // Loaded on first use, after Electron has set up the app paths.
+    private pending: { kotStamps: PersistentIdSet; settles: PersistentIdSet } | null = null;
+    private get pendingSettles(): PersistentIdSet {
+      return (this.pending ??= loadPendingPrintState()).settles; // orders ids
+    }
 
   getAll(): OrderWithStatus[] {
     return Array.from(this.orders.values()).sort(
@@ -52,7 +99,6 @@ class OrderManager extends EventEmitter {
   // backward-compatible shim for a legacy orderId-only settle request.
   async handleIncoming(orderId: string, type: PrintType = 'bill'): Promise<PrintOrderResponse> {
     let order = await db.orders.fetchOrderById(orderId, config.outletId);
-
     if (!order) {
       return {
         success: false,
@@ -63,10 +109,10 @@ class OrderManager extends EventEmitter {
       };
     }
 
-    if(order.orderType === PICK_UP_ORDER_TYPE && type != 'kot-only') {
+    if(order.orderType === PICK_UP_ORDER_TYPE && type != PRINT_KOT_ONLY) {
       this.handleSettleByNumbers(order.invoiceNumber!, config.outletId);
     }
-    if (type === 'kot' || type === 'kot-only') {
+    if (type === PRINT_KOT || type === PRINT_KOT_ONLY) {
       return this.handleKot(orderId, order);
     }
    
@@ -127,11 +173,16 @@ class OrderManager extends EventEmitter {
     }
 
     // Stamp only after a successful print.
-    await db.orders.markItemsKotPrinted(deltaItems.map((i) => i.id));
+    try {
+      await withDbRetry(() => db.orders.markItemsKotPrinted(deltaItems.map((i) => i.id)));
+    } catch (err) {
+      //deltaItems.forEach((id) => this.pendingKotStamps.add(id));
+      console.error('[orderManager] KOT printed but could not be stamped; will retry the stamp only:', err instanceof Error ? err.message : err);
+    }
 
     // Re-fetch so the UI shows the full order (all items, updated
     // kot_printed flags) rather than just the delta that was printed.
-    const postStamp = (await db.orders.fetchOrderById(orderId, config.outletId)) ?? order;
+    const postStamp = (await db.orders.fetchOrderById(orderId, config.outletId).catch(() => null)) ?? order;
     this.cacheForDisplay({
       ...postStamp,
       printStatus: 'printed',
@@ -192,6 +243,25 @@ class OrderManager extends EventEmitter {
         };
       }
       const anchor = orders[0];
+      // The bill is already on paper but marking the orders completed failed
+      // earlier: only retry that update, never print the bill again.
+      const open = orders.filter((o) => o.status !== 'completed');
+      if (open.length > 0 && open.every((o) => this.pendingSettles.has(o.id))) {
+        try {
+          await withDbRetry(() => db.orders.markOrdersCompleted(open.map((o) => o.id)));
+          open.forEach((o) => this.pendingSettles.delete(o.id));
+          return { success: true, orderId: anchor.id, message: 'Order settled', printStatus: 'printed' };
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          return {
+            success: false,
+            orderId: anchor.id,
+            message: `Bill was already printed, but the order could not be marked settled yet (${message}). Not printing again.`,
+            printStatus: 'printed',
+            error: 'SETTLE_PENDING',
+          };
+        }
+      }
   
       // Idempotency guard: second settle on an already-completed batch prints
       // nothing. ('completed' is the real closed-order status — see
@@ -241,32 +311,53 @@ class OrderManager extends EventEmitter {
         printStatus: 'printing',
         retryCount: 0,
       };
-  
-      try {
-        await printOrderEscpos(billOrder, config.cashierPrinter);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Unknown print error';
-        this.cacheForDisplay({ ...billOrder, printStatus: 'failed', errorMessage: message });
-        return { success: false, orderId: anchor.id, message, printStatus: 'failed', error: 'PRINT_FAILED' };
-      }
-  
+    // A bill already printed for every order in it (e.g. the phone printed a
+    // plain bill before settling) is a duplicate. A table bill with a new
+    // round that never printed is a new bill.
+    const isDuplicate = orders.every((o) => o.isPrinted === true);
+    try {
+      await printOrderEscpos(billOrder, config.cashierPrinter, isDuplicate);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown print error';
+      this.cacheForDisplay({ ...billOrder, printStatus: 'failed', errorMessage: message });
+      return { success: false, orderId: anchor.id, message, printStatus: 'failed', error: 'PRINT_FAILED' };
+    }
+    await recordBillPrinted(orderIds);
       // Mark every order in the batch completed only after the bill prints.
       // The table is freed later, once payment is recorded (save_order_payment RPC).
-    await db.orders.markOrdersCompleted(orderIds);
-  
-      // Cache every settled order for display directly from what was already
-      // fetched — no extra round trip needed, we already know the resulting
-      // state (status flips to 'completed', print just succeeded).
-      const printedAt = new Date().toISOString();
-      for (const o of orders) {
-        this.cacheForDisplay({ ...o, status: 'completed', printStatus: 'printed', printedAt, retryCount: 0 });
-      }
-  
-      const message = isGrouped
-        ? `Bill printed and ${orders.length} orders settled for the table`
-        : 'Bill printed and order settled';
-      return { success: true, orderId: anchor.id, message, printStatus: 'printed' };
+    let settlePending = false;
+    try {
+      await withDbRetry(() => db.orders.markOrdersCompleted(orderIds));
+    } catch (err) {
+      settlePending = true;
+      orderIds.forEach((id) => this.pendingSettles.add(id));
+      console.error('[orderManager] Bill printed but orders could not be marked completed; will retry that only:', err instanceof Error ? err.message : err);
     }
+
+    // Cache every settled order for display directly from what was already
+    // fetched — no extra round trip needed, we already know the resulting
+    // state (status flips to 'completed', print just succeeded).
+    const printedAt = new Date().toISOString();
+    for (const o of orders) {
+      this.cacheForDisplay({
+        ...o,
+        status: 'completed',
+        isPrinted: true,
+        printStatus: 'printed',
+        printedAt,
+        retryCount: 0,
+      });
+    }
+    const message = isGrouped
+      ? `Bill printed and ${orders.length} orders settled for the table`
+      : 'Bill printed and order settled';
+    return {
+      success: true,
+      orderId: anchor.id,
+      message,
+      printStatus: 'printed',
+    };
+  }
 
   // Attempt a single print, with auto-retry/backoff if enabled. (bill path)
   // Mutates `order` in place; caller decides when/whether to cache it.
@@ -287,6 +378,10 @@ class OrderManager extends EventEmitter {
         await printOrderEscpos(order, printerName); //ng thermal printer
         order.printStatus = 'printed';
         order.printedAt = new Date().toISOString();
+        if (!order.isPrinted) {
+          order.isPrinted = true;
+          await recordBillPrinted([order.id]);
+        }
         return true;
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown print error';

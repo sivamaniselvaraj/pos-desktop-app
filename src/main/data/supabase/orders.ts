@@ -95,6 +95,8 @@ function mapRow(row: Record<string, unknown>): FoodOrder {
     specialNotes: row.special_notes ? String(row.special_notes) : undefined,
     createdAt: String(row.created_at ?? new Date().toISOString()),
     status: row.status != null ? String(row.status) : undefined,
+    isPrinted: row.is_printed === true,
+    billPrintedAt: row.printed_at != null ? String(row.printed_at) : undefined,
     placedBy: row.placed_by_name ? String(row.placed_by_name) : undefined,
     invoiceNumber: row.invoice_number ? String(row.invoice_number) : undefined,
     isRunningOrder: row.is_running_order === true,
@@ -549,6 +551,23 @@ async function markOrdersCompleted(orderIds: string[]): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Records that the bill for these orders has printed: is_printed = true and
+ * printed_at = now, but only on orders not printed before, so printed_at keeps
+ * the FIRST print time and a reprint changes nothing.
+ */
+async function markOrdersBillPrinted(orderIds: string[]): Promise<void> {
+  if (orderIds.length === 0) return;
+  const supabase = getClient();
+  if (!supabase) throw new Error('Database is not configured.');
+
+  const { error } = await supabase
+    .from('orders')
+    .update({ is_printed: true, printed_at: new Date().toISOString() })
+    .in('id', orderIds)
+    .eq('is_printed', false);
+  if (error) throw new Error(error.message);
+}
 
 /**
  * Open orders of the caller's outlet that still have items not sent to the
@@ -609,6 +628,7 @@ export const orders: OrderRepository = {
   fetchTableOrderNumbers,
   fetchOrdersByInvoiceNumbers,
   markOrdersCompleted,
+  markOrdersBillPrinted,
   findOrdersWithPendingKot,
   listUnprintedKots,
   claimUnprintedItems,

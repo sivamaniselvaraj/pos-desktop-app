@@ -5,6 +5,15 @@ import { startHttpServer, stopHttpServer } from './api/httpServer';
 import { registerIpcHandlers } from './ipcHandlers';
 import { startKotReconciliation, stopKotReconciliation } from './kotReconciliation';
 import { startMenuCache, stopMenuCache } from './menuCache';
+import { initLogging } from './logger';
+import { startPrinterWatch, stopPrinterWatch } from './printerManager';
+import { destroyHtmlPrintWindow } from './htmlPrint';
+import { IpcChannels } from '../shared/types';
+
+// First thing: copy every console line into the log file (see logger.ts), so
+// problems at a restaurant can be read from %APPDATA%\Virunthagam POS\logs.
+initLogging();
+
 /**
  * Where .env.local lives depends on dev vs packaged:
  *  - Dev: app.getAppPath() resolves to the project root (next to
@@ -16,9 +25,9 @@ import { startMenuCache, stopMenuCache } from './menuCache';
  *    writable, non-privileged location already used for the encrypted auth
  *    session and local printer settings.
  *
- *    Windows: %APPDATA%\Food Order Printer\.env.local
- *    macOS:   ~/Library/Application Support/Food Order Printer/.env.local
- *    Linux:   ~/.config/Food Order Printer/.env.local
+ *    Windows: %APPDATA%\Virunthagam POS\.env.local
+ *    macOS:   ~/Library/Application Support/Virunthagam POS/.env.local
+ *    Linux:   ~/.config/Virunthagam POS/.env.local
  */
 function resolveEnvPath(): string {
   const dir = app.isPackaged ? app.getPath('userData') : app.getAppPath();
@@ -78,7 +87,7 @@ function createWindow(): void {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'Virunthagam',
+    title: 'Virunthagam POS',
     icon: join(__dirname, 'assets/icons/icon.ico'), 
         // No File/Edit/View/Window/Help menu bar — Menu.setApplicationMenu(null)
     // below removes it entirely, this is a Windows/Linux-only backstop in
@@ -105,10 +114,30 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    // The hidden HTML print window (htmlPrint.ts) is a window too; close it so
+    // 'window-all-closed' fires and the app quits as before.
+    destroyHtmlPrintWindow();
+  });
+}
+
+// One desktop app per machine. A second copy would fail to take the API port, so phones
+// would keep talking to the FIRST copy while the pairing code was created in the second,
+// and every pairing would fail with "code expired or already used". The second copy
+// quits and the first one is brought to the front.
+if (!app.requestSingleInstanceLock()) {
+  console.error('Another copy of the app is already running. Closing this one.');
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
   });
 }
 
 app.whenReady().then(async () => {
+  if (!app.hasSingleInstanceLock()) return;
   loadEnv();
 
   // Removes File/Edit/View/Window/Help entirely on Windows/Linux — no menu
@@ -145,8 +174,16 @@ app.whenReady().then(async () => {
 
   createWindow();
 
+  // Tell the UI when the printer list changes (checked every 60 s, cached in
+  // between). Replaces the status bar polling getPrinters() every 10 s.
+  startPrinterWatch((printers) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IpcChannels.PRINTER_STATUS, printers);
+    }
+  });
+
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (!mainWindow) createWindow(); // not getAllWindows(): the hidden print window may exist
   });
 });
 
@@ -154,5 +191,6 @@ app.on('window-all-closed', () => {
   stopHttpServer();
   stopKotReconciliation();
   stopMenuCache();
+  stopPrinterWatch();
   if (process.platform !== 'darwin') app.quit();
 });

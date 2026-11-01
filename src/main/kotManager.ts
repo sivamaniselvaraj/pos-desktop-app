@@ -1,7 +1,7 @@
 import { db } from './data';
 import { orderManager } from './orderManager';
 import { printQueue } from './printQueue';
-import type { KotBoard, KotWorkflow, UnprintedKot } from '../shared/types';
+import { PRINT_KOT_ONLY, type KotBoard, type KotWorkflow, type UnprintedKot } from '../shared/types';
 
 /**
  * kotManager.ts: the KOT board and its workflow settings. Who may view / move /
@@ -43,7 +43,7 @@ export function getUnprintedKots(): Promise<UnprintedKot[]> {
  */
 export async function printKotNow(orderId: string): Promise<string> {
   if (!orderId) throw new Error('Choose an order to print.');
-  const result = await printQueue.enqueue(() => orderManager.handleIncoming(orderId, 'kot-only'));
+  const result = await printQueue.enqueue(() => orderManager.handleIncoming(orderId, PRINT_KOT_ONLY));
   if (!result.success) throw new Error(result.message || 'Print failed');
   return result.message;
 }

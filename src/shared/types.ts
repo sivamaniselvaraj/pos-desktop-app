@@ -24,6 +24,9 @@ export const DINE_IN_ORDER_TYPE = 'dine_in' as const;
 export const PICK_UP_ORDER_TYPE = 'takeaway' as const;
 export const DELIVERY_ORDER_TYPE = 'delivery' as const;
 
+export const PRINT_KOT = 'kot' as const;
+export const PRINT_KOT_ONLY = 'kot-only' as const;
+
 
 export type OrderListStatus = 'active' | 'completed' | 'cancelled';
 
