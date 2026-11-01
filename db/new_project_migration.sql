@@ -1019,3 +1019,10 @@ alter table organizations add column if not exists brand_color    text;
 alter table organizations add column if not exists brand_color_by uuid;
 alter table organizations add column if not exists brand_color_at timestamptz;
 
+
+-- is_printed turns true the first time the order's bill (receipt) prints.
+-- printed_at keeps the time of that FIRST print; later reprints do not change it.
+-- Any later print of the same order shows a "DUPLICATE BILL" heading.
+alter table orders add column if not exists is_printed boolean not null default false;
+alter table orders add column if not exists printed_at timestamptz;
+
