@@ -44,6 +44,8 @@ function mapOutlet(row: Record<string, unknown>): OutletInfo {
     phone: row.phone ? String(row.phone) : undefined,
     gstNumber: row.gst_number ? String(row.gst_number) : undefined,
     address: row.address ? String(row.address) : undefined,
+    receiptHeader: row.receipt_header ? String(row.receipt_header) : undefined,
+    receiptFooter: row.receipt_footer ? String(row.receipt_footer) : undefined,
   };
 }
 
@@ -56,7 +58,7 @@ function mapRow(row: Record<string, unknown>): FoodOrder {
     orderNumber: Number(row.order_number ?? 0),
     //outletId: row.outlet_id ? String(row.outlet_id) : undefined,
     outlet: outletRaw ? mapOutlet(outletRaw) : undefined,
-    customerName: String(row.customer_name ?? 'Unknown'),
+    customerName: String(row.customer_name ?? ''),
     customerPhone: row.customer_phone ? String(row.customer_phone) : undefined,
     deliveryAddress: row.delivery_address ? String(row.delivery_address) : undefined,
     items: rawItems.map(mapItem),
@@ -187,7 +189,7 @@ async function fetchOutletById(outletId: string): Promise<OutletInfo | null> {
   // Plain table read; RLS on outlets limits a signed-in caller to their own organization.
   const { data, error } = await supabase
     .from('outlets')
-    .select('id, name, city, phone, gst_number, address')
+    .select('id, name, city, phone, gst_number, address, receipt_header, receipt_footer')
     .eq('id', outletId)
     .eq('is_active', true)
     .maybeSingle();

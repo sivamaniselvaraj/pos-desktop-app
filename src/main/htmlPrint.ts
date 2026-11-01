@@ -65,7 +65,7 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
   const out: string[] = [];
 
   out.push(
-    `<div class="c lg">${esc(header?.restaurantName?.trim() || order.outlet?.name || 'FOOD ORDER PRINTER')}</div>`,
+    `<div class="c lg">${esc(header?.restaurantName?.trim() || order.outlet?.name || 'RESTAURANT PRINTER')}</div>`,
   );
   for (const l of billHeaderLines(order)) out.push(`<div class="c">${esc(l)}</div>`);
   out.push('<div class="rule"></div>');
@@ -83,7 +83,7 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
       order.orderNumbers && order.orderNumbers.length > 0 ? order.orderNumbers.join(', ') : String(order.orderNumber),
     ),
   );
-  if (order.invoiceNumber) out.push(kv('Invoice No.', order.invoiceNumber));
+  //if (order.invoiceNumber) out.push(kv('Invoice No.', order.invoiceNumber));
   out.push(kv('Type', order.orderType.toUpperCase()));
   if (order.customerPhone) out.push(kv('Phone', order.customerPhone));
   if (order.deliveryAddress) out.push(kv('Address', order.deliveryAddress));
