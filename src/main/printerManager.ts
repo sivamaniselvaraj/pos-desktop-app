@@ -570,7 +570,7 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string, isD
 
   if (config.printMethod === 'html') {
     await printHtml(renderBillHtml(order, isDuplicate), printerName);
-    //return;
+    return;
   }
 
   try {
@@ -788,7 +788,7 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
 
     if (config.printMethod === 'html') {
       await printHtml(renderKotHtml(order), name);
-      //return;
+      return;
     }
 
   try {
@@ -901,7 +901,7 @@ export async function testPrint(target?: string): Promise<string> {
 
   if (config.printMethod === 'html') {
     await printHtml(renderTestHtml(name), name);
-    //return `Test slip (HTML) sent to "${name}"`;
+    return `Test slip (HTML) sent to "${name}"`;
   }
 
   try {
