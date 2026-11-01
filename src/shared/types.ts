@@ -22,6 +22,8 @@ export type OrderDiscountMode = 'percent' | 'amount' | 'complimentary' | 'none';
 
 export const DINE_IN_ORDER_TYPE = 'dine_in' as const;
 export const PICK_UP_ORDER_TYPE = 'takeaway' as const;
+export const DELIVERY_ORDER_TYPE = 'delivery' as const;
+
 
 export type OrderListStatus = 'active' | 'completed' | 'cancelled';
 
@@ -86,6 +88,10 @@ export interface FoodOrder {
   tableNumber?: string | number;
   /** 'open' | 'completed' | 'cancelled' — used e.g. to decide the DUPLICATE BILL banner on reprint. */
   status?: string;
+  /** orders.is_printed: the bill has printed at least once, so any further print carries the DUPLICATE BILL heading. */
+  isPrinted?: boolean;
+  /** orders.printed_at: when the bill FIRST printed (reprints do not change it). */
+  billPrintedAt?: string;
   /** Raw header/footer config (JSON string or object) for the receipt. */
   headerConfig?: string | HeaderConfig;
   /**
@@ -421,6 +427,21 @@ export interface OrderListRow {
   orderCount: number;
   /** How many of those orders are cancelled. 0 < cancelledCount < orderCount is a partial cancel. */
   cancelledCount: number;
+  /** Where the dishes of this row are in the kitchen. Null/absent when the row has no live dishes. */
+  kitchen?: OrderKitchen | null;
+}
+/** Live dishes (by quantity) per order_items.status for an Orders list row, plus how many were not yet sent to the kitchen printer. */
+export interface OrderKitchen {
+  /** order_items.status code (new, preparing, ready, served...) to dishes. */
+  counts: Record<string, number>;
+  /** Dishes whose KOT has not been printed. */
+  unprinted: number;
+  /** The same, per round (order) of the invoice, oldest first. */
+  rounds: { orderNumber: number; counts: Record<string, number>; unprinted: number }[];
+  /** When the longest-waiting dish still on the KOT board was ordered (the board's clock). Null when nothing is waiting. */
+  since?: string | null;
+  /** Server time when the list was read, to correct a wrong clock on this computer. */
+  now?: string | null;
 }
 
 /** Settings page's "Invoicing" panel — admin-only (see get_invoice_sequence_status()/reset_invoice_sequence() in db/functions.sql). */
@@ -1082,7 +1103,8 @@ export interface ElectronApi {
   retryPrint(orderId: string): Promise<PrintOrderResponse>;
   cancelOrder(orderId: string): Promise<void>;
   clearPrinted(): Promise<void>;
-  getPrinters(): Promise<PrinterInfo[]>;
+  /** OS printers (cached 60 s in main); `refresh` reads the OS again. */
+  getPrinters(refresh?: boolean): Promise<PrinterInfo[]>;
   /** 'direct' = ESC/POS (default), 'html' = HTML via the OS driver. */
   getPrintMethod(): Promise<'direct' | 'html'>;
   setPrintMethod(method: 'direct' | 'html'): Promise<void>;

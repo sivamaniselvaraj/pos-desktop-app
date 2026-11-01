@@ -5,7 +5,7 @@ export function About() {
     <div className={styles.page}>
       <h2>About</h2>
       <p className={styles.muted}>
-        Food Order Printer receives order IDs over HTTP from an Android app, fetches the full order
+        Virunthagam POS receives order IDs over HTTP from an Android app, fetches the full order
         from Supabase, and prints a receipt to a thermal printer.
       </p>
       <section className={styles.section}>

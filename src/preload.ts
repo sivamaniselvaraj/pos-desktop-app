@@ -66,7 +66,8 @@ const api: ElectronApi = {
   clearPrinted: () => ipcRenderer.invoke(IpcChannels.CLEAR_PRINTED) as Promise<void>,
   getPrintMethod: () => ipcRenderer.invoke(IpcChannels.GET_PRINT_METHOD) as Promise<'direct' | 'html'>,
   setPrintMethod: (method) => ipcRenderer.invoke(IpcChannels.SET_PRINT_METHOD, method) as Promise<void>,
-  getPrinters: () => ipcRenderer.invoke(IpcChannels.GET_PRINTERS) as Promise<PrinterInfo[]>,
+  getPrinters: (refresh?: boolean) =>
+    ipcRenderer.invoke(IpcChannels.GET_PRINTERS, refresh === true) as Promise<PrinterInfo[]>,
   getSalesReport: (from, to, bucket) =>
     ipcRenderer.invoke(IpcChannels.GET_SALES_REPORT, from, to, bucket) as Promise<SalesReportRow[]>,
   getMenuAvailability: (from, to) =>

@@ -18,7 +18,7 @@ import type {
   SalesByOrderTypeRow,
   SalesByTypeBucketRow,
 } from '@shared/types';
-import { DINE_IN_ORDER_TYPE } from '../../shared/types';
+import { DELIVERY_ORDER_TYPE, DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE } from '../../shared/types';
 import { SalesByWaiterTab } from './ReportSalesByWaiter';
 import { useAuth } from '../context/AuthContext';
 import { MenuAvailabilityTab } from './ReportMenuAvailability';
@@ -37,8 +37,8 @@ function toIsoDate(d: Date): string {
 // even though the stored order_type value is 'pickup'.
 function orderTypeLabel(orderType: string): string {
   if (orderType === DINE_IN_ORDER_TYPE) return 'Dine-in';
-  if (orderType === 'takeway') return 'Takeaway';
-  if (orderType === 'delivery') return 'Delivery';
+  if (orderType === PICK_UP_ORDER_TYPE) return 'Takeaway';
+  if (orderType === DELIVERY_ORDER_TYPE) return 'Delivery';
   return orderType;
 }
 
@@ -453,7 +453,7 @@ function SalesOverview() {
 }
 
 export function SalesReport() {
-    const { can } = useAuth();
+  const { can } = useAuth();
   // Each extra tab needs reports.view (to be on this page at all) plus its own permission.
   const canWaiterReport = can('reports.view') && can('reports.incentive');
   const canMenuReport = can('reports.view') && can('reports.menu_availability');

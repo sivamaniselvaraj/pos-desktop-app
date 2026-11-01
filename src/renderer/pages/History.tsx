@@ -5,11 +5,14 @@ import { Icon } from '../components/Icon';
 import { useOrders } from '../hooks/useOrders';
 import styles from '../styles/Dashboard.module.css';
 
+// Moved here from Dashboard.tsx — the live print queue (incoming orders with
+// print status, retry/cancel) now lives on History; Dashboard itself became
+// the table-cards view.
 export function History() {
   const { orders, loading, retry, cancel, clearPrinted } = useOrders();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const selected = orders.find((o) => o.orderId === selectedId) ?? null;
+  const selected = orders.find((o) => o.id === selectedId) ?? null;
   const pendingCount = orders.filter(
     (o) => o.printStatus === 'pending' || o.printStatus === 'failed',
   ).length;
@@ -18,7 +21,7 @@ export function History() {
     <div className={styles.content}>
       <section className={styles.queue}>
         <div className={styles.queueHeader}>
-      <h2>Print History</h2>
+          <h2>Print History</h2>
           <span className={styles.badge}>{pendingCount} Pending</span>
         </div>
 
@@ -33,9 +36,9 @@ export function History() {
           )}
           {orders.map((order) => (
             <OrderCard
-              key={order.orderId}
+              key={order.id}
               order={order}
-              selected={order.orderId === selectedId}
+              selected={order.id === selectedId}
               onSelect={setSelectedId}
               onRetry={retry}
               onCancel={cancel}

@@ -115,7 +115,7 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
       // Grouped reprint: pulls in every order still in this table's batch
       // (all rounds settled together) so a reprint after grouping still
       // shows the full merged bill, not just one order.
-      await window.api.reprintTableBill(table.tableId);
+      // await window.api.reprintTableBill(table.tableId);
       flash('success', `Printed for Table ${table.tableNumber}`);
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Print failed');
@@ -391,14 +391,14 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
           <p className={styles.muted}>No tables yet — add one to get started.</p>
         )}
 
-      <div className={styles.canvas}>
-      <div className={styles.grid}>
-        {visibleTables.map((table) => {
-            const mins = elapsedMinutes(table.orderCreatedAt, now);
-            const st = statusOf(table);
-            const cap = tableMeta[table.tableId]?.capacity ?? 0;
-          return (
-            <div
+        <div className={styles.canvas}>
+        <div className={styles.grid}>
+          {visibleTables.map((table) => {
+              const mins = elapsedMinutes(table.orderCreatedAt, now);
+              const st = statusOf(table);
+              const cap = tableMeta[table.tableId]?.capacity ?? 0;
+              return (
+                <div
                   key={table.tableId}
                   className={`${styles.card} ${styles[st.key] ?? ''}`}
                 >

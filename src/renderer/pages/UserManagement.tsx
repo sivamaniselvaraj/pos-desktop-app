@@ -265,10 +265,10 @@ export function UserManagement() {
         </select>
         <div className={styles.actionButtons}>
           {canAddUser && (
-          <button className={styles.addBtn} onClick={openCreate}>
-            <Icon name="plus" size={16} />
-            Add User
-          </button>
+            <button className={styles.addBtn} onClick={openCreate}>
+              <Icon name="plus" size={16} />
+              Add User
+            </button>
           )}
         </div>
       </div>

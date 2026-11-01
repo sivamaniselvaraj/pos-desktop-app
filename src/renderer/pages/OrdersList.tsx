@@ -21,6 +21,12 @@ import { formatMoney as formatCurrency, displayInvoiceNumber } from '../lib/form
 
 
 const PAGE_SIZE = 25;
+// How often the list refreshes itself, so the Kitchen pills stay current.
+const AUTO_REFRESH_MS = 10_000;
+// Every tick asks only for the status and Kitchen data of the rows on screen; the whole
+// list (new orders, totals) is read again at least this often, and at once whenever a
+// row's status or number of rounds changed.
+const FULL_REFRESH_MS = 30_000;
 // list_orders() no longer counts the outlet's whole history (that count was
 // the linear cost that made it time out on large datasets) — it counts only
 // up to this many rows past the current page. Keep in sync with the "+ 100"
@@ -98,6 +104,15 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
   >(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelApproval, setCancelApproval] = useState(false);
+    // Server time minus this computer's time, from the last list read.
+  const [clockOffsetMs, setClockOffsetMs] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const inFlight = useRef(false);
+  const seq = useRef(0);
+  const lastFullAt = useRef(0);
+  const rowsRef = useRef<OrderListRow[]>([]);
+  const [refreshFailed, setRefreshFailed] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
   // True when the lookahead was exhausted — more rows exist than totalRows says.
@@ -125,10 +140,20 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
     setPage(1);
   }
 
-  async function load() {
+  // `silent` refreshes in place (no "Loading..." flash, no hidden table), for the
+  // 10-second auto refresh and the Refresh button.
+  async function load(silent = false) {
+    // A background refresh never overlaps another request; a filter or page
+    // change always goes through, and only the newest request's answer is used.
+    if (silent && inFlight.current) return;
+    const mine = ++seq.current;
+    inFlight.current = true;
     try {
-      setLoading(true);
-      setError(null);
+      if (silent) setRefreshing(true);
+      else {
+        setLoading(true);
+        setError(null);
+      }
       const result = await window.api.listOrders({
         status: statusFilter === 'all' ? null : statusFilter,
         search: debouncedSearch || undefined,
@@ -137,17 +162,31 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
         page,
         pageSize: PAGE_SIZE,
       });
+      if (mine !== seq.current) return; // a newer request has been made since
       setRows(result.rows);
+      lastFullAt.current = Date.now();
+      const serverNow = result.rows.find((r) => r.kitchen?.now)?.kitchen?.now;
+      if (serverNow) setClockOffsetMs(new Date(serverNow).getTime() - Date.now());
       setTotalRows(result.totalRows);
+      setUpdatedAt(new Date());
+      setRefreshFailed(false);
+      setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load orders');
+      if (mine !== seq.current) return;
+      // A failed background refresh keeps the rows on screen and only says so.
+      if (silent) setRefreshFailed(true);
+      else setError(err instanceof Error ? err.message : 'Failed to load orders');
     } finally {
-      setLoading(false);
+      if (mine === seq.current) {
+        setLoading(false);
+        setRefreshing(false);
+        inFlight.current = false;
+      }
     }
   }
-    // Debounce free-typed search input before it triggers a fetch — avoids
-  // firing a request on every keystroke. Resets to page 1 once the debounced
-  // value actually changes.
+
+  // Debounce free-typed search input before it triggers a fetch — avoids
+  // firing a request on every keystroke.
   useEffect(() => {
     const timer = setTimeout(() => applySearch(searchInput.trim()), 400);
     return () => clearTimeout(timer);
@@ -222,7 +261,7 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
     setCancelReason('');
   }
 
-    function openCancelRow(r: OrderListRow) {
+  function openCancelRow(r: OrderListRow) {
     if (r.orderCount > 1 && r.invoiceNumber) {
       setCancelTarget({
         scope: 'invoice',
@@ -467,13 +506,19 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
           )}
           <button
             className={styles.refreshBtn}
-            onClick={load}
-            disabled={loading}
-            title="Reload orders"
+            onClick={() => void load(true)}
+            disabled={loading || refreshing}
+            title="Reload orders now (the list also refreshes every 10 seconds)"
           >
             <Icon name="refresh" size={14} />
-            Refresh
+            {refreshing ? 'Updating…' : 'Refresh'}
           </button>
+          {updatedAt && (
+            <span className={styles.updatedAt} title="The list refreshes itself every 10 seconds">
+              {refreshFailed ? 'Could not refresh, showing the list from ' : 'Updated '}
+              {updatedAt.toLocaleTimeString()}
+            </span>
+          )}
         </div>
       </div>
 
@@ -489,7 +534,7 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
                 <th>Order / Table</th>
                 <th>Invoice No.</th>
                 <th>Type</th>
-                <th>Device</th>
+                <th>Placed from</th>
                 <th>Created On</th>
                 <th>Items</th>
                 <th>Discount</th>
@@ -501,7 +546,7 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className={pageStyles.muted}>
+                  <td colSpan={11} className={pageStyles.muted}>
                     No orders match this filter.
                   </td>
                 </tr>

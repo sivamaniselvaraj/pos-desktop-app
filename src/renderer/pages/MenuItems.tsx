@@ -490,7 +490,7 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
             return (
               <tbody key={group.key || 'none'}>
                 <tr className={styles.groupRow}>
-                  <td colSpan={columns.length + 2 + (canManage ? 1 : 0)}>
+                  <td colSpan={columns.length + 1 + (canManage ? 2 : 0)}>
                     <div className={styles.groupBar}>
                       {canManage && (
                         <input

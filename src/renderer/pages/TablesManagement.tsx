@@ -89,7 +89,7 @@ export function TablesManagement() {
       payload.tableId ? `Updated table ${payload.tableNumber}` : `Added table ${payload.tableNumber}`,
     );
     setFormTable(undefined);
-      await load();
+    await load();
   }
 
   // Quick toggle: on = available, off = occupied. Only these two states —
@@ -136,10 +136,10 @@ export function TablesManagement() {
             <Icon name="refresh" size={14} /> {loading ? 'Refreshing…' : 'Refresh'}
           </button>
           {canManage && (
-          <button className={styles.addBtn} onClick={() => setFormTable(null)}>
-          <Icon name="plus" size={16} />
-          Add Table
-        </button>
+            <button className={styles.addBtn} onClick={() => setFormTable(null)}>
+              <Icon name="plus" size={16} />
+              Add Table
+            </button>
           )}
         </div>
       </div>

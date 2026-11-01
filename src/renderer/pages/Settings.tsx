@@ -123,7 +123,7 @@ export function Settings() {
       const currentSettings = await window.api.getSettings();
       setConfigs(currentSettings ?? {});
 
-      const list = await window.api.getPrinters();
+      const list = await window.api.getPrinters(true); // fresh list, not the 60 s cache
       setOsPrinters(list ?? []);
       setPrintMethodState((await window.api.getPrintMethod()) === 'html' ? 'html' : 'direct');
     } catch (err) {
@@ -491,7 +491,7 @@ export function Settings() {
           </div>
         </div>
 
-        {/* Invoicing — admin only; real enforcement is server-side by the
+        {/* Invoicing — needs invoicing.manage; real enforcement is server-side by the
             get_invoice_sequence_status()/reset_invoice_sequence() RPCs, this
             just hides the panel for everyone else. */}
         {canInvoicing && (

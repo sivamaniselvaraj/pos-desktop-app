@@ -13,7 +13,7 @@ export function useOrders() {
   // Insert or update a single order in local state.
   const upsert = useCallback((order: OrderWithStatus) => {
     setOrders((prev) => {
-      const without = prev.filter((o) => o.orderId !== order.orderId);
+      const without = prev.filter((o) => o.id !== order.id);
       return [order, ...without].sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       );
@@ -27,7 +27,7 @@ export function useOrders() {
     const offChanged = window.api.onOrderStatusChanged((order) => {
       // A cancelled order arrives with errorMessage 'Cancelled' — drop it.
       if (order.errorMessage === 'Cancelled') {
-        setOrders((prev) => prev.filter((o) => o.orderId !== order.orderId));
+        setOrders((prev) => prev.filter((o) => o.id !== order.id));
       } else {
         upsert(order);
       }
@@ -45,7 +45,7 @@ export function useOrders() {
 
   const cancel = useCallback(async (orderId: string) => {
     await window.api.cancelOrder(orderId);
-    setOrders((prev) => prev.filter((o) => o.orderId !== orderId));
+    setOrders((prev) => prev.filter((o) => o.id !== orderId));
   }, []);
 
   const clearPrinted = useCallback(async () => {

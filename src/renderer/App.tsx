@@ -1,15 +1,11 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { Dashboard } from './pages/Dashboard';
-import { Settings } from './pages/Settings';
 import { History } from './pages/History';
-import { SalesReport } from './pages/ReportSalesByOutlet';
-import { UserManagement } from './pages/UserManagement';
 import { NewOrder } from './pages/NewOrder';
 import { TablesManagement } from './pages/TablesManagement';
 import { OrdersList } from './pages/OrdersList';
-import { MenuItemsPage } from './pages/MenuItems';
 import { KotBoardPage } from './pages/KotBoard';
 import { UnprintedKotsPage } from './pages/UnprintedKots';
 import { About } from './pages/About';
@@ -17,6 +13,22 @@ import { Login } from './pages/Login';
 import { useStatus } from './hooks/useStatus';
 import { useAuth } from './context/AuthContext';
 import styles from './styles/App.module.css';
+
+// Pages opened rarely during service load on demand, so the app starts with a
+// smaller file. The Sales report pulls in Recharts (about half the old bundle);
+// Settings (with Tax rates), User management and Menu items are admin pages.
+const SalesReport = lazy(() =>
+  import('./pages/ReportSalesByOutlet').then((m) => ({ default: m.SalesReport })),
+);
+const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })));
+const UserManagement = lazy(() =>
+  import('./pages/UserManagement').then((m) => ({ default: m.UserManagement })),
+);
+const MenuItemsPage = lazy(() =>
+  import('./pages/MenuItems').then((m) => ({ default: m.MenuItemsPage })),
+);
+
+const pageLoading = <div style={{ padding: 24, color: 'var(--gray)' }}>Loading…</div>;
 
 export default function App() {
   const { user, loading, access, signOut } = useAuth();
@@ -70,40 +82,44 @@ export default function App() {
       <main className={styles.main}>
         <Header server={server} onRefresh={handleRefresh} />
         <div className={styles.body}>
-          {current === 'dashboard' && (
-            <Dashboard
-              onAddItems={
-                allowed.has('new-order')
-                  ? (tableId) => {
-                      setPresetTable(tableId);
-                      setPage('new-order');
-                    }
-                  : undefined
-              }
-            />
-          )}
-          {current === 'settings' && <Settings />}
-          {current === 'history' && <History />}
-          {current === 'sales-report' && <SalesReport />}
-          {current === 'users' && <UserManagement />}
-          {current === 'orders-list' && (
-            <OrdersList
-              onNewOrder={
-                allowed.has('new-order')
-                  ? () => {
-                      setPresetTable(null); // a fresh order, not one left over from a table
-                      setPage('new-order');
-                    }
-                  : undefined
-              }
-            />
-          )}
-          {current === 'tables' && <TablesManagement />}
-          {current === 'new-order' && <NewOrder key={presetTable ?? 'none'} initialTableId={presetTable} />}
-          {current === 'menu-items' && <MenuItemsPage />}
-          {current === 'kot-board' && <KotBoardPage />}
-          {current === 'unprinted-kots' && <UnprintedKotsPage />}
-          {current === 'about' && <About />}
+          <Suspense fallback={pageLoading}>
+            {current === 'dashboard' && (
+              <Dashboard
+                onAddItems={
+                  allowed.has('new-order')
+                    ? (tableId) => {
+                        setPresetTable(tableId);
+                        setPage('new-order');
+                      }
+                    : undefined
+                }
+              />
+            )}
+            {current === 'settings' && <Settings />}
+            {current === 'history' && <History />}
+            {current === 'sales-report' && <SalesReport />}
+            {current === 'users' && <UserManagement />}
+            {current === 'orders-list' && (
+              <OrdersList
+                onNewOrder={
+                  allowed.has('new-order')
+                    ? () => {
+                        setPresetTable(null); // a fresh order, not one left over from a table
+                        setPage('new-order');
+                      }
+                    : undefined
+                }
+              />
+            )}
+            {current === 'tables' && <TablesManagement />}
+            {current === 'new-order' && (
+              <NewOrder key={presetTable ?? 'none'} initialTableId={presetTable} />
+            )}
+            {current === 'menu-items' && <MenuItemsPage />}
+            {current === 'kot-board' && <KotBoardPage />}
+            {current === 'unprinted-kots' && <UnprintedKotsPage />}
+            {current === 'about' && <About />}
+          </Suspense>
         </div>
       </main>
     </div>
