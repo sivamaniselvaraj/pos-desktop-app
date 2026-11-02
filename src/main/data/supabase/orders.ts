@@ -108,7 +108,7 @@ async function fetchOrderFallback(
   orderId: string,
 ): Promise<FoodOrder | null> {
   const { data, error } = await supabase
-    .from(supabaseSettings.table)
+    .from('orders')
     .select('*')
     .eq('order_id', orderId)
     .single();
@@ -545,7 +545,7 @@ async function markOrdersCompleted(orderIds: string[]): Promise<void> {
   if (!supabase) throw new Error('Database is not configured.');
 
   const { error } = await supabase
-    .from(supabaseSettings.table)
+    .from('orders')
     .update({ status: 'completed', settled_at: new Date().toISOString() })
     .in('id', orderIds);
   if (error) throw new Error(error.message);

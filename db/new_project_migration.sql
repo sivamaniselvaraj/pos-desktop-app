@@ -1026,3 +1026,15 @@ alter table organizations add column if not exists brand_color_at timestamptz;
 alter table orders add column if not exists is_printed boolean not null default false;
 alter table orders add column if not exists printed_at timestamptz;
 
+
+drop policy if exists "Staff can only change the status of the order" on orders;
+create policy "Staff can only change the status of the order"
+on "public"."orders"
+as PERMISSIVE
+for UPDATE
+to authenticated
+using 
+(EXISTS ( SELECT 1
+   FROM (orders o
+     JOIN profiles p ON ((p.user_id = auth.uid())))
+  WHERE (has_permission('orders.complete'::text) AND (p.outlet_id = o.outlet_id) AND (o.status not in ('completed', 'cancelled')))))
