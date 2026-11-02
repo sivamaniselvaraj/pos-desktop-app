@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron';
 import { taxBillLines } from '../shared/orderTotals';
-import { PICK_UP_ORDER_TYPE, type FoodOrder } from '../shared/types';
+import { DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE, type FoodOrder } from '../shared/types';
 import { billFooterLines, billHeaderLines, getPrinters, parseHeaderConfig } from './printerManager';
 import { PrintTimeoutError, withTimeout } from './printQueue';
 
@@ -29,6 +29,7 @@ export function esc(value: unknown): string {
 }
 
 const money = (n: number) => `₹ ${Number(n).toFixed(2)}`;
+const price = (n: number) => `${Number(n).toFixed(2)}`;
 
 const CSS = `
   @page { size: ${PAPER_MM}mm auto; margin: 0; }
@@ -76,15 +77,22 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
 
   out.push(`<div>Name: ${esc(order.customerName)}</div>`);
   out.push('<div style="height:4px"></div>');
-  out.push(kv('Date', new Date(order.createdAt).toLocaleString('en-IN')));
   out.push(
-    kv(
-      'Bill No.',
-      order.orderNumbers && order.orderNumbers.length > 0 ? order.orderNumbers.join(', ') : String(order.orderNumber),
-    ),
+    `<table>` +
+      `<tbody>
+        <tr>
+          <td>${new Date(order.createdAt).toLocaleString('en-IN')}</td>
+          <td>${order.orderType.toUpperCase()}</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>Bill No. ${order.orderNumbers && order.orderNumbers.length > 0 ? order.orderNumbers.join(', ') : String(order.orderNumber)}</td>
+        </tr>
+      </tbody>
+      </table>`,
   );
-  //if (order.invoiceNumber) out.push(kv('Invoice No.', order.invoiceNumber));
-  out.push(kv('Type', order.orderType.toUpperCase()));
+
+
   if (order.customerPhone) out.push(kv('Phone', order.customerPhone));
   if (order.deliveryAddress) out.push(kv('Address', order.deliveryAddress));
   out.push('<div class="rule"></div>');
@@ -96,31 +104,39 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
       const note = item.specialInstructions ? `<tr><td colspan="4" class="note">* ${esc(item.specialInstructions)}</td></tr>` : '';
       return (
         `<tr><td>${esc(item.name)}</td><td class="n">${item.quantity}</td>` +
-        `<td class="n">${String(item.unitPrice)}</td><td class="n">${String(item.unitPrice * item.quantity)}</td></tr>${note}`
+        `<td class="n">${price(item.unitPrice)}</td><td class="n">${price(item.unitPrice * item.quantity)}</td></tr>${note}`
       );
     })
     .join('');
   out.push(
-    `<table><thead><tr><th>Item</th><th class="n">Qty</th><th class="n">Price</th><th class="n">Amount</th></tr></thead>` +
+    `<table><thead><tr><th>Item</th><th class="n">Qty.</th><th class="n">Price</th><th class="n">Amount</th></tr></thead>` +
       `<tbody>${rows}</tbody></table>`,
   );
   out.push('<div class="rule"></div>');
 
   const line = (k: string, v: string) => `<div class="sub"><span>${esc(k)}</span><span>${esc(v)}</span></div>`;
+  let grandTotal = Number.parseInt(order?.total.toString());
+  let roundOff = (grandTotal - order.total).toFixed(2);
   out.push(line('Total Qty', String(totalQty)));
-  out.push(line('Subtotal', String(order.subtotal)));
-  for (const t of taxBillLines(order.taxBreakdown, order.tax)) out.push(line(t.label, String(t.amount)));
-  if (order.containerCharge && order.containerCharge > 0) out.push(line('Container Charge', String(order.containerCharge)));
+  out.push(line('Subtotal', price(order.subtotal)));
+  if (order.containerCharge && order.containerCharge > 0) out.push(line('Container Charge', price(order.containerCharge)));
   if (order.discount && order.discount > 0) {
-    out.push(line(order.isComplimentary ? 'Complimentary' : 'Discount', '-' + String(order.discount)));
+    out.push(line(order.isComplimentary ? 'Complimentary' : 'Discount', '-' + price(order.discount)));
   }
-  out.push(`<div class="thick"></div><div class="c lg">TOTAL ${esc(money(order.total))}</div><div class="thick"></div>`);
+  for (const t of taxBillLines(order.taxBreakdown, order.tax)) out.push(line(t.label, price(t.amount)));
+  out.push('<div class="rule"></div>');
+  out.push(`<div>round off -${esc(roundOff)}</div>`);
+  out.push(`</div><div class="lg">Grand Total ${esc(money(grandTotal))}</div>`);
 
   if (order.specialNotes) {
+    out.push('<div class="thick"></div>');
     out.push(`<div class="c b">Special Notes</div><div>${esc(order.specialNotes)}</div><div style="height:4px"></div>`);
   }
   const footer = billFooterLines(order);
-  for (const f of footer) out.push(`<div class="c">${esc(f)}</div>`);
+  for (const f of footer) {
+    out.push('<div class="rule"></div>');
+    out.push(`<div class="c">${esc(f)}</div>`)
+  };
   return page(out.join(''));
 }
 
@@ -133,15 +149,16 @@ export function renderKotHtml(order: FoodOrder): string {
   out.push(`<div class="c">${new Date(order.createdAt).toLocaleString('en-IN')}</div>`);
   out.push(`<div class="c b">KOT - ${String(order.orderNumber)}</div>`);
   
-  out.push('<div class="rule"></div>');
-
-  const table =
-    order.tableNumber != null && String(order.tableNumber).trim() !== '' ? String(order.tableNumber) : '-';
-  out.push(`<div class="c xl">Table No: ${esc(table)}</div>`);
+  if (order.orderType === DINE_IN_ORDER_TYPE){
+    const table =
+      order.tableNumber != null && String(order.tableNumber).trim() !== '' ? String(order.tableNumber) : '-';
+    out.push(`<div class="c xl">Table No: ${esc(table)}</div>`);
+  }
   
   out.push(`<div class="c">${order.orderType.toUpperCase()}</div>`);
-  
-  if (order.placedBy) out.push((order.placedBy));
+
+  out.push('<div class="rule"></div>');
+  if (order.placedBy) out.push(`<div class="c">${(order.placedBy)}</div>`);
   out.push('<div class="rule"></div>');
 
   let totalQty = 0;
@@ -154,9 +171,9 @@ export function renderKotHtml(order: FoodOrder): string {
       return `<tr><td class="kotn">${item.name}</td><td class="kotq">${esc(item.quantity)}${note}</td></tr>`;
     })
     .join('');
-  out.push(`<table><thead><tr><th>Qty</th><th>Item</th></tr></thead><tbody>${rows}</tbody></table>`);
+  out.push(`<table><thead><tr><th>Item</th><th>Qty</th></tr></thead><tbody>${rows}</tbody></table>`);
   out.push('<div class="rule"></div>');
-  out.push(`<div class="lg r">${totalQty}</div>`);
+  out.push(`<table><tbody><td></td><td class="kotq">${totalQty}</td></tbody></table>`);
   if (order.specialNotes) {
     out.push(`<div class="rule"></div><div class="b">Notes:</div><div>${esc(order.specialNotes)}</div>`);
   }
