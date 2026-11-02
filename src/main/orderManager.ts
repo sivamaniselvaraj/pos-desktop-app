@@ -245,7 +245,7 @@ class OrderManager extends EventEmitter {
       const anchor = orders[0];
       // The bill is already on paper but marking the orders completed failed
       // earlier: only retry that update, never print the bill again.
-      const open = orders.filter((o) => o.status !== 'completed');
+      const open = orders.filter((o) => o.status !== 'completed' && o.isPrinted && o.orderType === DINE_IN_ORDER_TYPE);
       if (open.length > 0 && open.every((o) => this.pendingSettles.has(o.id))) {
         try {
           await withDbRetry(() => db.orders.markOrdersCompleted(open.map((o) => o.id)));
@@ -330,6 +330,7 @@ class OrderManager extends EventEmitter {
       // The table is freed later, once payment is recorded (save_order_payment RPC).
     let settlePending = false;
     try {
+      if(anchor.orderType === DINE_IN_ORDER_TYPE)
       await withDbRetry(() => db.orders.markOrdersCompleted(orderIds));
     } catch (err) {
       settlePending = true;
