@@ -503,7 +503,7 @@ async function fetchOrdersByInvoiceNumbers(
 
   const { data, error } = await supabase
     .from('orders')
-    .select(`*, outlet:outlets!outlet_id(id, name, address, phone, email, gst_number)`)
+    .select(`*, outlet:outlets!outlet_id(id, name, address, phone, email, gst_number, receipt_footer, receipt_header)`)
     .eq('invoice_number', invoiceNumber)
     .eq('outlet_id', outletId)
     .neq('status', 'cancelled');

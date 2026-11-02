@@ -64,7 +64,6 @@ function kv(k: string, v: string): string {
 export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
   const header = parseHeaderConfig(order.headerConfig);
   const out: string[] = [];
-
   out.push(
     `<div class="c lg">${esc(header?.restaurantName?.trim() || order.outlet?.name || 'RESTAURANT PRINTER')}</div>`,
   );
@@ -97,7 +96,7 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
       const note = item.specialInstructions ? `<tr><td colspan="4" class="note">* ${esc(item.specialInstructions)}</td></tr>` : '';
       return (
         `<tr><td>${esc(item.name)}</td><td class="n">${item.quantity}</td>` +
-        `<td class="n">${money(item.unitPrice)}</td><td class="n">${money(item.unitPrice * item.quantity)}</td></tr>${note}`
+        `<td class="n">${String(item.unitPrice)}</td><td class="n">${String(item.unitPrice * item.quantity)}</td></tr>${note}`
       );
     })
     .join('');
@@ -109,11 +108,11 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
 
   const line = (k: string, v: string) => `<div class="sub"><span>${esc(k)}</span><span>${esc(v)}</span></div>`;
   out.push(line('Total Qty', String(totalQty)));
-  out.push(line('Subtotal', money(order.subtotal)));
-  for (const t of taxBillLines(order.taxBreakdown, order.tax)) out.push(line(t.label, money(t.amount)));
-  if (order.containerCharge && order.containerCharge > 0) out.push(line('Container Charge', money(order.containerCharge)));
+  out.push(line('Subtotal', String(order.subtotal)));
+  for (const t of taxBillLines(order.taxBreakdown, order.tax)) out.push(line(t.label, String(t.amount)));
+  if (order.containerCharge && order.containerCharge > 0) out.push(line('Container Charge', String(order.containerCharge)));
   if (order.discount && order.discount > 0) {
-    out.push(line(order.isComplimentary ? 'Complimentary' : 'Discount', '-' + money(order.discount)));
+    out.push(line(order.isComplimentary ? 'Complimentary' : 'Discount', '-' + String(order.discount)));
   }
   out.push(`<div class="thick"></div><div class="c lg">TOTAL ${esc(money(order.total))}</div><div class="thick"></div>`);
 
