@@ -35,7 +35,7 @@ const CSS = `
   @page { size: ${PAPER_MM}mm auto; margin: 0; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #fff; }
-  body { width: ${PAPER_MM}mm; padding: 2mm 4mm 4mm; font-family: Arial, 'Segoe UI', sans-serif;
+  body { width: ${PAPER_MM}mm; padding: 2mm 4mm 4mm 6mm; font-family: Arial, 'Segoe UI', sans-serif;
          font-size: 12px; line-height: 1.35; color: #000; }
   .c { text-align: center; } .r { text-align: right; } .b { font-weight: 700; }
   .lg { font-size: 20px; font-weight: 800; } .xl { font-size: 24px; font-weight: 800; }
@@ -133,8 +133,8 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
     out.push(`<div class="c b">Special Notes</div><div>${esc(order.specialNotes)}</div><div style="height:4px"></div>`);
   }
   const footer = billFooterLines(order);
+  out.push('<div class="rule"></div>');
   for (const f of footer) {
-    out.push('<div class="rule"></div>');
     out.push(`<div class="c">${esc(f)}</div>`)
   };
   return page(out.join(''));
