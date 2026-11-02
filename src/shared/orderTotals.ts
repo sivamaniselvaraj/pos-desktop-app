@@ -142,8 +142,9 @@ export function taxBillLines(
     if (b.name.trim().toUpperCase() === 'GST') {
       const half = pct(b.rate / 2);
       const cgst = r2b(Math.floor((b.tax * 100) / 2) / 100);
+      const sgst = r2b(Math.floor((b.tax * 100) / 2) / 100);
       out.push({ label: `CGST ${half}`, amount: cgst });
-      out.push({ label: `SGST ${half}`, amount: r2b(b.tax - cgst) });
+      out.push({ label: `SGST ${half}`, amount: sgst });
     } else {
       out.push({ label: `${b.name} ${pct(b.rate)}`, amount: b.tax });
     }
