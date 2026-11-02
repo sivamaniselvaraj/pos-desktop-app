@@ -115,8 +115,9 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
       // Grouped reprint: pulls in every order still in this table's batch
       // (all rounds settled together) so a reprint after grouping still
       // shows the full merged bill, not just one order.
-      // await window.api.reprintTableBill(table.tableId);
+      await window.api.reprintOrder(table.invoiceNumber!);
       flash('success', `Printed for Table ${table.tableNumber}`);
+      await load();
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Print failed');
     } finally {
@@ -441,10 +442,10 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
                         </button>
                       )
                     )}
-                    {table.cardStatus === 'settled' && (
+                    {table.cardStatus === 'active' && (
                         <button
                           className={styles.iconBtn}
-                          title={table.cardStatus === 'settled' ? 'Print Duplicate Bill' : 'Print Bill'}
+                          title="Complete and Print Bill"
                           onClick={() => handlePrint(table)}
                           disabled={busyTableId === table.tableId}
                         >
