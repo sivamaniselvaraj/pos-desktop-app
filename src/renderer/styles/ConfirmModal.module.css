@@ -1,0 +1,68 @@
+/* Same look as the Orders list cancel modal and ApprovalModal. */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2500; /* above page modals (1000) and ApprovalModal (2000), below Toast (3000) */
+}
+
+.modal {
+  background: white;
+  border-radius: 10px;
+  padding: 24px;
+  width: 420px;
+  max-width: 90vw;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.message {
+  color: #444;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+  white-space: pre-line;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.cancelBtn {
+  padding: 8px 16px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.confirmBtn,
+.dangerBtn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.confirmBtn {
+  background: var(--brand);
+  color: var(--on-brand);
+}
+
+.dangerBtn {
+  background: #dc2626;
+  color: white;
+}

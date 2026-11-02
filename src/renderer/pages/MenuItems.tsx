@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useConfirm } from '../context/ConfirmContext';
 import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import { MenuItemFormModal } from '../components/MenuItemFormModal';
@@ -63,12 +64,22 @@ function columnLabel(key: string): string {
 /** Menu page: the items list, plus a Categories tab for users who hold menu.categories. */
 export function MenuItemsPage() {
   const { can } = useAuth();
+  const confirm = useConfirm();
   const [tab, setTab] = useState<'items' | 'categories'>('items');
   const [orderUnsaved, setOrderUnsaved] = useState(false);
   // Leaving the Categories tab with an unsaved order would lose it.
-  const goTab = (t: 'items' | 'categories') => {
+  const goTab = async (t: 'items' | 'categories') => {
     if (t === tab) return;
-    if (orderUnsaved && !window.confirm('The category order is not saved. Leave without saving?')) return;
+    if (
+      orderUnsaved &&
+      !(await confirm({
+        title: 'Unsaved changes',
+        message: 'The category order is not saved. Leave without saving?',
+        confirmLabel: 'Leave without saving',
+        tone: 'danger',
+      }))
+    )
+      return;
     setOrderUnsaved(false);
     setTab(t);
   };
@@ -76,10 +87,10 @@ export function MenuItemsPage() {
   return (
     <div className={pageStyles.page}>
       <div className={tabStyles.tabs}>
-        <button className={tab === 'items' ? tabStyles.tabActive : tabStyles.tab} onClick={() => goTab('items')}>
+        <button className={tab === 'items' ? tabStyles.tabActive : tabStyles.tab} onClick={() => void goTab('items')}>
           Items
         </button>
-        <button className={tab === 'categories' ? tabStyles.tabActive : tabStyles.tab} onClick={() => goTab('categories')}>
+        <button className={tab === 'categories' ? tabStyles.tabActive : tabStyles.tab} onClick={() => void goTab('categories')}>
           Categories
         </button>
       </div>

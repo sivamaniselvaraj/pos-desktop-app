@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useConfirm } from '../context/ConfirmContext';
 import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import { formatDateTime } from '../lib/format';
@@ -21,6 +22,7 @@ const STATE_STYLE = {
  * old one stays as history, so orders keep the rate they were created under.
  */
 export function TaxRates() {
+  const confirm = useConfirm();
   const [rows, setRows] = useState<TaxRateRow[]>([]);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,7 +71,15 @@ export function TaxRates() {
   const hasDefault = rows.some((r) => r.categoryId === null && r.state === 'current');
 
   async function handleRemove(r: TaxRateRow) {
-    if (!confirm(`Cancel the scheduled rate for ${scopeName(r.categoryId)}?`)) return;
+    if (
+      !(await confirm({
+        title: 'Cancel scheduled rate',
+        message: `Cancel the scheduled rate for ${scopeName(r.categoryId)}?`,
+        confirmLabel: 'Remove rate',
+        tone: 'danger',
+      }))
+    )
+      return;
     try {
       setBusyId(r.id);
       await window.api.deleteTaxRate(r.id);

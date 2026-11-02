@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useConfirm } from '../context/ConfirmContext';
 import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import { useAuth } from '../context/AuthContext';
@@ -18,6 +19,7 @@ const STATUS_CLASS: Record<ManagedTableStatus, string> = {
 
 export function TablesManagement() {
   const { can } = useAuth();
+  const confirm = useConfirm();
   // Managers add/edit/delete; staff/waiters only see the list and use the
   // available <-> occupied toggle. The database enforces this too.
   const canManage = can('tables.manage');
@@ -114,7 +116,15 @@ export function TablesManagement() {
       flash('error', `Table ${t.tableNumber} has a live order and can't be deleted`);
       return;
     }
-    if (!confirm(`Delete table ${t.tableNumber}? This can't be undone.`)) return;
+    if (
+      !(await confirm({
+        title: 'Delete table',
+        message: `Delete table ${t.tableNumber}? This can't be undone.`,
+        confirmLabel: 'Delete',
+        tone: 'danger',
+      }))
+    )
+      return;
     try {
       setBusyId(t.tableId);
       await window.api.deleteManagedTable(t.tableId);

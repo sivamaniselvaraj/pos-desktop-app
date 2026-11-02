@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useConfirm } from '../context/ConfirmContext';
 import { Icon } from './Icon';
 import type {
   GroupMembership,
@@ -42,6 +43,7 @@ interface GroupForm {
 
 /** Groups tab: create a group, tick what it grants, choose its members. */
 export function GroupsPanel({ users, onChanged, notify }: Props) {
+  const confirm = useConfirm();
   const [groups, setGroups] = useState<UserGroup[]>([]);
   const [permissions, setPermissions] = useState<PermissionInfo[]>([]);
   const [memberships, setMemberships] = useState<GroupMembership[]>([]);
@@ -164,7 +166,15 @@ export function GroupsPanel({ users, onChanged, notify }: Props) {
   }
 
   async function handleDelete(g: UserGroup) {
-    if (!confirm(`Delete group "${g.name}"? Its ${g.memberCount} member(s) lose the access it granted.`)) return;
+    if (
+      !(await confirm({
+        title: 'Delete group',
+        message: `Delete group "${g.name}"? Its ${g.memberCount} member(s) lose the access it granted.`,
+        confirmLabel: 'Delete',
+        tone: 'danger',
+      }))
+    )
+      return;
     try {
       await window.api.deleteGroup(g.id);
       notify('success', `Deleted group ${g.name}`);
@@ -244,25 +254,25 @@ export function GroupsPanel({ users, onChanged, notify }: Props) {
         <div className={styles.modalOverlay} onClick={() => setForm(null)}>
           <div className={`${styles.modal} ${styles.groupModal}`} onClick={(e) => e.stopPropagation()}>
             <div className={styles.gmHead}>
-            <h3>{form.id ? 'Edit Group' : 'Add Group'}</h3>
+              <h3>{form.id ? 'Edit Group' : 'Add Group'}</h3>
               <div className={styles.gmTop}>
-            <label className={styles.formLabel}>
-              Name
-              <input
-                type="text"
-                value={form.name}
-                maxLength={60}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </label>
-            <label className={styles.formLabel}>
-              Description
-              <input
-                type="text"
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-              />
-            </label>
+                <label className={styles.formLabel}>
+                  Name
+                  <input
+                    type="text"
+                    value={form.name}
+                    maxLength={60}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  />
+                </label>
+                <label className={styles.formLabel}>
+                  Description
+                  <input
+                    type="text"
+                    value={form.description}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  />
+                </label>
               </div>
               <div className={styles.gmTabs} role="tablist">
                 <button
@@ -349,14 +359,14 @@ export function GroupsPanel({ users, onChanged, notify }: Props) {
                             <b>{p.code}</b>
                             <i>{p.description}</i>
                           </span>
-                    <input
-                      type="checkbox"
+                          <input
+                            type="checkbox"
                             className={styles.gmSwitch}
-                      checked={form.permissions.has(p.code)}
-                      onChange={() => setForm({ ...form, permissions: toggle(form.permissions, p.code) })}
-                    />
-                  </label>
-                ))}
+                            checked={form.permissions.has(p.code)}
+                            onChange={() => setForm({ ...form, permissions: toggle(form.permissions, p.code) })}
+                          />
+                        </label>
+                      ))}
                     </div>
                   ))}
                 </div>
@@ -391,7 +401,7 @@ export function GroupsPanel({ users, onChanged, notify }: Props) {
                         {label}
                       </button>
                     ))}
-            </div>
+                  </div>
                 </div>
                 <div className={styles.gmCount}>
                   {form.members.size} member{form.members.size === 1 ? '' : 's'} selected
@@ -406,26 +416,26 @@ export function GroupsPanel({ users, onChanged, notify }: Props) {
                         <i>{u.email}</i>
                       </span>
                       <span className={`${styles.badge} ${styles['role_' + u.role]}`}>{u.role}</span>
-                    <input
-                      type="checkbox"
-                      checked={form.members.has(u.userId)}
-                      onChange={() => setForm({ ...form, members: toggle(form.members, u.userId) })}
-                    />
-                  </label>
-                ))}
+                      <input
+                        type="checkbox"
+                        checked={form.members.has(u.userId)}
+                        onChange={() => setForm({ ...form, members: toggle(form.members, u.userId) })}
+                      />
+                    </label>
+                  ))}
+                </div>
               </div>
-            </div>
             )}
 
             <div className={styles.gmFoot}>
               <span>Changes apply when you save</span>
               <div className={styles.modalActions} style={{ margin: 0 }}>
-              <button className={styles.cancelBtn} onClick={() => setForm(null)} disabled={saving}>
-                Cancel
-              </button>
-              <button className={styles.saveBtn} onClick={handleSave} disabled={saving}>
-                {saving ? 'Saving…' : 'Save Group'}
-              </button>
+                <button className={styles.cancelBtn} onClick={() => setForm(null)} disabled={saving}>
+                  Cancel
+                </button>
+                <button className={styles.saveBtn} onClick={handleSave} disabled={saving}>
+                  {saving ? 'Saving…' : 'Save Group'}
+                </button>
               </div>
             </div>
           </div>

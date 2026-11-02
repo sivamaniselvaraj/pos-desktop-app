@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useConfirm } from '../context/ConfirmContext';
 import { Icon } from '../components/Icon';
 import styles from '../styles/Settings.module.css';
 import pageStyles from '../styles/Page.module.css';
@@ -35,6 +36,7 @@ function roleKey(role: string): string {
 
 export function Settings() {
   const { can } = useAuth();
+  const confirm = useConfirm();
   const canInvoicing = can('invoicing.manage');
   const canDevices = can('users.manage');
   const canKot = can('kot.manage');
@@ -187,7 +189,15 @@ export function Settings() {
   }, [pairCode]);
 
   async function handleRevokeDevice(device: ApiDevice) {
-    if (!window.confirm(`Revoke "${device.name}"? That phone will stop working until it is paired again.`)) return;
+    if (
+      !(await confirm({
+        title: 'Revoke device',
+        message: `Revoke "${device.name}"? That phone will stop working until it is paired again.`,
+        confirmLabel: 'Revoke',
+        tone: 'danger',
+      }))
+    )
+      return;
     try {
       await window.api.revokeApiDevice(device.id);
       await loadDevices();
@@ -198,7 +208,15 @@ export function Settings() {
   }
 
   async function handleResetPin(device: ApiDevice) {
-    if (!window.confirm(`Reset the app PIN on "${device.name}"? The user sets a new PIN next time they open the app.`)) return;
+    if (
+      !(await confirm({
+        title: 'Reset app PIN',
+        message: `Reset the app PIN on "${device.name}"? The user sets a new PIN next time they open the app.`,
+        confirmLabel: 'Reset PIN',
+        tone: 'danger',
+      }))
+    )
+      return;
     try {
       await window.api.resetApiDevicePin(device.id);
       await loadDevices();
@@ -228,9 +246,12 @@ export function Settings() {
   async function handleResetInvoiceSequence() {
     const nextPreview = `${new Date().toISOString().slice(0, 10)}-00001`;
     if (
-      !confirm(
-        `Reset the invoice sequence? The next order will be numbered ${nextPreview}. This cannot be undone.`,
-      )
+      !(await confirm({
+        title: 'Reset invoice sequence',
+        message: `Reset the invoice sequence? The next order will be numbered ${nextPreview}. This cannot be undone.`,
+        confirmLabel: 'Reset',
+        tone: 'danger',
+      }))
     ) {
       return;
     }

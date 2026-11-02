@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useConfirm } from '../context/ConfirmContext';
 import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import { OrderDetailModal } from '../components/OrderDetailModal';
@@ -53,6 +54,7 @@ function statusClass(status: string): string {
 /** `onNewOrder` shows the New order button (the caller passes it only when the user may place orders). */
 export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
   const { can } = useAuth();
+  const confirm = useConfirm();
   const canPlaceOrder = can('orders.place');
   const canEditItems = can('orders.edit');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
@@ -223,8 +225,15 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
   // together, for dine-in and takeaway alike. Only an old order created before
   // invoice numbers existed falls back to its own id.
   async function handleComplete(r: OrderListRow) {
-    const what = r.orderCount > 1 ? `all active orders on invoice ${displayInvoiceNumber(r.invoiceNumber)}` : r.invoiceNumber ? `invoice ${displayInvoiceNumber(r.invoiceNumber)}` : 'this order';
-    if (!confirm(`Mark ${what} as completed?`)) return;
+    const what = r.orderCount > 1 ? `all ${r.orderCount} orders on invoice ${r.invoiceNumber}` : r.invoiceNumber ? `invoice ${r.invoiceNumber}` : 'this order';
+    if (
+      !(await confirm({
+        title: 'Complete order',
+        message: `Mark ${what} as completed?`,
+        confirmLabel: 'Complete',
+      }))
+    )
+      return;
     const orderId = r.orderId;
     try {
       setBusyOrderId(orderId);
@@ -241,7 +250,15 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
 
   async function completeOrder(orderId: string, title: string, summary: string = '') {
     //setCompleteTarget({ scope: 'order', orderId, title, summary });
-    if (!confirm(title + '\n' + summary)) return;
+    //if (!confirm(title + '\n' + summary)) return;
+    if (
+      !(await confirm({
+        title: title,
+        message: summary,
+        confirmLabel: 'Complete',
+      }))
+    )
+      return;
      try {
       setBusyOrderId(orderId);
       await window.api.completeOrder(orderId);

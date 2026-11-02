@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useConfirm } from '../context/ConfirmContext';
 import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import { GroupsPanel } from '../components/GroupsPanel';
@@ -43,6 +44,7 @@ const EMPTY_FORM: FormState = {
 };
 
 export function UserManagement() {
+  const confirm = useConfirm();
   const { can } = useAuth();
   // Only Admin+ add. The database enforces this too (RLS on menu_items).
   const canAddUser = can('users.add');
@@ -195,7 +197,15 @@ export function UserManagement() {
   async function handleToggleActive(u: ManagedUser) {
     const nextActive = !u.isActive;
     const verb = nextActive ? 'reactivate' : 'deactivate';
-    if (!confirm(`Are you sure you want to ${verb} ${u.fullName || u.email}?`)) return;
+    if (
+      !(await confirm({
+        title: nextActive ? 'Reactivate user' : 'Deactivate user',
+        message: `Are you sure you want to ${verb} ${u.fullName || u.email}?`,
+        confirmLabel: nextActive ? 'Reactivate' : 'Deactivate',
+        tone: nextActive ? 'default' : 'danger',
+      }))
+    )
+      return;
 
     try {
       setBusyUserId(u.userId);
