@@ -16,7 +16,8 @@ export function Header({ server, onRefresh }: HeaderProps) {
   return (
     <header className={styles.header}>
       <div className={styles.titleBlock}>
-        <h1 className={styles.title}>VIRUNTHAGAM v1.0</h1>
+        <h3 className={styles.title}>Virunthagam POS</h3>
+        <small className={styles.userRole}>Beta-v1.0</small>
         {user?.outletName && <div className={styles.outletName}>{user.outletName}</div>}
       </div>
       <div className={styles.actions}>
