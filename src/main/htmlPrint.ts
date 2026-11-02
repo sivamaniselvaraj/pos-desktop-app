@@ -116,7 +116,7 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
 
   const line = (k: string, v: string) => `<div class="sub"><span class="r">${esc(k)}</span><span>${esc(v)}</span></div>`;
   let grandTotal = Number.parseInt(order?.total.toString());
-  let roundOff = (grandTotal - order.total).toFixed(2);
+  let roundOff = (grandTotal - order.total);
   out.push(line('Total Qty', String(totalQty)));
   out.push(line('Subtotal', price(order.subtotal)));
   if (order.containerCharge && order.containerCharge > 0) out.push(line('Container Charge', price(order.containerCharge)));
@@ -125,7 +125,7 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
   }
   for (const t of taxBillLines(order.taxBreakdown, order.tax)) out.push(line(t.label, price(t.amount)));
   out.push('<div class="rule"></div>');
-  out.push(`<div class="r">round off -${esc(roundOff)}</div>`);
+  if (roundOff > 0) {out.push(`<div class="r">round off -${price(roundOff)}</div>`)};
   out.push(`<div class="r lg">Grand Total ${esc(money(grandTotal))}</div>`);
 
   if (order.specialNotes) {
