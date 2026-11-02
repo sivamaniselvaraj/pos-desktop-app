@@ -88,7 +88,7 @@
 .sum { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; color: #555; }
 .grand { font-weight: 700; font-size: 16px; color: #222; padding-top: 8px; border-top: 1px solid #e5e7eb; margin-top: 6px; }
 .place { width: 100%; margin-top: 12px; background: var(--brand); color: var(--on-brand); border: 0; border-radius: 10px; padding: 15px; font-size: 16px; font-weight: 700; cursor: pointer; }
-.place:disabled { background: #b8d9ba; cursor: not-allowed; }
+.place:disabled { background: #777; cursor: not-allowed; }
 .hint { text-align: center; font-size: 12px; color: #777; margin-top: 8px; }
 
 .overlay { position: absolute; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 50; }
