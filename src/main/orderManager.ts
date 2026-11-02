@@ -263,18 +263,7 @@ class OrderManager extends EventEmitter {
         }
       }
   
-      // Idempotency guard: second settle on an already-completed batch prints
-      // nothing. ('completed' is the real closed-order status — see
-      // get_sales_report_uid in db/functions.sql for why 'settled' was wrong.)
-      if (orders.every((o) => o.status === 'completed')) {
-        const existing = this.orders.get(anchor.id);
-        return {
-          success: true,
-          orderId: anchor.id,
-          message: 'Order already settled',
-          printStatus: existing?.printStatus ?? 'printed',
-        };
-      }
+      
   
       const isGrouped = orders.length > 1;
       const orderIds = orders.map((o) => o.id);
@@ -322,6 +311,20 @@ class OrderManager extends EventEmitter {
       this.cacheForDisplay({ ...billOrder, printStatus: 'failed', errorMessage: message });
       return { success: false, orderId: anchor.id, message, printStatus: 'failed', error: 'PRINT_FAILED' };
     }
+
+    // Idempotency guard: second settle on an already-completed batch prints
+      // nothing. ('completed' is the real closed-order status — see
+      // get_sales_report_uid in db/functions.sql for why 'settled' was wrong.)
+      if (orders.every((o) => o.status === 'completed')) {
+        const existing = this.orders.get(anchor.id);
+        return {
+          success: true,
+          orderId: anchor.id,
+          message: 'Order already settled',
+          printStatus: existing?.printStatus ?? 'printed',
+        };
+      }
+
     await recordBillPrinted(orderIds);
       // Mark every order in the batch completed only after the bill prints.
       // The table is freed later, once payment is recorded (save_order_payment RPC).
