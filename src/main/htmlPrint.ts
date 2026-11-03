@@ -86,7 +86,11 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
         </tr>
         <tr>
           <td></td>
-          <td>Bill No. ${order.orderNumbers && order.orderNumbers.length > 0 ? order.orderNumbers.join(', ') : String(order.orderNumber)}</td>
+          <td>Bill No. ${order.invoiceNumber?.slice(-5)}</td>
+        </tr>
+        <tr>
+          <td>Token No. ${order.orderNumbers && order.orderNumbers.length > 0 ? order.orderNumbers.join(', ') : String(order.orderNumber)}</td>
+          <td></td>
         </tr>
       </tbody>
       </table>`,
