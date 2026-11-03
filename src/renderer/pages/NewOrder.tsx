@@ -103,7 +103,7 @@ export function NewOrder({ initialTableId }: { initialTableId?: string | null } 
   const [tax, setTax] = useState<TaxRates | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [orderType, setOrderType] = useState<OrderType>(DINE_IN_ORDER_TYPE);
+  const [orderType, setOrderType] = useState<OrderType>(PICK_UP_ORDER_TYPE);
   const [tableId, setTableId] = useState<string | null>(initialTableId ?? null);
   const [query, setQuery] = useState('');
   const [veg, setVeg] = useState<VegFilter>('all');
