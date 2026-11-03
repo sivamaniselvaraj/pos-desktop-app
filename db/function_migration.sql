@@ -438,7 +438,7 @@ as $$
            or o.invoice_number in (
                 select s.invoice_number from orders s
                 where s.outlet_id = p_outlet_id
-                  and s.id::text ilike '%' || p_search || '%'))
+                  and s.invoice_number::text ilike '%' || p_search || '%'))
       and (p_status is null
            or (p_status = 'active' and g.status not in ('cancelled', 'completed'))
            or (p_status = 'completed' and g.status = 'completed')

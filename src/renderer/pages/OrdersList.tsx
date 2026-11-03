@@ -456,7 +456,7 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
         <input
           type="text"
           className={styles.searchInput}
-          placeholder="Search by Order ID..."
+          placeholder="Search by Order Number/Invoice Number..."
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
