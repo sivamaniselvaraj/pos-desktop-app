@@ -78,9 +78,10 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
     return () => clearInterval(tick);
   }, []);
 
-  async function load() {
+  // quiet: refresh in place (no "Loading tables…" line), used after a print.
+  async function load(quiet = false) {
     try {
-      setLoading(true);
+      if (!quiet) setLoading(true);
       setError(null);
       const result = await window.api.listTables();
       setTables(result);
@@ -112,12 +113,21 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
     if (!table.tableId) return;
     try {
       setBusyTableId(table.tableId);
+      if (table.cardStatus === 'active') {
       // Grouped reprint: pulls in every order still in this table's batch
       // (all rounds settled together) so a reprint after grouping still
       // shows the full merged bill, not just one order.
-      await window.api.reprintOrder(table.invoiceNumber!);
-      flash('success', `Printed for Table ${table.tableNumber}`);
-      await load();
+        await window.api.reprintOrder(table.invoiceNumber!);
+        flash('success', `Printed for Table ${table.tableNumber}`);
+      }
+      // Reload the tables so the card shows the new state (e.g. "Print duplicate
+      // bill" once the bill has printed). Also after a failure, in case part of
+      // a grouped bill printed.
+      try {
+        setTimeout(async() => await load(), 2000);
+      } catch (err) {
+        flash('error', err instanceof Error ? err.message : 'Added, but failed to refresh');
+      }
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Print failed');
     } finally {
@@ -328,10 +338,10 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
 
   function statusOf(t: TableCard): { key: string; label: string } {
     if (t.cardStatus === 'active') return { key: 'active', label: 'Ordered' };
-    if (t.cardStatus === 'settled') {
+    if (t.cardStatus === 'completed') {
       return t.paymentRecorded
         ? { key: 'settled', label: 'Paid' }
-        : { key: 'settled', label: 'Occupied & Unpaid' };
+        : { key: 'settled', label: 'Unpaid' };
     }
     // if (t.manualStatus !== 'available') {
     //   return { key: 'manual_' + t.manualStatus, label: t.manualStatus };
@@ -393,8 +403,8 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
         )}
 
         <div className={styles.canvas}>
-        <div className={styles.grid}>
-          {visibleTables.map((table) => {
+          <div className={styles.grid}>
+            {visibleTables.map((table) => {
               const mins = elapsedMinutes(table.orderCreatedAt, now);
               const st = statusOf(table);
               const cap = tableMeta[table.tableId]?.capacity ?? 0;
@@ -462,7 +472,7 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
                           <Icon name="view" size={16} />
                         </button>
                         )}
-                        {table.cardStatus === 'settled' && !table.paymentRecorded && can('orders.complete') && (
+                        {table.cardStatus === 'completed' && !table.paymentRecorded && can('orders.complete') && (
                           <button
                             className={styles.iconBtn}
                             title="Record Payment (required to release this table)"

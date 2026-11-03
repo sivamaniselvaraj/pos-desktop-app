@@ -20,8 +20,8 @@ export function aggregateItems(rows: OrderItem[]): OrderItem[] {
 }
 
 /** Dashboard card state from the table's latest order status. Pure: any provider can reuse it. */
-export function deriveCardStatus(orderStatus: string | undefined): 'available' | 'settled' | 'active' {
+export function deriveCardStatus(orderStatus: string | undefined): 'available' | 'completed' | 'active' {
   if (!orderStatus || orderStatus === 'cancelled') return 'available';
-  if (orderStatus === 'completed') return 'settled';
+  if (orderStatus === 'completed') return 'completed';
   return 'active'; // 'open'
 }

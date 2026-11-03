@@ -842,7 +842,7 @@ export interface SaveManagedTablePayload {
   status: ManagedTableStatus;
 }
 
-export type TableCardStatus = 'active' | 'settled' | 'available';
+export type TableCardStatus = 'active' | 'completed' | 'available';
 
 /** GET /api/overdue-thresholds: how long an order may wait before it counts as late, and the kitchen steps. */
 export interface PhoneKotSettings {
