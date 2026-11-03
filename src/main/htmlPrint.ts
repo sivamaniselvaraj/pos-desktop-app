@@ -1,4 +1,6 @@
-import { BrowserWindow } from 'electron';
+import { app, BrowserWindow } from 'electron';
+import { promises as fs } from 'fs';
+import path from 'path';
 import { taxBillLines } from '../shared/orderTotals';
 import { DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE, type FoodOrder } from '../shared/types';
 import { billFooterLines, billHeaderLines, getPrinters, parseHeaderConfig } from './printerManager';
@@ -35,7 +37,7 @@ const CSS = `
   @page { size: ${PAPER_MM}mm auto; margin: 0; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #fff; }
-  body { width: ${PAPER_MM}mm; padding: 2mm 4mm 4mm 6mm; font-family: Arial, 'Segoe UI', sans-serif;
+  body { width: ${PAPER_MM}mm; padding: 2mm 4mm 4mm; font-family: Arial, 'Segoe UI', sans-serif;
          font-size: 12px; line-height: 1.35; color: #000; }
   .c { text-align: center; } .r { text-align: right; } .b { font-weight: 700; }
   .lg { font-size: 20px; font-weight: 800; } .xl { font-size: 24px; font-weight: 800; }
@@ -129,7 +131,7 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
   }
   for (const t of taxBillLines(order.taxBreakdown, order.tax)) out.push(line(t.label, price(t.amount)));
   out.push('<div class="rule"></div>');
-  if (roundOff > 0) {out.push(`<div class="r">round off -${price(roundOff)}</div>`)};
+  if (roundOff * 100 > 0) {out.push(`<div class="r">round off -${price(roundOff)}</div>`)};
   out.push(`<div class="r lg">Grand Total ${esc(money(grandTotal))}</div>`);
 
   if (order.specialNotes) {
@@ -266,17 +268,55 @@ async function printHtmlNow(html: string, printerName: string): Promise<void> {
     );
   }
 
-  const win = getPrintWindow();
   try {
-    await withTimeout(renderAndPrint(win, html, name), HTML_JOB_TIMEOUT_MS, `HTML print to "${name}"`);
+    await withTimeout(printWithRetry(html, name), HTML_JOB_TIMEOUT_MS, `HTML print to "${name}"`);
   } catch (err) {
     if (err instanceof PrintTimeoutError) destroyHtmlPrintWindow();
     throw err;
   }
 }
 
+/** Raised when the print page cannot be loaded into the hidden window. */
+class PageLoadError extends Error {}
+
+// If the page will not load (the reused window can get into a state where every
+// load fails at once with ERR_FAILED), throw that window away and try once more
+// with a fresh one. Printer errors are not retried: the driver may have printed.
+async function printWithRetry(html: string, name: string): Promise<void> {
+  try {
+    await renderAndPrint(getPrintWindow(), html, name);
+  } catch (err) {
+    if (!(err instanceof PageLoadError)) throw err;
+    console.warn(`[htmlPrint] ${err.message} Retrying with a new print window.`);
+    destroyHtmlPrintWindow();
+    await renderAndPrint(getPrintWindow(), html, name);
+  }
+}
+
+// The page is written to a temp file and loaded with loadFile. It used to be
+// loaded as a data: URL, which failed with ERR_FAILED (-2) on a Windows PC
+// (2026-11-03) and put the whole encoded page into the error and the log.
+let jobFile: string | null = null;
+
+async function writeJobFile(html: string): Promise<string> {
+  if (!jobFile) {
+    const dir = path.join(app.getPath('temp'), 'virunthagam-pos-print');
+    await fs.mkdir(dir, { recursive: true });
+    jobFile = path.join(dir, 'print-job.html');
+  }
+  await fs.writeFile(jobFile, html, 'utf8');
+  return jobFile;
+}
+
 async function renderAndPrint(win: BrowserWindow, html: string, name: string): Promise<void> {
-  await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  try {
+    await win.loadFile(await writeJobFile(html));
+  } catch (err) {
+    // Keep the message short: the loader error can carry the whole URL.
+    const raw = err instanceof Error ? err.message : String(err);
+    const code = /ERR_[A-Z_]+ \(-?\d+\)/.exec(raw)?.[0] ?? raw.slice(0, 120);
+    throw new PageLoadError(`Could not prepare the print page (${code}).`);
+  }
 
   const px = (await win.webContents.executeJavaScript(
     'Math.ceil(document.documentElement.getBoundingClientRect().height)',
