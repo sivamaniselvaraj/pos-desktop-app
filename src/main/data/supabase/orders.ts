@@ -368,122 +368,6 @@ async function fetchAggregatedItems(orderId: string): Promise<OrderItem[]> {
 }
 
 /**
- * #4 SEAM resolved: settle/reprint now key on the ORDER's TABLE, not just the
- * order itself. A table can carry several separate dine-in orders at once
- * (rounds ordered before anyone settled), so this gathers every order
- * sharing that table_id that's still part of the "current batch" — mirrors
- * list_tables_for_outlet()'s batch definition (db/functions.sql): not
- * cancelled, and not already completed-AND-paid. That covers both cases
- * this is called from: pre-settle (orders still open) and post-settle
- * reprint (orders completed, payment not yet recorded). Non-dine-in orders
- * (table_id null) have nothing to group with — this just returns the order
- * itself.
- */
-
-async function fetchTableBatchOrders(orderId: string): Promise<TableBatch> {
-  const supabase = getClient();
-  if (!supabase) throw new Error('Database is not configured.');
-  const id = await resolveOrderId(orderId);
-  if (!id) return { tableId: null, orderIds: [], orderNumbers: [], orders: [] };
-
-  const { data: current, error: curErr } = await supabase
-    .from(supabaseSettings.table)
-    .select('table_id, order_number')
-    .eq('id', id)
-    .single();
-  if (curErr) throw new Error(curErr.message);
-  const currentRow = current as Record<string, unknown> | null;
-  const tableId = currentRow?.table_id != null ? String(currentRow.table_id) : null;
-
-  if (!tableId) {
-    // Pickup/delivery, or a dine-in order somehow missing its table link —
-    // nothing to group with, just this one order.
-    const orderNumber = currentRow?.order_number != null ? Number(currentRow.order_number) : null;
-    return {
-      tableId: null,
-      orderIds: [id],
-      orderNumbers: orderNumber != null ? [orderNumber] : [],
-      orders: orderNumber != null ? [{ id, orderNumber }] : [{ id, orderNumber: 0 }],
-    };
-  }
-
-  const { data: rows, error } = await supabase
-    .from(supabaseSettings.table)
-    .select('id, order_number, status, payment_details')
-    .eq('table_id', tableId)
-    .neq('status', 'cancelled');
-  if (error) throw new Error(error.message);
-
-  const list = ((rows as Record<string, unknown>[] | null) ?? []).filter((r) => {
-    // Exclude only orders that are BOTH completed AND already paid — those
-    // are done and out of the batch. Everything else (still open, or
-    // completed-but-unpaid awaiting the Save button) stays in.
-    const isPaidAndDone = r.status === 'completed' && r.payment_details != null;
-    return !isPaidAndDone;
-  });
-
-  let pairs = list.map((r) => ({ id: String(r.id), orderNumber: Number(r.order_number) }));
-  // Defensive: the triggering order should always satisfy the filter above,
-  // but include it explicitly in case of a race with a concurrent edit.
-  if (!pairs.some((p) => p.id === id)) {
-    const orderNumber = currentRow?.order_number != null ? Number(currentRow.order_number) : 0;
-    pairs.push({ id, orderNumber });
-  }
-  pairs = pairs.sort((a, b) => a.orderNumber - b.orderNumber);
-
-  return {
-    tableId,
-    orderIds: pairs.map((p) => p.id),
-    orderNumbers: pairs.map((p) => p.orderNumber),
-    orders: pairs,
-  };
-}
-
-/**
- * Resolves a DINE-IN table number to the list of order NUMBERS currently in
- * that table's settle batch — same "not cancelled, not completed-and-paid"
- * condition fetchTableBatchOrders uses, just returning order_number instead
- * of order id/uuid. This is the httpServer-side half of the settle
- * simplification: knowing up front this is a dine-in table (via the
- * request's orderType) means going straight to the table's full order list
- * in ONE query, rather than first resolving one "anchor" order id and then
- * having handleSettle re-discover the same batch a second time.
- *
- * Scoped to outletId since table_number is only unique WITHIN an outlet.
- * Returns null if the table itself doesn't exist for this outlet (distinct
- * from an empty array, which means the table exists but has nothing
- * outstanding to settle).
- */
-async function fetchTableOrderNumbers(
-  tableNumber: string,
-  outletId: string,
-): Promise<number[] | null> {
-  const supabase = getClient();
-  if (!supabase) throw new Error('Database is not configured.');
-
-  const { data: tableRow, error: tableErr } = await supabase
-    .from('tables')
-    .select('id')
-    .eq('table_number', tableNumber)
-    .eq('outlet_id', outletId)
-    .maybeSingle();
-  if (tableErr) throw new Error(tableErr.message);
-  const tableId = (tableRow as Record<string, unknown> | null)?.id;
-  if (!tableId) return null;
-
-  const { data: rows, error } = await supabase
-    .from(supabaseSettings.table)
-    .select('order_number, status, payment_details')
-    .eq('table_id', tableId)
-    .neq('status', 'cancelled');
-  if (error) throw new Error(error.message);
-
-  return ((rows as Record<string, unknown>[] | null) ?? [])
-    .filter((r) => !(r.status === 'completed' && r.payment_details != null))
-    .map((r) => Number(r.order_number));
-}
-
-/**
  * Fetches full order rows for a set of order NUMBERS in one query — the
  * other half of the settle simplification: orderManager.handleSettleByNumbers
  * calls this ONCE and gets everything it needs (id, totals, status, etc. for
@@ -624,8 +508,6 @@ export const orders: OrderRepository = {
   markItemsKotPrinted,
   fetchAggregatedItems,
   fetchAggregatedItemsForOrders,
-  fetchTableBatchOrders,
-  fetchTableOrderNumbers,
   fetchOrdersByInvoiceNumbers,
   markOrdersCompleted,
   markOrdersBillPrinted,

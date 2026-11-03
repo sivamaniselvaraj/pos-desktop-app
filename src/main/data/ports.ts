@@ -127,10 +127,7 @@ export interface OrderRepository {
   /** Non-deleted items merged by dish (2 + 3 of the same dish = 5). */
   fetchAggregatedItems(orderId: string): Promise<OrderItem[]>;
   fetchAggregatedItemsForOrders(orderIds: string[]): Promise<OrderItem[]>;
-  /** Every order of the same table that is still part of the current settle batch. */
-  fetchTableBatchOrders(orderId: string): Promise<TableBatch>;
   /** Order numbers in a dine-in table's batch; null when the table doesn't exist. */
-  fetchTableOrderNumbers(tableNumber: string, outletId: string): Promise<number[] | null>;
   fetchOrdersByInvoiceNumbers(invoiceNumber: string, outletId: string): Promise<FoodOrder[]>;
   /** Marks orders completed (settled). Does not free the table. */
   markOrdersCompleted(orderIds: string[]): Promise<void>;
