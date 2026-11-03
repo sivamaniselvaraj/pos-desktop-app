@@ -691,6 +691,20 @@ async function printOrderNow(order: FoodOrder, printerName:string, isDuplicate: 
  * device (typically the waiter printer).
  */
 export async function printKot(order: FoodOrder, printerName: string): Promise<void> {
+  return journalPrint(
+    {
+      job: 'kot',
+      printer: printerName ?? '',
+      method: config.printMethod,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      items: order.items?.length,
+    },
+    () => printKotNow(order, printerName),
+  );
+}
+
+async function printKotNow(order: FoodOrder, printerName: string): Promise<void> {
   const name = (printerName ?? '').trim();
   let isPickup = order.orderType === "pickup" || order.orderType === 'takeaway';
   let kotTitle = isPickup  ? 'TAKEAWAY' : 'WAITER KOT';
@@ -932,9 +946,3 @@ function formatKeyValue(key: string, value: string, padded:boolean = false): str
   const padding = Math.max(0, maxKeyValue);
   return key + ' '.repeat(padding) + ': ' + value;
 }
- 
-function padRight(text: string, width: number): string {
-  const padding = Math.max(0, width - text.length);
-  return text + ' '.repeat(padding);
-}
- 
