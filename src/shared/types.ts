@@ -1095,7 +1095,61 @@ export const IpcChannels = {
   ORDER_STATUS_CHANGED: 'order-status-changed',
   PRINTER_STATUS: 'printer-status',
   SERVER_STATUS: 'server-status',
+  // app updates (see docs/APP_UPDATES.md)
+  GET_UPDATE_STATUS: 'get-update-status',
+  CHECK_FOR_UPDATES: 'check-for-updates',
+  GET_INSTALL_CHECK: 'get-install-check',
+  INSTALL_UPDATE: 'install-update',
+  SET_UPDATE_CHANNEL: 'set-update-channel',
+  UPDATE_STATUS: 'update-status', // main -> renderer (send)
 } as const;
+
+// ---------------------------------------------------------------------------
+// App updates (docs/APP_UPDATES.md)
+// ---------------------------------------------------------------------------
+export type UpdateChannel = 'stable' | 'beta';
+
+export type UpdatePhase =
+  | 'disabled' // dev build, not Windows, or no UPDATE_BASE_URL in the build
+  | 'idle'
+  | 'checking'
+  | 'none' // up to date
+  | 'downloading'
+  | 'ready' // downloaded; waiting for Install now
+  | 'error';
+
+/** The release policy row (get_app_release_policy), as last read or cached. */
+export interface ReleasePolicy {
+  minimumVersion: string | null;
+  blockedVersions: string[];
+  message: string | null;
+}
+
+export interface UpdateStatus {
+  phase: UpdatePhase;
+  currentVersion: string;
+  channel: UpdateChannel;
+  /** The newer version being downloaded or ready to install. */
+  version?: string;
+  releaseNotes?: string;
+  /** 0 to 100 while downloading. */
+  percent?: number;
+  /** ISO time of the last finished check. */
+  lastCheckedAt?: string;
+  error?: string;
+  /** True when the release policy blocks this version (or it is below the minimum). */
+  required: boolean;
+  /** The policy's message to show on the Update required screen. */
+  requiredMessage?: string;
+}
+
+/** What Install now should warn about before closing the app. */
+export interface InstallCheck {
+  /** Orders with unprinted kitchen items; null when it could not be read. */
+  unprintedKots: number | null;
+  /** True while a print job is running or waiting. */
+  printing: boolean;
+}
 
 // Shape exposed on window.api by the preload bridge.
 export interface ElectronApi {
@@ -1225,6 +1279,15 @@ export interface ElectronApi {
   onOrderStatusChanged(cb: (order: OrderWithStatus) => void): () => void;
   onPrinterStatus(cb: (printers: PrinterInfo[]) => void): () => void;
   onServerStatus(cb: (status: ServerStatus) => void): () => void;
+  getUpdateStatus(): Promise<UpdateStatus>;
+  /** Check now (About page). Resolves with the status after the check starts. */
+  checkForUpdates(): Promise<UpdateStatus>;
+  getInstallCheck(): Promise<InstallCheck>;
+  /** Close the app, install the downloaded version and reopen it. */
+  installUpdate(): Promise<void>;
+  /** Beta = this PC gets releases a few days early (saved in settings.json). */
+  setUpdateChannel(channel: UpdateChannel): Promise<UpdateStatus>;
+  onUpdateStatus(cb: (status: UpdateStatus) => void): () => void;
 }
 
 declare global {

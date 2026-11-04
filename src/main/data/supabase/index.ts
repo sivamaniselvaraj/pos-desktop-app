@@ -19,6 +19,7 @@ import { users } from './users';
 import { groups } from './groups';
 import { invoices } from './invoices';
 import { reports } from './reports';
+import { releases } from './releases';
 
 export function createSupabaseProvider(): DataProvider {
   return {
@@ -39,5 +40,6 @@ export function createSupabaseProvider(): DataProvider {
     groups,
     invoices,
     reports,
+    releases,
   };
 }

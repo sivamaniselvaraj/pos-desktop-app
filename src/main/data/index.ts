@@ -86,4 +86,7 @@ export const db: DataProvider = {
   get reports() {
     return getProvider().reports;
   },
+  get releases() {
+    return getProvider().releases;
+  },
 };

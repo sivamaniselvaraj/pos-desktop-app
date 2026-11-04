@@ -32,6 +32,13 @@ import { getTaxRate, placeOrder } from './orderEntryManager';
 import { getKotBoard, getKotWorkflow, getUnprintedKots, moveKot, printKotNow, saveKotWorkflow } from './kotManager';
 import { addTaxRate, deleteTaxRate, listTaxRates } from './taxManager';
 import {
+  checkForUpdates,
+  getInstallCheck,
+  getUpdateStatus,
+  installUpdate,
+  setUpdateChannel,
+} from './updateManager.js';
+import {
   listOrders,
   getInvoiceOrderDetail,
   getInvoiceActivityLog,
@@ -316,6 +323,15 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   );
   ipcMain.handle(IpcChannels.SAVE_ORDER_PAYMENT, (_e, payload: SavePaymentPayload) =>
     savePayment(payload),
+  );
+
+  // App updates (updateManager.ts, docs/APP_UPDATES.md)
+  ipcMain.handle(IpcChannels.GET_UPDATE_STATUS, () => getUpdateStatus());
+  ipcMain.handle(IpcChannels.CHECK_FOR_UPDATES, () => checkForUpdates());
+  ipcMain.handle(IpcChannels.GET_INSTALL_CHECK, () => getInstallCheck());
+  ipcMain.handle(IpcChannels.INSTALL_UPDATE, () => installUpdate());
+  ipcMain.handle(IpcChannels.SET_UPDATE_CHANNEL, (_e, channel: string) =>
+    setUpdateChannel(channel === 'beta' ? 'beta' : 'stable'),
   );
 
   // main -> renderer (forward manager events to the active window)

@@ -4018,3 +4018,22 @@ begin
 end;
 $$;
 grant execute on function set_org_brand_color(text) to authenticated;
+
+-- ============================================================================
+-- APP RELEASE POLICY: get_app_release_policy() (docs/APP_UPDATES.md)
+-- ============================================================================
+-- Readable before sign-in (anon) so a blocked version is caught on the login
+-- screen too. Holds no business data: only version numbers and a message.
+create or replace function get_app_release_policy()
+returns table (minimum_version text, blocked_versions text[], message text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p.minimum_version, p.blocked_versions, p.message
+    from app_release_policy p
+   where p.id;
+$$;
+revoke all on function get_app_release_policy() from public;
+grant execute on function get_app_release_policy() to anon, authenticated;

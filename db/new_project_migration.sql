@@ -1038,3 +1038,25 @@ using
    FROM (orders o
      JOIN profiles p ON ((p.user_id = auth.uid())))
   WHERE (has_permission('orders.complete'::text) AND (p.outlet_id = o.outlet_id) AND (o.status not in ('completed', 'cancelled')))))
+
+
+-- ============================================================================
+-- APP RELEASE POLICY (docs/APP_UPDATES.md)
+-- ============================================================================
+-- One row for the whole project (all businesses run the same desktop app).
+-- Set by the developer in the Supabase SQL editor, never from the app:
+--   update app_release_policy set blocked_versions = array['1.2.0'],
+--     message = 'Please install the update.' where id = true;
+-- A desktop whose version is in blocked_versions, or below minimum_version,
+-- shows "Update required" until it installs a newer version.
+-- Read only through get_app_release_policy(); no direct table access.
+create table if not exists app_release_policy (
+  id boolean primary key default true check (id),
+  minimum_version text,
+  blocked_versions text[] not null default '{}',
+  message text,
+  updated_at timestamptz not null default now()
+);
+insert into app_release_policy (id) values (true) on conflict (id) do nothing;
+alter table app_release_policy enable row level security;
+revoke all on app_release_policy from anon, authenticated;

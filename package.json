@@ -17,6 +17,7 @@
     "start": "cross-env NODE_ENV=production electron .",
     "package": "npm run build && electron-builder",
     "package:win32": "npm run build && electron-builder --win nsis:ia32 -c.nsis.artifactName=\"Virunthagam POS-${version}-ia32.${ext}\"",
+    "release": "node scripts/release.js",
     "rebuild": "electron-rebuild -f -w @grandchef/node-printer",
     "postinstall": "electron-rebuild -f -w @grandchef/node-printer || echo \"electron-rebuild skipped (run 'npm run rebuild' manually if printing fails)\"",
     "lint": "eslint src",
@@ -27,12 +28,14 @@
     "@mapbox/node-pre-gyp": "^2.0.3",
     "@supabase/supabase-js": "^2.108.2",
     "cors": "^2.8.6",
+    "electron-updater": "^6.8.11",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
     "node-thermal-printer": "^4.6.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1161.0",
     "@electron/rebuild": "^4.0.1",
     "@eslint/js": "^9.39.4",
     "@types/cors": "^2.8.19",
@@ -50,6 +53,7 @@
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.7.0",
+    "js-yaml": "^4.3.2",
     "prettier": "^3.8.5",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -74,6 +78,12 @@
     },
     "asarUnpack": [
       "**/node_modules/@grandchef/node-printer/**"
+    ],
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://updates.invalid/the-app-uses-UPDATE_BASE_URL"
+      }
     ],
     "win": {
       "target": [

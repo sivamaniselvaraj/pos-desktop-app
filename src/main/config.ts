@@ -41,6 +41,8 @@ interface PersistedSettings {
   /** 'direct' = ESC/POS raw (default); 'html' = HTML rendered and printed through the OS driver. */
   printMethod?: 'direct' | 'html';
   retryCount?: number;
+  /** App updates: 'beta' gets releases a few days early. Default 'stable'. */
+  updateChannel?: 'stable' | 'beta';
   /** Paired API devices. Only a SHA-256 of each token's secret is stored. */
   apiDevices?: StoredApiDevice[];
 }
@@ -200,6 +202,16 @@ export const config = {
   },
   set printMethod(value: 'direct' | 'html') {
     persist({ printMethod: value === 'html' ? 'html' : 'direct' });
+  },
+  // Where this PC looks for new versions (docs/APP_UPDATES.md). Empty = updates off.
+  get updateBaseUrl(): string {
+    return (process.env.UPDATE_BASE_URL || '').replace(/\/+$/, '');
+  },
+  get updateChannel(): 'stable' | 'beta' {
+    return loadFile().updateChannel === 'beta' ? 'beta' : 'stable';
+  },
+  set updateChannel(value: 'stable' | 'beta') {
+    persist({ updateChannel: value === 'beta' ? 'beta' : 'stable' });
   },
   get autoRetry(): boolean {
     return loadFile().autoRetry ?? true;

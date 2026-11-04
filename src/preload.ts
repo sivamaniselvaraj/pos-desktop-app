@@ -36,6 +36,8 @@ import type {
   TaxRateRow,
   AddTaxRatePayload,
   MyAccess,
+  UpdateStatus,
+  InstallCheck,
   MenuCategory,
   MenuCategoryAdmin,
   PlaceOrderResult,
@@ -232,6 +234,13 @@ const api: ElectronApi = {
   onOrderStatusChanged: (cb) => on<OrderWithStatus>(IpcChannels.ORDER_STATUS_CHANGED, cb),
   onPrinterStatus: (cb) => on<PrinterInfo[]>(IpcChannels.PRINTER_STATUS, cb),
   onServerStatus: (cb) => on<ServerStatus>(IpcChannels.SERVER_STATUS, cb),
+  getUpdateStatus: () => ipcRenderer.invoke(IpcChannels.GET_UPDATE_STATUS) as Promise<UpdateStatus>,
+  checkForUpdates: () => ipcRenderer.invoke(IpcChannels.CHECK_FOR_UPDATES) as Promise<UpdateStatus>,
+  getInstallCheck: () => ipcRenderer.invoke(IpcChannels.GET_INSTALL_CHECK) as Promise<InstallCheck>,
+  installUpdate: () => ipcRenderer.invoke(IpcChannels.INSTALL_UPDATE) as Promise<void>,
+  setUpdateChannel: (channel) =>
+    ipcRenderer.invoke(IpcChannels.SET_UPDATE_CHANNEL, channel) as Promise<UpdateStatus>,
+  onUpdateStatus: (cb) => on<UpdateStatus>(IpcChannels.UPDATE_STATUS, cb),
 };
 
 contextBridge.exposeInMainWorld('api', api);

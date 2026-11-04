@@ -2381,6 +2381,51 @@ exception when others then
 end $$;
 
 
--- Receipt header / footer lines (Settings > Receipt): one text per outlet, one line per row.
-alter table outlets add column if not exists receipt_header text;
-alter table outlets add column if not exists receipt_footer text;
+-- ============================================================================
+-- BILL PRINTED: orders.is_printed / orders.printed_at
+-- ============================================================================
+-- is_printed turns true the first time the order's bill (receipt) prints.
+-- printed_at keeps the time of that FIRST print; later reprints do not change it.
+-- Any later print of the same order shows a "DUPLICATE BILL" heading.
+--
+-- Existing orders: the bill of a completed order has already been handed out
+-- (settle prints the bill before marking the order completed), so completed
+-- orders are marked printed, with printed_at = settled_at (else updated_at,
+-- else created_at). The backfill runs only once, when the column is first
+-- added, so re-running this file never marks newer orders as printed.
+-- Also in db/migrations/order_bill_printed.sql, to run on its own.
+do $$
+begin
+  if not exists (select 1 from information_schema.columns
+                  where table_schema = 'public' and table_name = 'orders' and column_name = 'is_printed') then
+    alter table orders add column is_printed boolean not null default false;
+    alter table orders add column if not exists printed_at timestamptz;
+    update orders
+       set is_printed = true,
+           printed_at = coalesce(settled_at, updated_at, created_at)
+     where status = 'completed';
+  end if;
+end $$;
+alter table orders add column if not exists printed_at timestamptz;
+
+
+-- ============================================================================
+-- APP RELEASE POLICY (docs/APP_UPDATES.md)
+-- ============================================================================
+-- One row for the whole project (all businesses run the same desktop app).
+-- Set by the developer in the Supabase SQL editor, never from the app:
+--   update app_release_policy set blocked_versions = array['1.2.0'],
+--     message = 'Please install the update.' where id = true;
+-- A desktop whose version is in blocked_versions, or below minimum_version,
+-- shows "Update required" until it installs a newer version.
+-- Read only through get_app_release_policy(); no direct table access.
+create table if not exists app_release_policy (
+  id boolean primary key default true check (id),
+  minimum_version text,
+  blocked_versions text[] not null default '{}',
+  message text,
+  updated_at timestamptz not null default now()
+);
+insert into app_release_policy (id) values (true) on conflict (id) do nothing;
+alter table app_release_policy enable row level security;
+revoke all on app_release_policy from anon, authenticated;

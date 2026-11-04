@@ -129,8 +129,6 @@ export interface OrderRepository {
   fetchAggregatedItemsForOrders(orderIds: string[]): Promise<OrderItem[]>;
   /** Order numbers in a dine-in table's batch; null when the table doesn't exist. */
   fetchOrdersByInvoiceNumbers(invoiceNumber: string, outletId: string): Promise<FoodOrder[]>;
-  /** Marks orders completed (settled). Does not free the table. */
-  markOrdersCompleted(orderIds: string[]): Promise<void>;
   /** Marks the bill printed (is_printed, printed_at) on orders not printed before; printed_at keeps the first print time. */
   markOrdersBillPrinted(orderIds: string[]): Promise<void>;
   /** Orders of one outlet whose kitchen items are still unprinted. */
@@ -397,6 +395,11 @@ export interface ReportRepository {
   salesByTypeBucketed(from: string, to: string, bucket: ReportBucket): Promise<SalesByTypeBucketRow[]>;
 }
 
+export interface ReleaseRepository {
+  /** The app release policy (get_app_release_policy): minimum and blocked versions. null when there is no row. */
+  getPolicy(): Promise<import('../../shared/types').ReleasePolicy | null>;
+}
+
 // ---------------------------------------------------------------------------
 // The provider
 // ---------------------------------------------------------------------------
@@ -419,4 +422,5 @@ export interface DataProvider {
   groups: GroupRepository;
   invoices: InvoiceRepository;
   reports: ReportRepository;
+  releases: ReleaseRepository;
 }
