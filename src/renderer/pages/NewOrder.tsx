@@ -92,8 +92,6 @@ function Stepper({ qty, onMinus, onPlus }: { qty: number; onMinus: () => void; o
 export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?: string | null, initialOrderType?: OrderType} = {}) {
   const { can, user } = useAuth();
   const canDiscount = can('orders.discount');
-  console.log("initialTableId. ", initialTableId)
-   console.log("initialOrderType. ", initialOrderType)
   // The discount or complimentary chosen for this order (null = none); it is applied when the order is placed.
   const [discount, setDiscount] = useState<(NewOrderDiscount & { reason: string }) | null>(null);
   const [discountOpen, setDiscountOpen] = useState(false);
@@ -340,7 +338,7 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
             <button type="button" className={orderType === DINE_IN_ORDER_TYPE ? styles.segOn : ''} onClick={() => setOrderType(DINE_IN_ORDER_TYPE)}>
               Dine-in
             </button>
-            <button type="button" className={orderType === PICK_UP_ORDER_TYPE ? styles.segOn : ''} onClick={() => setOrderType(PICK_UP_ORDER_TYPE)}>
+            <button type="button" className={orderType === PICK_UP_ORDER_TYPE ? styles.segOn : ''} onClick={() => {setOrderType(PICK_UP_ORDER_TYPE), setTableId(null)}}>
               Pickup
             </button>
           </div>
