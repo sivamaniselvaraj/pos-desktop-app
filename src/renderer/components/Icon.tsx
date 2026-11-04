@@ -340,22 +340,23 @@ const paths: Record<IconName, ReactElement> = {
   ),
   table: (
     <>
-    <path fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round" d="M17 21v-8H7v8M7 3v5h8"
-        />
+      <line x1="6" y1="10" x2="18" y2="10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <line x1="12" y1="10" x2="12" y2="20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <line x1="9" y1="20" x2="15" y2="20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <line x1="2" y1="6" x2="2" y2="20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <polyline fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points="2 14 5 14 5 20" />
+      <line x1="22" y1="6" x2="22" y2="20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <polyline fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points="22 14 19 14 19 20" />
     </>
   ),
   taxIcon: (
     <>
-        <text x="0" y="15" stroke="currentColor" strokeWidth="1" fill="currentColor" fontSize="13">TAX</text>
+      <text x="0" y="15" stroke="currentColor" strokeWidth="1" fill="currentColor" fontSize="13">TAX</text>
     </>
   ),
   kotIcon:(
     <>
-        <text x="0" y="15" stroke="currentColor" strokeWidth="1" fill="currentColor" fontSize="13">KOT</text>
+      <text x="0" y="15" stroke="currentColor" strokeWidth="1" fill="currentColor" fontSize="12">KOT</text>
     </>
   ),
 };
