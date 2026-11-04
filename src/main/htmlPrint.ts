@@ -135,9 +135,9 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
   out.push('<div class="rule"></div>');
   out.push("<table>");
   if (roundOff * 100 < 0) {
-    out.push(`<tr><td class="r" style="width:70%">Round off</td><td style="width:30%">${esc(price(roundOff))}</td></tr>`);
+    out.push(`<tr><td class="r" style="width:70%">Round off</td><td class="r" style="width:30%">${esc(price(roundOff))}</td></tr>`);
   };
-  out.push(`<tr class="lg"><td class="r" style="width:70%">Grand Total</td><td style="width:30%">${esc(money(grandTotal))}</td></tr>`);
+  out.push(`<tr class="lg"><td class="r" style="width:70%">Grand Total</td><td class="r" style="width:30%">${esc(money(grandTotal))}</td></tr>`);
   out.push("</table>");
   if (order.specialNotes) {
     out.push('<div class="thick"></div>');
