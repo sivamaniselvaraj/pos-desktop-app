@@ -131,7 +131,7 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
   }
   for (const t of taxBillLines(order.taxBreakdown, order.tax)) out.push(line(t.label, price(t.amount)));
   out.push('<div class="rule"></div>');
-  if (roundOff * 100 > 0) {out.push(`<div class="r">round off -${price(roundOff)}</div>`)};
+  if (roundOff * 100 < 0) {out.push(`<div class="r">round off -${price(roundOff)}</div>`)};
   out.push(`<div class="r lg">Grand Total ${esc(money(grandTotal))}</div>`);
 
   if (order.specialNotes) {
