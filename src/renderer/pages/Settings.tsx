@@ -435,9 +435,9 @@ export function Settings() {
           )}
 
           <div className={styles.printerCard} style={{ marginBottom: 12 }}>
-            <div className={styles.printerInfo}>
+            <div>
               <div className={styles.printerName}>Print method</div>
-              <small className={styles.hint}>
+               <small className={styles.hint}>
                 Direct sends ESC/POS to the printer. HTML renders the bill and KOT as a page and prints it through
                 the printer driver (80 mm, no dialog). Use Test to compare.
               </small>
