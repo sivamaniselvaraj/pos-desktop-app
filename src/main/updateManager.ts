@@ -43,7 +43,7 @@ let policy: ReleasePolicy | null = null;
 const status: UpdateStatus = {
   phase: 'disabled',
   currentVersion: app.getVersion(),
-  channel: 'stable',
+  channel: 'beta',
   required: false,
 };
 

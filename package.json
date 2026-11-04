@@ -1,7 +1,7 @@
 {
   "name": "virunthagam",
   "productName": "Virunthagam POS",
-  "version": "1.0.0",
+  "version": "v1.0",
   "description": "Desktop app that receives food order IDs over HTTP, fetches details from Supabase, and prints to thermal printers.",
   "author": "",
   "license": "MIT",

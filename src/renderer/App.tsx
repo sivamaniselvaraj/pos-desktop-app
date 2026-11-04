@@ -99,7 +99,7 @@ export default function App() {
         printers={printers}
       />
       <main className={styles.main}>
-        <Header server={server} onRefresh={handleRefresh} />
+        <Header server={server} softwareStatus={update} onRefresh={handleRefresh} />
         <UpdateBanner status={update} />
         <div className={styles.body}>
           <Suspense fallback={pageLoading}>

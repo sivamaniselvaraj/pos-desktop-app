@@ -1,14 +1,15 @@
 import { Icon } from './Icon';
 import { useAuth } from '../context/AuthContext';
-import type { ServerStatus } from '@shared/types';
+import type { ServerStatus, UpdateStatus } from '@shared/types';
 import styles from '../styles/Header.module.css';
 
 interface HeaderProps {
   server: ServerStatus | null;
+  softwareStatus: UpdateStatus | null;
   onRefresh: () => void;
 }
 
-export function Header({ server, onRefresh }: HeaderProps) {
+export function Header({ server, softwareStatus, onRefresh }: HeaderProps) {
   const { user, signOut } = useAuth();
   const online = server?.running ?? false;
   const dbConnected = server?.database === 'connected';
@@ -17,7 +18,7 @@ export function Header({ server, onRefresh }: HeaderProps) {
     <header className={styles.header}>
       <div className={styles.titleBlock}>
         <h3 className={styles.title}>Virunthagam POS</h3>
-        <small className={styles.userRole}>Beta-v1.0</small>
+        <small className={styles.softwareVersion}>{softwareStatus?.channel ?? '…'}-{softwareStatus?.currentVersion ?? '…'}</small>
         {user?.outletName && <div className={styles.outletName}>{user.outletName}</div>}
       </div>
       <div className={styles.actions}>

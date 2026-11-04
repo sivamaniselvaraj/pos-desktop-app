@@ -25,6 +25,11 @@
   font-weight: 500;
 }
 
+.softwareVersion {
+  font-size: 10px;
+  color: var(--text-muted, #666);
+}
+
 .actions {
   display: flex;
   align-items: center;

@@ -51,7 +51,7 @@ export function About({ update }: { update: UpdateStatus | null }) {
         <h3>Version and updates</h3>
         <div className={styles.field}>
           <span>Installed version</span>
-          <strong>{update?.currentVersion ?? '…'}</strong>
+          <strong>{update?.channel ?? '…'}-{update?.currentVersion ?? '…'}</strong>
         </div>
         {update && (
           <>
@@ -83,7 +83,7 @@ export function About({ update }: { update: UpdateStatus | null }) {
                 </button>
               )}
             </div>
-            {isAdmin && update.phase !== 'disabled' && (
+            {update.phase !== 'disabled' && (
               <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 16, fontSize: 13 }}>
                 <input
                   type="checkbox"
