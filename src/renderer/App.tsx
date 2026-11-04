@@ -11,8 +11,11 @@ import { UnprintedKotsPage } from './pages/UnprintedKots';
 import { About } from './pages/About';
 import { Login } from './pages/Login';
 import { useStatus } from './hooks/useStatus';
+import { useUpdateStatus } from './hooks/useUpdateStatus';
+import { UpdateBanner, UpdateRequired } from './components/UpdateBanner';
 import { useAuth } from './context/AuthContext';
 import styles from './styles/App.module.css';
+import { DINE_IN_ORDER_TYPE, OrderType, PICK_UP_ORDER_TYPE } from '../shared/types';
 
 // Pages opened rarely during service load on demand, so the app starts with a
 // smaller file. The Sales report pulls in Recharts (about half the old bundle);
@@ -34,7 +37,9 @@ export default function App() {
   const { user, loading, access, signOut } = useAuth();
   const [page, setPage] = useState('dashboard');
   const [presetTable, setPresetTable] = useState<string | null>(null);
+  const [orderType, setOrderType] = useState<OrderType>(PICK_UP_ORDER_TYPE);
   const { server, printers } = useStatus();
+  const update = useUpdateStatus();
 
   const handleRefresh = () => {
     window.location.reload();
@@ -47,7 +52,12 @@ export default function App() {
 
   // Gate the operator console behind authentication + authorization.
   if (!user) {
-    return <Login />;
+    return (
+      <>
+        <Login />
+        <UpdateRequired status={update} />
+      </>
+    );
   }
 
   // Permissions are still loading.
@@ -78,9 +88,19 @@ export default function App() {
 
   return (
     <div className={styles.app}>
-      <Sidebar active={current} onNavigate={setPage} printers={printers} />
+      <Sidebar
+        active={current}
+        onNavigate={(next) => {
+          // The sidebar always opens a fresh New order (Pickup), never one left over from a Dashboard table.
+          setPresetTable(null);
+          setOrderType(PICK_UP_ORDER_TYPE)
+          setPage(next);
+        }}
+        printers={printers}
+      />
       <main className={styles.main}>
         <Header server={server} onRefresh={handleRefresh} />
+        <UpdateBanner status={update} />
         <div className={styles.body}>
           <Suspense fallback={pageLoading}>
             {current === 'dashboard' && (
@@ -89,6 +109,7 @@ export default function App() {
                   allowed.has('new-order')
                     ? (tableId) => {
                         setPresetTable(tableId);
+                        setOrderType(DINE_IN_ORDER_TYPE)
                         setPage('new-order');
                       }
                     : undefined
@@ -113,15 +134,16 @@ export default function App() {
             )}
             {current === 'tables' && <TablesManagement />}
             {current === 'new-order' && (
-              <NewOrder key={presetTable ?? 'none'} initialTableId={presetTable} />
+              <NewOrder key={presetTable ?? 'none'} initialTableId={presetTable} initialOrderType={orderType}/>
             )}
             {current === 'menu-items' && <MenuItemsPage />}
             {current === 'kot-board' && <KotBoardPage />}
             {current === 'unprinted-kots' && <UnprintedKotsPage />}
-            {current === 'about' && <About />}
+            {current === 'about' && <About update={update} />}
           </Suspense>
         </div>
       </main>
+      <UpdateRequired status={update} />
     </div>
   );
 }

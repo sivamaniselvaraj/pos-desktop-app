@@ -53,6 +53,7 @@ export async function recordBillPrinted(orderIds: string[]): Promise<void> {
   }
 }
 
+
 class OrderManager extends EventEmitter {
   // Display cache ONLY. This is populated after a print attempt concludes
   // (success or failure) so the operator console has something to show and
@@ -232,7 +233,7 @@ class OrderManager extends EventEmitter {
         };
       }
   
-    const orders = await db.orders.fetchOrdersByInvoiceNumbers(invoiceNumber, outletId);
+      const orders = await db.orders.fetchOrdersByInvoiceNumbers(invoiceNumber, outletId);
       if (orders.length === 0) {
         return {
           success: false,
@@ -245,25 +246,23 @@ class OrderManager extends EventEmitter {
       const anchor = orders[0];
       // The bill is already on paper but marking the orders completed failed
       // earlier: only retry that update, never print the bill again.
-      const open = orders.filter((o) => o.status !== 'completed' && o.isPrinted && o.orderType === DINE_IN_ORDER_TYPE);
-      if (open.length > 0 && open.every((o) => this.pendingSettles.has(o.id))) {
-        try {
-          await withDbRetry(() => db.orders.markOrdersCompleted(open.map((o) => o.id)));
-          open.forEach((o) => this.pendingSettles.delete(o.id));
-          return { success: true, orderId: anchor.id, message: 'Order settled', printStatus: 'printed' };
-        } catch (err) {
-          const message = err instanceof Error ? err.message : 'Unknown error';
-          return {
-            success: false,
-            orderId: anchor.id,
-            message: `Bill was already printed, but the order could not be marked settled yet (${message}). Not printing again.`,
-            printStatus: 'printed',
-            error: 'SETTLE_PENDING',
-          };
-        }
-      }
-  
-      
+      // const open = orders.filter((o) => o.status !== 'completed' && o.isPrinted && o.orderType === DINE_IN_ORDER_TYPE);
+      // if (open.length > 0 && open.every((o) => this.pendingSettles.has(o.id))) {
+      //   try {
+      //     await withDbRetry(() => db.orders.markOrdersCompleted(open.map((o) => o.id)));
+      //     open.forEach((o) => this.pendingSettles.delete(o.id));
+      //     return { success: true, orderId: anchor.id, message: 'Order settled', printStatus: 'printed' };
+      //   } catch (err) {
+      //     const message = err instanceof Error ? err.message : 'Unknown error';
+      //     return {
+      //       success: false,
+      //       orderId: anchor.id,
+      //       message: `Bill was already printed, but the order could not be marked settled yet (${message}). Not printing again.`,
+      //       printStatus: 'printed',
+      //       error: 'SETTLE_PENDING',
+      //     };
+      //   }
+      // }
   
       const isGrouped = orders.length > 1;
       const orderIds = orders.map((o) => o.id);
@@ -326,19 +325,7 @@ class OrderManager extends EventEmitter {
       }
 
     await recordBillPrinted(orderIds);
-      // Mark every order in the batch completed only after the bill prints.
-      // The table is freed later, once payment is recorded (save_order_payment RPC).
-    let settlePending = false;
-    try {
-      if(anchor.orderType === DINE_IN_ORDER_TYPE)
-      await withDbRetry(() => db.orders.markOrdersCompleted(orderIds));
-    } catch (err) {
-      settlePending = true;
-      orderIds.forEach((id) => this.pendingSettles.add(id));
-      console.error('[orderManager] Bill printed but orders could not be marked completed; will retry that only:', err instanceof Error ? err.message : err);
-    }
 
-    // Cache every settled order for display directly from what was already
     // fetched — no extra round trip needed, we already know the resulting
     // state (status flips to 'completed', print just succeeded).
     const printedAt = new Date().toISOString();

@@ -117,22 +117,21 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
       // Grouped reprint: pulls in every order still in this table's batch
       // (all rounds settled together) so a reprint after grouping still
       // shows the full merged bill, not just one order.
-        await window.api.reprintOrder(table.invoiceNumber!);
-        flash('success', `Printed for Table ${table.tableNumber}`);
-      }
-      // Reload the tables so the card shows the new state (e.g. "Print duplicate
-      // bill" once the bill has printed). Also after a failure, in case part of
-      // a grouped bill printed.
-      try {
-        setTimeout(async() => await load(), 2000);
-      } catch (err) {
-        flash('error', err instanceof Error ? err.message : 'Added, but failed to refresh');
+
+      await Promise.all([
+        window.api.reprintOrder(table.invoiceNumber!),
+        window.api.completeInvoice(table.invoiceNumber!),
+      ]);
+  
+      flash('success', `Printed for Table ${table.tableNumber}`);
       }
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Print failed');
     } finally {
       setBusyTableId(null);
     }
+    // Reload the tables so the card shows the new state
+    await load()
   }
 
   function openPaymentDialog(table: TableCard) {

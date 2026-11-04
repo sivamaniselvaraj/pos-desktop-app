@@ -22,8 +22,6 @@ import { displayInvoiceNumber, formatMoney as money } from '../lib/format';
 //type OrderType = 'dine_in' | 'pickup' | 'takeaway';
 type VegFilter = 'all' | 'veg' | 'nonveg';
 
-//const DINE_IN_ORDER_TYPE = 'dine_in';
-
 interface MenuEntry {
   id: string;
   name: string;
@@ -91,9 +89,11 @@ function Stepper({ qty, onMinus, onPlus }: { qty: number; onMinus: () => void; o
   );
 }
 
-export function NewOrder({ initialTableId }: { initialTableId?: string | null } = {}) {
+export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?: string | null, initialOrderType?: OrderType} = {}) {
   const { can, user } = useAuth();
   const canDiscount = can('orders.discount');
+  console.log("initialTableId. ", initialTableId)
+   console.log("initialOrderType. ", initialOrderType)
   // The discount or complimentary chosen for this order (null = none); it is applied when the order is placed.
   const [discount, setDiscount] = useState<(NewOrderDiscount & { reason: string }) | null>(null);
   const [discountOpen, setDiscountOpen] = useState(false);
@@ -103,7 +103,7 @@ export function NewOrder({ initialTableId }: { initialTableId?: string | null } 
   const [tax, setTax] = useState<TaxRates | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [orderType, setOrderType] = useState<OrderType>(PICK_UP_ORDER_TYPE);
+  const [orderType, setOrderType] = useState<OrderType>(initialOrderType ?? PICK_UP_ORDER_TYPE);
   const [tableId, setTableId] = useState<string | null>(initialTableId ?? null);
   const [query, setQuery] = useState('');
   const [veg, setVeg] = useState<VegFilter>('all');
@@ -264,6 +264,17 @@ export function NewOrder({ initialTableId }: { initialTableId?: string | null } 
 
   const canPlace = cartLines.length > 0 && (orderType === 'pickup' || orderType === PICK_UP_ORDER_TYPE || !!selectedTable) && !placing;
 
+  function resetForm() {
+    setCart({});
+    setCustomerName('');
+    setCustomerPhone('');
+    setNotes('');
+    setDiscount(null);
+    setShowDetails(false);
+    setQuery('');
+    setQuery('');
+  }
+
   async function place() {
     if (!canPlace) return;
     setPlacing(true);
@@ -289,13 +300,7 @@ export function NewOrder({ initialTableId }: { initialTableId?: string | null } 
 
   function startNew() {
     setResult(null);
-    setCart({});
-    setCustomerName('');
-    setCustomerPhone('');
-    setNotes('');
-    setDiscount(null);
-    setShowDetails(false);
-    setQuery('');
+    resetForm();
     setTableId(null);
     void loadAll(false);
   }

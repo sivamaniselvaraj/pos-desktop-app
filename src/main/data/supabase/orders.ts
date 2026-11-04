@@ -416,26 +416,6 @@ async function fetchAggregatedItemsForOrders(orderIds: string[]): Promise<OrderI
 }
 
 /**
- * Marks every order in `orderIds` completed (settled_at stamped). Deliberately
- * does NOT free the table — that only happens once payment is recorded for
- * the whole batch via save_order_payment() (db/functions.sql), triggered
- * from the Table Dashboard's Save button. This mirrors complete_order()'s
- * table-batch model but runs over the anon key (no user session) since this
- * is the Android settle-print path.
- */
-async function markOrdersCompleted(orderIds: string[]): Promise<void> {
-  if (orderIds.length === 0) return;
-  const supabase = getClient();
-  if (!supabase) throw new Error('Database is not configured.');
-
-  const { error } = await supabase
-    .from('orders')
-    .update({ status: 'completed', settled_at: new Date().toISOString() })
-    .in('id', orderIds);
-  if (error) throw new Error(error.message);
-}
-
-/**
  * Records that the bill for these orders has printed: is_printed = true and
  * printed_at = now, but only on orders not printed before, so printed_at keeps
  * the FIRST print time and a reprint changes nothing.
@@ -509,7 +489,6 @@ export const orders: OrderRepository = {
   fetchAggregatedItems,
   fetchAggregatedItemsForOrders,
   fetchOrdersByInvoiceNumbers,
-  markOrdersCompleted,
   markOrdersBillPrinted,
   findOrdersWithPendingKot,
   listUnprintedKots,
