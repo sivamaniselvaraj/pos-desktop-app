@@ -84,7 +84,7 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
       `<tbody>
         <tr>
           <td>${new Date(order.createdAt).toLocaleString('en-IN')}</td>
-          <td>${order.orderType.toUpperCase()}</td>
+          <td>${(order.orderType === 'takeaway' ? 'pick up' : 'dine in').toUpperCase()}</td>
         </tr>
         <tr>
           <td></td>
@@ -120,9 +120,10 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
   );
   out.push('<div class="rule"></div>');
 
-  const line = (k: string, v: string) => `<div class="sub"><span class="r">${esc(k)}</span><span>${esc(v)}</span></div>`;
+  const line = (k: string, v: string) => `<tr class="sub"><td class="r" style="width:70%">${esc(k)}</td><td class="r" style="width:30%">${esc(v)}</td></tr>`;
   let grandTotal = Number.parseInt(order?.total.toString());
   let roundOff = (grandTotal - order.total);
+  out.push("<table>");
   out.push(line('Total Qty', String(totalQty)));
   out.push(line('Subtotal', price(order.subtotal)));
   if (order.containerCharge && order.containerCharge > 0) out.push(line('Container Charge', price(order.containerCharge)));
@@ -130,10 +131,14 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
     out.push(line(order.isComplimentary ? 'Complimentary' : 'Discount', '-' + price(order.discount)));
   }
   for (const t of taxBillLines(order.taxBreakdown, order.tax)) out.push(line(t.label, price(t.amount)));
+  out.push("</table>");
   out.push('<div class="rule"></div>');
-  if (roundOff * 100 < 0) {out.push(`<div class="r">round off -${price(roundOff)}</div>`)};
-  out.push(`<div class="r lg">Grand Total ${esc(money(grandTotal))}</div>`);
-
+  out.push("<table>");
+  if (roundOff * 100 < 0) {
+    out.push(`<tr><td class="r" style="width:70%">Round off</td><td style="width:30%">${esc(price(roundOff))}</td></tr>`);
+  };
+  out.push(`<tr class="lg"><td class="r" style="width:70%">Grand Total</td><td style="width:30%">${esc(money(grandTotal))}</td></tr>`);
+  out.push("</table>");
   if (order.specialNotes) {
     out.push('<div class="thick"></div>');
     out.push(`<div class="c b">Special Notes</div><div>${esc(order.specialNotes)}</div><div style="height:4px"></div>`);
