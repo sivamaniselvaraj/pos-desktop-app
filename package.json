@@ -18,13 +18,13 @@
     "package": "npm run build && electron-builder",
     "package:win32": "npm run build && electron-builder --win nsis:ia32 -c.nsis.artifactName=\"Virunthagam POS-${version}-ia32.${ext}\"",
     "release": "node scripts/release.js",
-    "rebuild": "electron-rebuild -f -w @grandchef/node-printer",
-    "postinstall": "electron-rebuild -f -w @grandchef/node-printer || echo \"electron-rebuild skipped (run 'npm run rebuild' manually if printing fails)\"",
+    "rebuild": "electron-rebuild -f -w @timokunze/node-printer",
+    "postinstall": "electron-rebuild -f -w @timokunze/node-printer || echo \"electron-rebuild skipped (run 'npm run rebuild' manually if printing fails)\"",
     "lint": "eslint src",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\""
   },
   "dependencies": {
-    "@grandchef/node-printer": "^0.8.0",
+    "@timokunze/node-printer": "^0.6.37",
     "@mapbox/node-pre-gyp": "^2.0.3",
     "@supabase/supabase-js": "^2.108.2",
     "cors": "^2.8.6",

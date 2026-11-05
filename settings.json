@@ -1,5 +1,5 @@
 {
-  "waiterPrinter": "HP_Smart_Tank_580_590_series__8E5406_",
+  "waiterPrinter": "HP_Smart_Tank_580_590_series",
   "apiDevices": [
     {
       "id": "6ac486b56bef",
@@ -23,5 +23,8 @@
       "pinHash": "scrypt$ce2e15e0241b5fdb1fd973c3dcf2f2db$2cd619b6d25ba7de4109587826e6ed804ac47225ab104d30b9c697c34563d5e0",
       "pinSetAt": "2026-10-20T20:19:09.775Z"
     }
-  ]
+  ],
+  "cashierPrinter": "HP_Smart_Tank_580_590_series",
+  "kitchenPrinter": "HP_Smart_Tank_580_590_series",
+  "printMethod": "html"
 }

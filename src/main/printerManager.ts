@@ -16,7 +16,7 @@ const isWindows = process.platform === 'win32';
 // ---- OS spooler driver ---------------------------------------------------
 // node-thermal-printer's `printer:Name` interface needs a native driver
 // injected via the `driver` option; the library ships none (that's the
-// "No driver set!" error). We use @grandchef/node-printer, the maintained
+// "No driver set!" error). We use @timokunze/node-printer, the maintained
 // fork. It's a native addon compiled per-platform/Electron ABI, so it may be
 // absent or unbuilt in some environments — load it lazily and fail with a
 // clear, actionable message rather than crashing at startup.
@@ -26,7 +26,7 @@ function loadPrinterDriver(printerName: string): ThermalPrinter {
    const printer = new ThermalPrinter({
       type: PrinterTypes.CUSTOM,
       interface: 'printer:' + printerName,
-      driver: require(electron ? '@grandchef/node-printer' : 'printer') as object,
+      driver: require(electron ? '@timokunze/node-printer' : 'printer') as object,
       characterSet: CharacterSet.WPC1252,
       lineCharacter: '-', // must be single-byte ASCII: drawLine() does no codepage conversion
       width: RECEIPT_WIDTH,
@@ -672,7 +672,7 @@ async function printOrderNow(order: FoodOrder, printerName:string, isDuplicate: 
 
       // Enhance common spooler errors
       if (message.includes('No driver set')) {
-        message = `Print driver not initialized for "${printerName}". The @grandchef/node-printer module is missing or not rebuilt for Electron.`;
+        message = `Print driver not initialized for "${printerName}". The @timokunze/node-printer module is missing or not rebuilt for Electron.`;
       } else if (/not found|unavailable|NOT-AVAILABLE/i.test(message)) {
         message = `Printer "${printerName}" not found in the OS spooler. Verify the name matches Get-Printer / lpstat -p exactly and the printer is online.`;
       }
@@ -881,7 +881,7 @@ async function testPrintNow(name: string): Promise<string> {
     if (err instanceof Error) {
       message = err.message;
       if (message.includes('No driver set')) {
-        message = `Print driver not initialized. The @grandchef/node-printer module is missing or not rebuilt for Electron.`;
+        message = `Print driver not initialized. The @timokunze/node-printer module is missing or not rebuilt for Electron.`;
       } else if (/not found|unavailable|NOT-AVAILABLE/i.test(message)) {
         message = `Printer "${name}" not found in the OS spooler. Verify the name matches Get-Printer / lpstat -p exactly and the printer is online.`;
       }
