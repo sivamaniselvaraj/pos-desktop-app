@@ -54,6 +54,7 @@ const CSS = `
   .note { padding-left: 8px; font-style: italic; }
   .kotq { width: 11mm; font-weight: 800; font-size: 15px; }
   .kotn { font-size: 14px; font-weight: 700; }
+  .gTotal { font-size: 16px; font-weight: 700; }
 `;
 
 function page(body: string): string {
@@ -120,7 +121,7 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
   );
   out.push('<div class="rule"></div>');
 
-  const line = (k: string, v: string) => `<tr class="sub"><td class="r" style="width:70%">${esc(k)}</td><td class="r" style="width:30%">${esc(v)}</td></tr>`;
+  const line = (k: string, v: string) => `<tr class="sub"><td class="r" style="width:65%">${esc(k)}</td><td class="r" style="width:35%">${esc(v)}</td></tr>`;
   let grandTotal = Number.parseInt(order?.total.toString());
   let roundOff = (grandTotal - order.total);
   out.push("<table>");
@@ -135,9 +136,9 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
   out.push('<div class="rule"></div>');
   out.push("<table>");
   if (roundOff * 100 < 0) {
-    out.push(`<tr><td class="r" style="width:70%">Round off</td><td class="r" style="width:30%">${esc(price(roundOff))}</td></tr>`);
+    out.push(`<tr><td class="r" style="width:60%">Round off</td><td class="r" style="width:40%">${esc(price(roundOff))}</td></tr>`);
   };
-  out.push(`<tr class="lg"><td class="r" style="width:70%">Grand Total</td><td class="r" style="width:30%">${esc(money(grandTotal))}</td></tr>`);
+  out.push(`<tr class="gTotal"><td class="r" style="width:60%">Grand Total</td><td class="r" style="width:40%">${esc(money(grandTotal))}</td></tr>`);
   out.push("</table>");
   if (order.specialNotes) {
     out.push('<div class="thick"></div>');
