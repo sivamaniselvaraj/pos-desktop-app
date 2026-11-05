@@ -9,7 +9,7 @@ import { PrintTimeoutError, withTimeout } from './printQueue';
 /**
  * htmlPrint.ts
  * ---------------------------------------------------------------------------
- * HTML print path for the bill and the KOT (80 mm thermal roll). The layouts
+ * HTML print path for the bill and the KOT (80 mm thermal roll, 72 mm printed width). The layouts
  * mirror the ESC/POS ones in printerManager.ts; printing is silent (no dialog)
  * to the printer already mapped in Settings, through the OS driver.
  *
@@ -19,7 +19,13 @@ import { PrintTimeoutError, withTimeout } from './printQueue';
  * ---------------------------------------------------------------------------
  */
 
-const PAPER_MM = 80;
+// Page width sent to the driver. 80 mm thermal printers print 72 mm wide, and
+// their Windows drivers offer paper such as "72 x 3276 mm" (RP3150 STAR). An
+// 80 mm page did not match it and came out as a blank strip (2026-11-05).
+//const PAPER_MM = 80;
+const PAPER_MM = 72;
+// Longest page these drivers accept (72 x 3276 mm).
+const MAX_PAGE_MICRONS = 3276 * 1000;
 const PX_TO_MICRONS = 25400 / 96;
 
 export function esc(value: unknown): string {
@@ -37,7 +43,7 @@ const CSS = `
   @page { size: ${PAPER_MM}mm auto; margin: 0; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #fff; }
-  body { width: ${PAPER_MM}mm; padding: 2mm 4mm 4mm; font-family: Arial, 'Segoe UI', sans-serif;
+  body { width: ${PAPER_MM}mm; padding: 2mm 2mm 4mm; font-family: Arial, 'Segoe UI', sans-serif;
          font-size: 12px; line-height: 1.35; color: #000; }
   .c { text-align: center; } .r { text-align: right; } .b { font-weight: 700; }
   .lg { font-size: 20px; font-weight: 800; } .xl { font-size: 24px; font-weight: 800; }
@@ -68,9 +74,11 @@ function kv(k: string, v: string): string {
 export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
   const header = parseHeaderConfig(order.headerConfig);
   const out: string[] = [];
-  out.push(
-    `<div class="c lg">${esc(header?.restaurantName?.trim() || order.outlet?.name || 'RESTAURANT PRINTER')}</div>`,
-  );
+  //outlet name comes from printer config header
+
+  // out.push(
+  //   `<div class="c lg">${esc(header?.restaurantName?.trim() || order.outlet?.name || 'RESTAURANT PRINTER')}</div>`,
+  // );
   for (const l of billHeaderLines(order)) out.push(`<div class="c">${esc(l)}</div>`);
   out.push('<div class="rule"></div>');
 
@@ -88,7 +96,7 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
           <td>${(order.orderType === 'takeaway' ? 'pick up' : 'dine in').toUpperCase()}</td>
         </tr>
         <tr>
-          <td></td>
+          <td>cashier: ${order.placedBy}</td>
           <td>Bill No. ${order.invoiceNumber?.slice(-5)}</td>
         </tr>
         <tr>
@@ -96,7 +104,7 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
           <td></td>
         </tr>
       </tbody>
-      </table>`,
+      </table>`
   );
 
 
@@ -221,16 +229,34 @@ const HTML_JOB_TIMEOUT_MS = 30_000;
 
 let printWindow: BrowserWindow | null = null;
 
+// Resolves once fonts are loaded and two frames have painted (or after 1 s,
+// in case animation frames never fire in the hidden window).
+const PAINTED_JS = `Promise.race([
+  (document.fonts ? document.fonts.ready : Promise.resolve()).then(
+    () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))),
+  new Promise((r) => setTimeout(() => r(false), 1000)),
+])`;
+const PAINT_SETTLE_MS = 150;
+
 function getPrintWindow(): BrowserWindow {
   if (printWindow && !printWindow.isDestroyed()) return printWindow;
   const win = new BrowserWindow({
     show: false,
+    // A hidden window must still paint, or the driver gets a blank page
+    // (a blank strip of paper on 2026-11-05).
+    paintWhenInitiallyHidden: true,
     width: 400,
     height: 800,
-    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: true },
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      javascript: true,
+      backgroundThrottling: false,
+    },
   });
   // A crashed renderer cannot print again: drop it so the next job makes a new one.
-  win.webContents.on('render-process-gone', () => destroyHtmlPrintWindow());
+  win.webContents.on('render-process-gone', () => closeWindow(win));
   win.on('closed', () => {
     if (printWindow === win) printWindow = null;
   });
@@ -289,14 +315,25 @@ class PageLoadError extends Error {}
 // load fails at once with ERR_FAILED), throw that window away and try once more
 // with a fresh one. Printer errors are not retried: the driver may have printed.
 async function printWithRetry(html: string, name: string): Promise<void> {
+  let win = getPrintWindow();
   try {
-    await renderAndPrint(getPrintWindow(), html, name);
+    await renderAndPrint(win, html, name);
   } catch (err) {
     if (!(err instanceof PageLoadError)) throw err;
     console.warn(`[htmlPrint] ${err.message} Retrying with a new print window.`);
-    destroyHtmlPrintWindow();
-    await renderAndPrint(getPrintWindow(), html, name);
+    closeWindow(win);
+    win = getPrintWindow();
+    await renderAndPrint(win, html, name);
+  } finally {
+    // Close this job's own window only: after a timeout the next job may
+    // already be using a newer one.
+    closeWindow(win);
   }
+}
+
+function closeWindow(win: BrowserWindow): void {
+  if (printWindow === win) printWindow = null;
+  if (!win.isDestroyed()) win.destroy();
 }
 
 // The page is written to a temp file and loaded with loadFile. It used to be
@@ -324,18 +361,24 @@ async function renderAndPrint(win: BrowserWindow, html: string, name: string): P
     throw new PageLoadError(`Could not prepare the print page (${code}).`);
   }
 
+  // Wait until the page is actually drawn (fonts loaded, two frames painted)
+  // before printing; printing straight after load can send a blank page.
+  await win.webContents.executeJavaScript(PAINTED_JS);
+  await new Promise<void>((r) => setTimeout(r, PAINT_SETTLE_MS));
+
   const px = (await win.webContents.executeJavaScript(
     'Math.ceil(document.documentElement.getBoundingClientRect().height)',
   )) as number;
   // Slight over-allowance so the last line is never clipped; the roll is continuous.
-  const heightMicrons = Math.max(20000, Math.ceil((px + 12) * PX_TO_MICRONS));
+  const heightMicrons = Math.min(MAX_PAGE_MICRONS, Math.max(20000, Math.ceil((px + 12) * PX_TO_MICRONS)));
 
   await new Promise<void>((resolve, reject) => {
     win.webContents.print(
       {
-        silent: true,
+        //silent: true,
         deviceName: name,
         printBackground: true,
+        color: false, // thermal printers are black and white
         margins: { marginType: 'none' },
         pageSize: { width: PAPER_MM * 1000, height: heightMicrons },
       },
