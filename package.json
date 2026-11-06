@@ -70,7 +70,27 @@
     "files": [
       "dist/**/*",
       "node_modules/**/*",
-      "package.json"
+      "package.json",
+      "!**/*.map",
+      "!**/*.d.ts",
+      "!**/*.d.mts",
+      "!**/*.d.cts",
+      "!**/*.tsbuildinfo",
+      "!**/*.md",
+      "!node_modules/codepage/**",
+      "!node_modules/xlsx/{bin,types}/**",
+      "!node_modules/xlsx/{xlsx.mjs,xlsxworker.js,formats.png,legend.png,bower.json}",
+      "!node_modules/xlsx/dist/{xlsx.*,cpexcel.full.mjs,shim.min.js}",
+      "!node_modules/nan/**",
+      "!node_modules/@timokunze/node-printer/{src,patches,types}/**",
+      "!node_modules/@timokunze/node-printer/build/Release/obj/**",
+      "!node_modules/@timokunze/node-printer/build/**/*.{pdb,iobj,ipdb,ilk,exp,lib}"
+    ],
+    "electronLanguages": [
+      "en-US",
+      "en-GB",
+      "ta",
+      "hi"
     ],
     "directories": {
       "output": "release",
@@ -89,11 +109,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
@@ -119,6 +143,6 @@
     }
   },
   "allowScripts": {
-    "@grandchef/node-printer@0.8.0": true
+    "@timokunze/node-printer@0.6.37": true
   }
 }
