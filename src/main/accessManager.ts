@@ -48,7 +48,7 @@ export function getReceiptText(): Promise<ReceiptText> {
 
 /** Saves the header/footer lines for the signed-in outlet. The database checks receipt.manage. */
 export async function saveReceiptText(text: ReceiptText): Promise<ReceiptText> {
-  const clean = { header: cleanReceiptLines('header', text?.header), footer: cleanReceiptLines('footer', text?.footer) };
+  const clean = { businessName: text?.businessName, header: cleanReceiptLines('header', text?.header), footer: cleanReceiptLines('footer', text?.footer) };
   await db.access.setReceiptText(config.outletId, clean);
   return clean;
 }

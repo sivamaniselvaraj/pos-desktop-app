@@ -41,12 +41,12 @@ export const access: AccessRepository = {
   async getReceiptText(outletId) {
     const { data, error } = await getAuthedClient()
       .from('outlets')
-      .select('receipt_header, receipt_footer')
+      .select('name, business_name, receipt_header, receipt_footer')
       .eq('id', outletId)
       .maybeSingle();
     if (error) throw new Error(error.message);
     const r = (data ?? {}) as Record<string, unknown>;
-    return { header: String(r.receipt_header ?? ''), footer: String(r.receipt_footer ?? '') };
+    return { businessName: String(r.business_name ?? r.name), header: String(r.receipt_header ?? ''), footer: String(r.receipt_footer ?? '') };
   },
 
   async setReceiptText(outletId, text) {
@@ -54,6 +54,7 @@ export const access: AccessRepository = {
       p_outlet_id: outletId,
       p_header: text.header,
       p_footer: text.footer,
+      p_business_name: text.businessName,
     });
     if (error) throw new Error(error.message);
   },

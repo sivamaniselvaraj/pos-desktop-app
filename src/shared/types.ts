@@ -38,6 +38,7 @@ export type SettleOrderType = 'dine_in' | 'takeaway';
 
 /** Lines printed at the top and bottom of a bill, one per line. */
 export interface ReceiptText {
+  businessName: string;
   header: string;
   footer: string;
 }
@@ -49,6 +50,7 @@ export interface OutletInfo {
   phone?: string;
   gstNumber?: string;
   address?: string;
+  businessName?: string;
   /** Custom lines for the top / bottom of the bill (one per line). Set in Settings > Receipt. */
   receiptHeader?: string;
   receiptFooter?: string;

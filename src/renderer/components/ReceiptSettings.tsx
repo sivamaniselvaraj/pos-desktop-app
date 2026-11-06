@@ -17,8 +17,9 @@ function problem(text: string): string | null {
 
 /** Settings > Receipt: the lines printed under the business name and above "Thank you" on every bill. Needs receipt.manage. */
 export function ReceiptSettings() {
-  const { access, user } = useAuth();
-  const [saved, setSaved] = useState({ header: '', footer: '' });
+  const { user } = useAuth();
+  const [saved, setSaved] = useState({ businessName: '', header: '', footer: '' });
+  const [businessName, setBusinessName] = useState('');
   const [header, setHeader] = useState('');
   const [footer, setFooter] = useState('');
   const [loading, setLoading] = useState(true);
@@ -32,6 +33,7 @@ export function ReceiptSettings() {
       .then((t) => {
         if (!alive) return;
         setSaved(t);
+        setBusinessName(t.businessName?? user?.outletName)
         setHeader(t.header);
         setFooter(t.footer);
       })
@@ -44,14 +46,15 @@ export function ReceiptSettings() {
 
   const hp = problem(header);
   const fp = problem(footer);
-  const dirty = lines(header).join('\n') !== saved.header || lines(footer).join('\n') !== saved.footer;
+  const dirty = businessName !== saved.businessName || lines(header).join('\n') !== saved.header || lines(footer).join('\n') !== saved.footer;
 
   async function save() {
     setBusy(true);
     setMessage(null);
     try {
-      const done = await window.api.saveReceiptText({ header, footer });
+      const done = await window.api.saveReceiptText({ businessName, header, footer });
       setSaved(done);
+      setBusinessName(done.businessName)
       setHeader(done.header);
       setFooter(done.footer);
       setMessage({ ok: true, text: 'Saved. The next bill printed uses these lines.' });
@@ -74,6 +77,15 @@ export function ReceiptSettings() {
 
       <div className={styles.layout}>
       <div className={styles.form}>
+      <label className={styles.field}>
+        Business name (defaulted to Outlet name)
+        <input
+          value={businessName}
+          onChange={(e) => setBusinessName(e.target.value)}
+          placeholder={`${user?.outletName}`}
+        />
+        {hp && <span className={styles.error}>{hp}</span>}
+      </label>
       <label className={styles.field}>
         Header (under the business name)
         <textarea
@@ -111,7 +123,7 @@ export function ReceiptSettings() {
       <div className={styles.preview} aria-label="Preview">
         <span className={styles.previewTitle}>Preview</span>
         <div className={styles.slip}>
-          <strong className={styles.big}>{user?.outletName ?? 'Your business'}</strong>
+          <strong className={styles.big}>{businessName ?? 'Your business'}</strong>
           {lines(header).map((l, i) => (
             <div key={`h${i}`}>{l}</div>
           ))}

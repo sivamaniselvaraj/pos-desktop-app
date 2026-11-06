@@ -1060,3 +1060,7 @@ create table if not exists app_release_policy (
 insert into app_release_policy (id) values (true) on conflict (id) do nothing;
 alter table app_release_policy enable row level security;
 revoke all on app_release_policy from anon, authenticated;
+
+-- Added new column to store the business name and outlet image
+alter table outlets add column if not exists business_name text default null;
+alter table outlets add column if not exists outlet_image text default null;
