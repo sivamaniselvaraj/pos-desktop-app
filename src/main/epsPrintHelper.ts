@@ -450,7 +450,7 @@ export async function renderEpsKOT(order: FoodOrder, printerName: string) {
     if (err instanceof Error) {
       message = err.message;
       if (message.includes('No driver set')) {
-        message = `Print driver not initialized for "${printerName}". The @grandchef/node-printer module is missing or not rebuilt for Electron.`;
+        message = `Print driver not initialized for "${printerName}". The @timokunze/node-printer module is missing or not rebuilt for Electron.`;
       } else if (/not found|unavailable|NOT-AVAILABLE/i.test(message)) {
         message = `Printer "${printerName}" not found in the OS spooler. Verify the name matches Get-Printer / lpstat -p exactly and the printer is online.`;
       }
