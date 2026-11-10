@@ -5,6 +5,8 @@ import { getPrinters, testPrint } from './printerManager';
 import { isServerRunning } from './api/httpServer';
 import { db } from './data';
 import { signIn, signOut, getCurrentUser } from './authManager';
+import { getConnectionStatus } from './connectionSetup';
+import { saveConnectionSetup } from './setupManager';
 import { listDevices, revokeDevice, resetDevicePin } from './api/apiSecurity';
 import { cancelCode, createCode } from './api/pairingCodes';
 
@@ -26,7 +28,7 @@ import {
   setUserGroups,
   getUserAccess,
 } from './userAdmin';
-import { listMenuCategories, listMenuCategoriesAdmin, reorderMenuCategories, saveMenuCategory, setMenuCategoryActive, saveMenuItem, getMenuItem } from './menuManager';
+import { getMenuItem, listMenuCategories, listMenuCategoriesAdmin, reorderMenuCategories, saveMenuCategory, saveMenuItem, setMenuCategoryActive } from './menuManager';
 import { getMyAccess,getReceiptText, saveBrandColor, saveReceiptText } from './accessManager';
 import { getTaxRate, placeOrder } from './orderEntryManager';
 import { getKotBoard, getKotWorkflow, getUnprintedKots, moveKot, printKotNow, saveKotWorkflow } from './kotManager';
@@ -69,13 +71,12 @@ import {
   deleteManagedTable,
   setManagedTableStatus,
 } from './tablesManager';
-import { config } from './config';
-
+import { config, normalizePrintMethod } from './config';
+import { setPrinterAddress } from './imagePrint';
 import { IpcChannels } from '../shared/types';
 import type {
   ReceiptText,
   ServerStatus,
-  SalesReportExportPayload,
   CreateUserPayload,
   SaveGroupPayload,
   UpdateUserPayload,
@@ -84,7 +85,6 @@ import type {
   EditorApproval,
   SetOrderDiscountPayload,
   DiscountPreset,
-  ReportBucket,
   SavePaymentPayload,
   SaveManagedTablePayload,
   PlaceOrderPayload,
@@ -93,6 +93,8 @@ import type {
   AddTaxRatePayload,
   KotWorkflow,
 } from '../shared/types';
+import type { ConnectionSetupInput } from '../shared/connectionTypes';
+import type { SalesReportExportPayload, ReportBucket, ShiftWindow } from '../shared/reportTypes';
 
 /**
  * This machine's LAN IPv4 address — what Android should actually point the
@@ -142,6 +144,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.AUTH_SIGN_OUT, () => signOut());
   ipcMain.handle(IpcChannels.AUTH_GET_SESSION, () => getCurrentUser());
 
+  // connection setup (setup screen)
+  ipcMain.handle(IpcChannels.SETUP_GET_STATUS, () => getConnectionStatus());
+  ipcMain.handle(IpcChannels.SETUP_SAVE, (_e, input: ConnectionSetupInput) =>
+    saveConnectionSetup(input ?? { databaseUrl: '', outletId: '' }),
+  );
+
   // orders (renderer -> main, invoke/handle)
   ipcMain.handle(IpcChannels.GET_ORDERS, () => orderManager.getAll());
   ipcMain.handle(IpcChannels.RETRY_PRINT, (_e, orderId: string) => orderManager.retry(orderId));
@@ -149,9 +157,13 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.CLEAR_PRINTED, () => orderManager.clearPrinted());
   ipcMain.handle(IpcChannels.GET_PRINTERS, (_e, refresh?: boolean) => getPrinters(refresh === true));
   ipcMain.handle(IpcChannels.GET_PRINT_METHOD, () => config.printMethod);
-  ipcMain.handle(IpcChannels.SET_PRINT_METHOD, (_e, method: 'direct' | 'html') => {
-    config.printMethod = method === 'html' ? 'html' : 'direct';
+  ipcMain.handle(IpcChannels.SET_PRINT_METHOD, (_e, method: unknown) => {
+    config.printMethod = normalizePrintMethod(method);
   });
+  ipcMain.handle(IpcChannels.GET_PRINTER_ADDRESSES, () => config.printerAddresses);
+  ipcMain.handle(IpcChannels.SET_PRINTER_ADDRESS, (_e, printerName: unknown, address: unknown) =>
+    setPrinterAddress(String(printerName ?? ''), String(address ?? '')),
+  );
   ipcMain.handle(IpcChannels.TEST_PRINT, (_e, target?: string) => testPrint(target));
 
   // Printers & Settings (multi-printer support)
@@ -191,6 +203,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   });
 
   ipcMain.handle(IpcChannels.GET_MENU_AVAILABILITY, (_e, from: string, to: string) => db.reports.menuAvailability(from, to));
+  ipcMain.handle(IpcChannels.GET_VOIDS_DISCOUNTS, (_e, from: string, to: string) => db.reports.voidsDiscounts(from, to));
   ipcMain.handle(IpcChannels.GET_SALES_BY_WAITER, (_e, from: string, to: string) => db.reports.salesByWaiter(from, to));
 
   // Sales report (manager/owner/admin — enforced server-side by the RPC)
@@ -213,6 +226,13 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.EXPORT_SALES_REPORT, (_e, payload: SalesReportExportPayload) =>
     exportSalesReport(getWindow(), payload),
   );
+  // Sales and revenue reports (reports.view, checked by each RPC; docs/SALES_REPORTS.md)
+  ipcMain.handle(IpcChannels.GET_DAILY_SUMMARY, (_e, from: string, to: string, shift: ShiftWindow | null) =>
+    db.reports.dailySummary(from, to, shift ?? null),
+  );
+  ipcMain.handle(IpcChannels.GET_SALES_BY_HOUR, (_e, from: string, to: string) => db.reports.salesByHour(from, to));
+  ipcMain.handle(IpcChannels.GET_PRODUCT_MIX, (_e, from: string, to: string) => db.reports.productMix(from, to));
+  ipcMain.handle(IpcChannels.GET_SALES_BY_CHANNEL, (_e, from: string, to: string) => db.reports.salesByChannel(from, to));
 
   // User management (admin-only — enforced server-side by the RPCs / assertCallerIsAdmin)
   ipcMain.handle(IpcChannels.LIST_USERS, () => listUsers());

@@ -31,6 +31,7 @@ import {
 } from 'fs';
 import { join } from 'path';
 import { format } from 'util';
+import {PrintMethod } from '../shared/types';
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB per file
 const KEEP_OLD = 2; // main.1.log, main.2.log
@@ -130,7 +131,7 @@ export function initLogging(): void {
 export interface PrintJournalEntry {
   job: 'bill' | 'kot' | 'test';
   printer: string;
-  method: 'direct' | 'html';
+  method: PrintMethod;
   ok: boolean;
   ms: number;
   orderId?: string;

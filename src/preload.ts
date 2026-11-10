@@ -9,14 +9,8 @@ import type {
   ElectronApi,
   OrderWithStatus,
   PrinterInfo,
+  PrintMethod,
   PrintOrderResponse,
-  SalesReportRow,
-  SalesByWaiterRow,
-  MenuAvailabilityReport,
-  TopItemRow,
-  SalesByOrderTypeRow,
-  SalesByTypeBucketRow,
-  ExportResult,
   ManagedUser,
   UserGroup,
   PermissionInfo,
@@ -48,6 +42,21 @@ import type {
   TableOrderDetail,
   InvoiceSequenceStatus,
 } from './shared/types';
+import type { ConnectionSetupInput, ConnectionSetupResult, ConnectionSetupStatus } from './shared/connectionTypes';
+import type {
+  SalesReportRow,
+  SalesByWaiterRow,
+  MenuAvailabilityReport,
+  DailySummaryReport,
+  HourlySalesReport,
+  ProductMixReport,
+  ChannelSalesReport,
+  VoidsDiscountsReport,
+  TopItemRow,
+  SalesByOrderTypeRow,
+  SalesByTypeBucketRow,
+  ExportResult,
+} from './shared/reportTypes';
 
 // Helper to subscribe to a main->renderer channel and return an unsubscribe fn.
 function on<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -61,6 +70,10 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.AUTH_SIGN_IN, email, password) as Promise<AuthResult>,
   signOut: () => ipcRenderer.invoke(IpcChannels.AUTH_SIGN_OUT) as Promise<void>,
   getSession: () => ipcRenderer.invoke(IpcChannels.AUTH_GET_SESSION) as Promise<AuthUser | null>,
+  getConnectionSetup: () =>
+    ipcRenderer.invoke(IpcChannels.SETUP_GET_STATUS) as Promise<ConnectionSetupStatus>,
+  saveConnectionSetup: (input: ConnectionSetupInput) =>
+    ipcRenderer.invoke(IpcChannels.SETUP_SAVE, input) as Promise<ConnectionSetupResult>,
   getOrders: () => ipcRenderer.invoke(IpcChannels.GET_ORDERS) as Promise<OrderWithStatus[]>,
   retryPrint: (orderId) =>
     ipcRenderer.invoke(IpcChannels.RETRY_PRINT, orderId) as Promise<PrintOrderResponse>,
@@ -68,12 +81,18 @@ const api: ElectronApi = {
   clearPrinted: () => ipcRenderer.invoke(IpcChannels.CLEAR_PRINTED) as Promise<void>,
   getPrintMethod: () => ipcRenderer.invoke(IpcChannels.GET_PRINT_METHOD) as Promise<'direct' | 'html'>,
   setPrintMethod: (method) => ipcRenderer.invoke(IpcChannels.SET_PRINT_METHOD, method) as Promise<void>,
+  getPrinterAddresses: () =>
+    ipcRenderer.invoke(IpcChannels.GET_PRINTER_ADDRESSES) as Promise<Record<string, string>>,
+  setPrinterAddress: (printerName, address) =>
+    ipcRenderer.invoke(IpcChannels.SET_PRINTER_ADDRESS, printerName, address) as Promise<void>,
   getPrinters: (refresh?: boolean) =>
     ipcRenderer.invoke(IpcChannels.GET_PRINTERS, refresh === true) as Promise<PrinterInfo[]>,
   getSalesReport: (from, to, bucket) =>
     ipcRenderer.invoke(IpcChannels.GET_SALES_REPORT, from, to, bucket) as Promise<SalesReportRow[]>,
   getMenuAvailability: (from, to) =>
     ipcRenderer.invoke(IpcChannels.GET_MENU_AVAILABILITY, from, to) as Promise<MenuAvailabilityReport>,
+  getVoidsDiscounts: (from, to) =>
+    ipcRenderer.invoke(IpcChannels.GET_VOIDS_DISCOUNTS, from, to) as Promise<VoidsDiscountsReport>,
   getSalesByWaiter: (from, to) =>
     ipcRenderer.invoke(IpcChannels.GET_SALES_BY_WAITER, from, to) as Promise<SalesByWaiterRow[]>,
   getTopItems: (from, to) =>
@@ -88,6 +107,14 @@ const api: ElectronApi = {
     >,
   exportSalesReport: (payload) =>
     ipcRenderer.invoke(IpcChannels.EXPORT_SALES_REPORT, payload) as Promise<ExportResult>,
+  getDailySummary: (from, to, shift) =>
+    ipcRenderer.invoke(IpcChannels.GET_DAILY_SUMMARY, from, to, shift ?? null) as Promise<DailySummaryReport>,
+  getSalesByHour: (from, to) =>
+    ipcRenderer.invoke(IpcChannels.GET_SALES_BY_HOUR, from, to) as Promise<HourlySalesReport>,
+  getProductMix: (from, to) =>
+    ipcRenderer.invoke(IpcChannels.GET_PRODUCT_MIX, from, to) as Promise<ProductMixReport>,
+  getSalesByChannel: (from, to) =>
+    ipcRenderer.invoke(IpcChannels.GET_SALES_BY_CHANNEL, from, to) as Promise<ChannelSalesReport>,
   listUsers: () => ipcRenderer.invoke(IpcChannels.LIST_USERS) as Promise<ManagedUser[]>,
   listOutlets: () => ipcRenderer.invoke(IpcChannels.LIST_OUTLETS) as Promise<OutletOption[]>,
   createUser: (payload) => ipcRenderer.invoke(IpcChannels.CREATE_USER, payload) as Promise<void>,

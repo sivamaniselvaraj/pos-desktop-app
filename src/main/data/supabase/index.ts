@@ -20,11 +20,13 @@ import { groups } from './groups';
 import { invoices } from './invoices';
 import { reports } from './reports';
 import { releases } from './releases';
+import { checkConnection } from './connectionCheck';
 
 export function createSupabaseProvider(): DataProvider {
   return {
     name: 'supabase',
     isConfigured: () => Boolean(supabaseSettings.url && supabaseSettings.anonKey),
+    checkConnection,
     auth,
     access,
     orders,

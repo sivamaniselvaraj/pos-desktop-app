@@ -1,0 +1,97 @@
+.card {
+  max-width: 460px;
+}
+
+.hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--gray);
+}
+
+.tokenRow {
+  display: flex;
+  gap: 8px;
+}
+
+.tokenRow input {
+  flex: 1;
+  min-width: 0;
+}
+
+.showButton {
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--dark);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.showButton:hover {
+  background: var(--light);
+}
+
+.note {
+  font-size: 12px;
+  color: var(--gray);
+  margin-bottom: 16px;
+}
+
+.saved {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--brand-soft);
+  color: var(--brand-text);
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.secondary {
+  width: 100%;
+  padding: 10px;
+  margin-top: 8px;
+  background: #fff;
+  color: var(--dark);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--light);
+}
+
+.link {
+  margin-top: 10px;
+  background: none;
+  border: none;
+  color: var(--gray);
+  font-size: 13px;
+  cursor: pointer;
+  align-self: center;
+}
+
+.link:hover:not(:disabled) {
+  color: var(--dark);
+  text-decoration: underline;
+}
+
+.file {
+  margin-top: 18px;
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+/* Taller than the sign-in card: scroll on small windows instead of cutting the top off. */
+.screen {
+  height: auto;
+  min-height: 100vh;
+  overflow-y: auto;
+}

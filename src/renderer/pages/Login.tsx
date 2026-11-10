@@ -3,7 +3,12 @@ import { Icon } from '../components/Icon';
 import { useAuth } from '../context/AuthContext';
 import styles from '../styles/Login.module.css';
 
-export function Login() {
+interface Props {
+  /** Opens the connection setup screen (database URL, auth token, outlet id). */
+  onOpenSetup?: () => void;
+}
+
+export function Login({ onOpenSetup }: Props = {}) {
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -30,7 +35,7 @@ export function Login() {
       <form className={styles.card} onSubmit={handleSubmit}>
         <div className={styles.brand}>
           <span className={styles.brandIcon}>
-            <Icon name="orders" size={22} />
+            <Icon name="table" size={22} />
           </span>
           <span className={styles.brandText}>Virunthagam</span>
         </div>
@@ -78,6 +83,13 @@ export function Login() {
           )}
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
+
+        {onOpenSetup && (
+          <button type="button" className={styles.setupLink} onClick={onOpenSetup}>
+            <Icon name="settings" size={14} />
+            Connection setup
+          </button>
+        )}
       </form>
     </div>
   );

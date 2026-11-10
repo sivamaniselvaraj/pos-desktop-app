@@ -17,7 +17,7 @@
  *  - "Not found" is null (single items) or [] (lists), not an exception,
  *    unless a method says otherwise.
  *  - Authorization (who may do what) is the implementation's job: e.g. the
- *    Supabase provider relies on RLS and security-definer functions. Another
+ *    current provider relies on RLS and security-definer functions. Another
  *    provider must enforce the same rules (see db/ docs) in its own way.
  * ---------------------------------------------------------------------------
  */
@@ -33,11 +33,6 @@ import type {
   FoodOrder,
   OrderItem,
   OutletInfo,
-  ReportBucket,
-  SalesReportRow,
-  TopItemRow,
-  SalesByOrderTypeRow,
-  SalesByTypeBucketRow,
   OrderListPage,
   OrderListFilter,
   OrderDetailItem,
@@ -59,6 +54,23 @@ import type {
   InvoiceSequenceStatus,
   OrderType,
 } from '../../shared/types';
+import type {
+  ReportBucket,
+  SalesReportRow,
+  TopItemRow,
+  SalesByOrderTypeRow,
+  SalesByTypeBucketRow,
+  MenuAvailabilityReport,
+  SalesByWaiterRow,
+  VoidsDiscountsReport,
+  ShiftWindow,
+  HourlySalesReport,
+  ProductMixReport,
+  ChannelSalesReport,
+  DailySummaryReport
+} from '../../shared/reportTypes';
+
+
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -270,7 +282,7 @@ export interface MenuItemValues {
 }
 
 export interface MenuRepository {
-  /** The outlet's full menu as raw items plus category_id / category_name. Works without a signed-in user. */
+  /** The outlet's menu list (the columns the list needs, not the whole row) plus category_name / category_sort_order. Works without a signed-in user. */
   fetchMenu(outletId: string): Promise<Record<string, unknown>[]>;
   /** The full row of one item (all columns, incl. description, image and cost price) for the Edit form. */
   fetchItem(outletId: string, menuItemId: string): Promise<Record<string, unknown>>;
@@ -387,12 +399,22 @@ export interface InvoiceRepository {
 export interface ReportRepository {
   salesReport(from: string, to: string, bucket: ReportBucket): Promise<SalesReportRow[]>;
   /** When menu items were turned off, why and for how long (get_menu_availability). */
-  menuAvailability(from: string, to: string): Promise<import('../../shared/types').MenuAvailabilityReport>;
+  menuAvailability(from: string, to: string): Promise<MenuAvailabilityReport>;
   /** Settled sales per waiter in the date range (get_sales_by_waiter). */
-  salesByWaiter(from: string, to: string): Promise<import('../../shared/types').SalesByWaiterRow[]>;
+  salesByWaiter(from: string, to: string): Promise<SalesByWaiterRow[]>;
+  /** Every void, cancellation and discount with who and why (get_voids_discounts). */
+  voidsDiscounts(from: string, to: string): Promise<VoidsDiscountsReport>;
   topItems(from: string, to: string, limit: number): Promise<TopItemRow[]>;
   salesByOrderType(from: string, to: string): Promise<SalesByOrderTypeRow[]>;
   salesByTypeBucketed(from: string, to: string, bucket: ReportBucket): Promise<SalesByTypeBucketRow[]>;
+  /** Daily summary / Z-report (get_daily_summary). */
+  dailySummary(from: string, to: string, shift: ShiftWindow | null): Promise<DailySummaryReport>;
+  /** Sales by weekday and hour (get_sales_by_hour). */
+  salesByHour(from: string, to: string): Promise<HourlySalesReport>;
+  /** Product mix (get_product_mix). */
+  productMix(from: string, to: string): Promise<ProductMixReport>;
+  /** Sales by channel and category (get_sales_by_channel). */
+  salesByChannel(from: string, to: string): Promise<ChannelSalesReport>;
 }
 
 export interface ReleaseRepository {
@@ -407,6 +429,12 @@ export interface DataProvider {
   readonly name: string;
   /** True when the backend's connection settings are present. */
   isConfigured(): boolean;
+  /**
+   * Tries the given database URL and auth token (not the saved ones) without
+   * signing in. Resolves null when they work, else a message for the user.
+   * Used by the setup screen before it saves.
+   */
+  checkConnection(url: string, token: string): Promise<string | null>;
   auth: AuthRepository;
   access: AccessRepository;
   orders: OrderRepository;

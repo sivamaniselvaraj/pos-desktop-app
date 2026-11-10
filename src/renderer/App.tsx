@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { Dashboard } from './pages/Dashboard';
@@ -10,18 +10,20 @@ import { KotBoardPage } from './pages/KotBoard';
 import { UnprintedKotsPage } from './pages/UnprintedKots';
 import { About } from './pages/About';
 import { Login } from './pages/Login';
+import { ConnectionSetup } from './pages/ConnectionSetup';
 import { useStatus } from './hooks/useStatus';
 import { useUpdateStatus } from './hooks/useUpdateStatus';
 import { UpdateBanner, UpdateRequired } from './components/UpdateBanner';
 import { useAuth } from './context/AuthContext';
 import styles from './styles/App.module.css';
 import { DINE_IN_ORDER_TYPE, OrderType, PICK_UP_ORDER_TYPE } from '../shared/types';
+import { ConnectionSetupStatus } from '../shared/connectionTypes';
 
 // Pages opened rarely during service load on demand, so the app starts with a
 // smaller file. The Sales report pulls in Recharts (about half the old bundle);
 // Settings (with Tax rates), User management and Menu items are admin pages.
 const SalesReport = lazy(() =>
-  import('./pages/ReportSalesByOutlet').then((m) => ({ default: m.SalesReport })),
+  import('./pages/reports/ReportSalesByOutlet').then((m) => ({ default: m.SalesReport })),
 );
 const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })));
 const UserManagement = lazy(() =>
@@ -40,10 +42,25 @@ export default function App() {
   const [orderType, setOrderType] = useState<OrderType>(PICK_UP_ORDER_TYPE);
   const { server, printers } = useStatus();
   const update = useUpdateStatus();
+  // Database URL, auth token and outlet id of this PC (docs/CONNECTION_SETUP.md).
+  const [setup, setSetup] = useState<ConnectionSetupStatus | null>(null);
+  const [setupOpen, setSetupOpen] = useState(false);
+
+  useEffect(() => {
+    window.api
+      .getConnectionSetup()
+      .then(setSetup)
+      .catch(() => setSetup(null));
+  }, []);
 
   const handleRefresh = () => {
     window.location.reload();
   };
+
+  // Nothing works without the connection values: ask for them first.
+  if (setup && (!setup.complete || setupOpen)) {
+    return <ConnectionSetup status={setup} onCancel={() => setSetupOpen(false)} />;
+  }
 
   // While restoring a persisted session.
   if (loading) {
@@ -54,7 +71,16 @@ export default function App() {
   if (!user) {
     return (
       <>
-        <Login />
+        <Login
+          onOpenSetup={
+            setup
+              ? () => {
+                  void window.api.getConnectionSetup().then(setSetup);
+                  setSetupOpen(true);
+                }
+              : undefined
+          }
+        />
         <UpdateRequired status={update} />
       </>
     );

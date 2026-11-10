@@ -1,5 +1,27 @@
 // Shared types: imported by both the Electron main process and the React renderer.
 
+import type { 
+  ConnectionSetupInput, 
+  ConnectionSetupResult, 
+  ConnectionSetupStatus } from './connectionTypes';
+import type {
+  ReportBucket,
+  SalesReportRow,
+  MenuAvailabilityReport,
+  SalesByWaiterRow,
+  VoidsDiscountsReport,
+  TopItemRow,
+  SalesByOrderTypeRow,
+  SalesByTypeBucketRow,
+  ShiftWindow,
+  DailySummaryReport,
+  HourlySalesReport,
+  ProductMixReport,
+  ChannelSalesReport,
+  SalesReportExportPayload,
+  ExportResult,
+} from './reportTypes';
+
 export interface OrderItem {
   id: string;
   menuItemId?: string;
@@ -33,6 +55,8 @@ export type OrderListStatus = 'active' | 'completed' | 'cancelled';
 
 // ---- HTTP contract (Android app -> local server) ----
 export type PrintType = 'bill' | 'kot' | 'settle' | 'kot-only';
+
+export type PrintMethod = 'direct' | 'html' | 'image';
 
 export type SettleOrderType = 'dine_in' | 'takeaway';
 
@@ -220,126 +244,6 @@ export interface PrintOrderResponse {
   orderId: string;
   message: string;
   printStatus: PrintStatus;
-  error?: string;
-}
-
-// ---- Printer / server status ----
-export type ReportBucket = 'day' | 'month';
-
-/** One row per bucket (day or month) — never per order. */
-export interface SalesReportRow {
-  date: string; // bucket_date, 'YYYY-MM-DD' (first-of-month for month buckets)
-  orderCount: number;
-  taxTotal: number;
-  netTotal: number;
-  avgOrderValue: number;
-}
-
-/** Menu availability report (get_menu_availability): when items were turned off, why, and for how long. */
-export interface MenuAvailabilityReport {
-  summary: {
-    offEvents: number;
-    itemsAffected: number;
-    downtimeHours: number;
-    /** Estimate: units normally sold in the hours the items were off. */
-    lostUnits: number;
-    /** Estimate: lostUnits at the price they sold for. */
-    lostValue: number;
-    categoryOffEvents: number;
-    topReason: string | null;
-    currentlyOff: number;
-  };
-  items: {
-    menuItemId: string;
-    name: string;
-    category: string | null;
-    timesOff: number;
-    downtimeHours: number;
-    longestHours: number;
-    stillOff: boolean;
-    topReason: string | null;
-    lostUnits: number;
-    lostValue: number;
-  }[];
-  reasons: { reason: string; count: number; downtimeHours: number }[];
-  categoryEvents: {
-    categoryId: string | null;
-    category: string;
-    offAt: string;
-    reason: string;
-    itemCount: number;
-    downtimeHours: number;
-    stillOff: boolean;
-  }[];
-  timeline: {
-    menuItemId: string;
-    name: string;
-    category: string | null;
-    offAt: string;
-    onAt: string | null;
-    hours: number;
-    reason: string;
-    by: string | null;
-    scope: 'item' | 'category';
-  }[];
-  staff: { name: string; offs: number; ons: number }[];
-  byWeekday: { dow: number; count: number }[];
-  byHour: { hour: number; count: number }[];
-  currentlyOff: { menuItemId: string; name: string; category: string | null; reason: string | null; since: string | null; by: string | null }[];
-}
-
-/** One waiter's settled sales in a date range (get_sales_by_waiter). waiterId is null for orders with no waiter. */
-export interface SalesByWaiterRow {
-  waiterId: string | null;
-  waiterName: string;
-  orderCount: number;
-  invoiceCount: number;
-  itemsSold: number;
-  subtotal: number;
-  discountTotal: number;
-  taxTotal: number;
-  /** total - tax: the sale before tax. */
-  salesExclTax: number;
-  /** What the guests paid. */
-  totalSales: number;
-  avgOrderValue: number;
-  /** Value before tax of the lines that earn an incentive. */
-  eligibleSales: number;
-  /** Incentive earned, from the rule copied onto each line when it was sold. */
-  incentiveTotal: number;
-}
-
-export interface TopItemRow {
-  menuItemId: string;
-  name: string;
-  quantitySold: number;
-  revenue: number;
-}
-
-export interface SalesByOrderTypeRow {
-  orderType: string;
-  orderCount: number;
-}
-
-export interface SalesByTypeBucketRow {
-  date: string;
-  dineInCount: number;
-  pickupCount: number;
-  deliveryCount: number;
-}
-
-export type ReportExportFormat = 'csv' | 'xlsx';
-
-export interface SalesReportExportPayload {
-  rows: SalesReportRow[];
-  topItems: TopItemRow[];
-  format: ReportExportFormat;
-  range: { from: string; to: string };
-}
-
-export interface ExportResult {
-  success: boolean;
-  path?: string;
   error?: string;
 }
 
@@ -1001,7 +905,10 @@ export const IpcChannels = {
   AUTH_SIGN_IN: 'auth:sign-in',
   AUTH_SIGN_OUT: 'auth:sign-out',
   AUTH_GET_SESSION: 'auth:get-session',
-  // renderer -> main (invoke)
+  // connection setup (renderer -> main, invoke)
+  SETUP_GET_STATUS: 'setup:get-status',
+  SETUP_SAVE: 'setup:save',
+  // orders (renderer -> main, invoke)
   GET_ORDERS: 'get-orders',
   RETRY_PRINT: 'retry-print',
   CANCEL_ORDER: 'cancel-order',
@@ -1010,12 +917,19 @@ export const IpcChannels = {
   GET_PRINTERS: 'get-printers',
   GET_PRINT_METHOD: 'get-print-method',
   SET_PRINT_METHOD: 'set-print-method',
+  GET_PRINTER_ADDRESSES: 'get-printer-addresses',
+  SET_PRINTER_ADDRESS: 'set-printer-address',
   GET_SALES_REPORT: 'get-sales-report',
   GET_SALES_BY_WAITER: 'get-sales-by-waiter',
   GET_MENU_AVAILABILITY: 'get-menu-availability',
+  GET_VOIDS_DISCOUNTS: 'get-voids-discounts',
   GET_TOP_ITEMS: 'get-top-items',
   GET_SALES_BY_ORDER_TYPE: 'get-sales-by-order-type',
   GET_SALES_BY_TYPE_BUCKETED: 'get-sales-by-type-bucketed',
+  GET_DAILY_SUMMARY: 'get-daily-summary',
+  GET_SALES_BY_HOUR: 'get-sales-by-hour',
+  GET_PRODUCT_MIX: 'get-product-mix',
+  GET_SALES_BY_CHANNEL: 'get-sales-by-channel',
   EXPORT_SALES_REPORT: 'export-sales-report',
   LIST_USERS: 'list-users',
   LIST_OUTLETS: 'list-outlets',
@@ -1158,6 +1072,10 @@ export interface ElectronApi {
   signIn(email: string, password: string): Promise<AuthResult>;
   signOut(): Promise<void>;
   getSession(): Promise<AuthUser | null>;
+  /** Database URL, token (presence only) and outlet id of this PC. */
+  getConnectionSetup(): Promise<ConnectionSetupStatus>;
+  /** Saves the setup screen; on success the app restarts. */
+  saveConnectionSetup(input: ConnectionSetupInput): Promise<ConnectionSetupResult>;
   getOrders(): Promise<OrderWithStatus[]>;
   retryPrint(orderId: string): Promise<PrintOrderResponse>;
   cancelOrder(orderId: string): Promise<void>;
@@ -1165,11 +1083,17 @@ export interface ElectronApi {
   /** OS printers (cached 60 s in main); `refresh` reads the OS again. */
   getPrinters(refresh?: boolean): Promise<PrinterInfo[]>;
   /** 'direct' = ESC/POS (default), 'html' = HTML via the OS driver. */
-  getPrintMethod(): Promise<'direct' | 'html'>;
-  setPrintMethod(method: 'direct' | 'html'): Promise<void>;
+  getPrintMethod(): Promise<PrintMethod>;
+  setPrintMethod(method: PrintMethod): Promise<void>;
+  /** Image method only: network address ("192.168.1.50" or "192.168.1.50:9100") per OS printer name. */
+  getPrinterAddresses(): Promise<Record<string, string>>;
+  /** Empty address removes it (the job then goes through the Windows spooler). */
+  setPrinterAddress(printerName: string, address: string): Promise<void>;
   getSalesReport(from: string, to: string, bucket: ReportBucket): Promise<SalesReportRow[]>;
   getSalesByWaiter(from: string, to: string): Promise<SalesByWaiterRow[]>;
   getMenuAvailability(from: string, to: string): Promise<MenuAvailabilityReport>;
+  /** Every void, cancellation and discount in the range, with who and why. */
+  getVoidsDiscounts(from: string, to: string): Promise<VoidsDiscountsReport>;
   getTopItems(from: string, to: string): Promise<TopItemRow[]>;
   getSalesByOrderType(from: string, to: string): Promise<SalesByOrderTypeRow[]>;
   getSalesByTypeBucketed(
@@ -1178,6 +1102,11 @@ export interface ElectronApi {
     bucket: ReportBucket,
   ): Promise<SalesByTypeBucketRow[]>;
   exportSalesReport(payload: SalesReportExportPayload): Promise<ExportResult>;
+  /** Daily summary / Z-report; shift = optional time-of-day window. */
+  getDailySummary(from: string, to: string, shift?: ShiftWindow | null): Promise<DailySummaryReport>;
+  getSalesByHour(from: string, to: string): Promise<HourlySalesReport>;
+  getProductMix(from: string, to: string): Promise<ProductMixReport>;
+  getSalesByChannel(from: string, to: string): Promise<ChannelSalesReport>;
   listUsers(): Promise<ManagedUser[]>;
   listOutlets(): Promise<OutletOption[]>;
   createUser(payload: CreateUserPayload): Promise<void>;

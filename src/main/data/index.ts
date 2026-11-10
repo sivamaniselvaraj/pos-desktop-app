@@ -41,6 +41,7 @@ export const db: DataProvider = {
     return getProvider().name;
   },
   isConfigured: () => getProvider().isConfigured(),
+  checkConnection: (url, token) => getProvider().checkConnection(url, token),
   get auth() {
     return getProvider().auth;
   },

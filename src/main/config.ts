@@ -2,6 +2,8 @@ import { app } from 'electron';
 import { join, dirname } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 //import { embeddedConfig } from './embeddedConfig';
+import { connection } from './connectionSetup';
+import type { PrintMethod } from '../shared/types';
 
 // Loads config from three layers, in priority order:
 //   1. process.env (OS-level env vars, or .env.local loaded by index.ts's
@@ -33,13 +35,20 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 //       fallback (process.env.CASHIER_PRINTER — must be read fresh every
 //       time, exactly like config.http already does).
 
+export function normalizePrintMethod(value: unknown): PrintMethod {
+  return value === 'html' || value === 'image' ? value : 'direct';
+}
+
 interface PersistedSettings {
   cashierPrinter?: string;
   waiterPrinter?: string;
   kitchenPrinter?: string;
   autoRetry?: boolean;
-  /** 'direct' = ESC/POS raw (default); 'html' = HTML rendered and printed through the OS driver. */
-  printMethod?: 'direct' | 'html';
+  /** 'direct' = ESC/POS raw (default); 'html' = HTML rendered and printed through the OS driver;
+   *  'image' = HTML rendered to an ESC/POS bit image and sent raw (imagePrint.ts). */
+  printMethod?: PrintMethod;
+  /** Image method: OS printer name -> network address (host or host:port) to send to directly. */
+  printerAddresses?: Record<string, string>;
   retryCount?: number;
   /** App updates: 'beta' gets releases a few days early. Default 'stable'. */
   updateChannel?: 'stable' | 'beta';
@@ -161,7 +170,7 @@ export const config = {
   // via the signed-in user's profile and can tolerate pausing while logged
   // out, a menu endpoint Android depends on all day cannot.
   get outletId(): string {
-    return process.env.OUTLET_ID || '';
+    return connection.outletId || '';
   },
   // Each of these reads the ENV fallback fresh on every access (never
   // cached) and only falls back to it when settings.json has no value yet.
@@ -197,11 +206,17 @@ export const config = {
   set apiDevices(value: StoredApiDevice[]) {
     persist({ apiDevices: value });
   },
-  get printMethod(): 'direct' | 'html' {
-    return loadFile().printMethod === 'html' ? 'html' : 'direct';
+  get printMethod(): PrintMethod {
+    return normalizePrintMethod(loadFile().printMethod);
   },
-  set printMethod(value: 'direct' | 'html') {
-    persist({ printMethod: value === 'html' ? 'html' : 'direct' });
+  set printMethod(value: PrintMethod) {
+    persist({ printMethod: normalizePrintMethod(value) });
+  },
+  get printerAddresses(): Record<string, string> {
+    return { ...(loadFile().printerAddresses ?? {}) };
+  },
+  set printerAddresses(value: Record<string, string>) {
+    persist({ printerAddresses: value });
   },
   // Where this PC looks for new versions (docs/APP_UPDATES.md). Empty = updates off.
   get updateBaseUrl(): string {
