@@ -1,7 +1,7 @@
 import { PRINT_KOT_ONLY } from '../shared/types';
 import { db } from './data';
 import { orderManager } from './orderManager';
-import { printQueue } from './printQueue';
+import { printQueue } from './printQueueManager';
 
 /**
  * kotReconciliation.ts

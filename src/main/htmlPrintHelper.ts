@@ -4,7 +4,7 @@ import path from 'path';
 import { taxBillLines } from '../shared/orderTotals';
 import { DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE, type FoodOrder } from '../shared/types';
 import { billFooterLines, billHeaderLines, getPrinters, parseHeaderConfig } from './printerManager';
-import { PrintTimeoutError, withTimeout } from './printQueue';
+import { PrintTimeoutError, withTimeout } from './printQueueManager';
 
 /**
  * htmlPrint.ts

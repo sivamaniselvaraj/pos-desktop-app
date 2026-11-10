@@ -1,6 +1,6 @@
 import { db } from './data';
 import { orderManager } from './orderManager';
-import { printQueue } from './printQueue';
+import { printQueue } from './printQueueManager';
 import { PRINT_KOT_ONLY, type KotBoard, type KotWorkflow, type UnprintedKot } from '../shared/types';
 
 /**

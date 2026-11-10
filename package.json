@@ -97,7 +97,7 @@
       "buildResources": "assets"
     },
     "asarUnpack": [
-      "**/node_modules/@grandchef/node-printer/**"
+      "**/node_modules/@timokunze/node-printer/**"
     ],
     "publish": [
       {

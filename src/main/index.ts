@@ -7,7 +7,7 @@ import { startKotReconciliation, stopKotReconciliation } from './kotReconciliati
 import { startMenuCache, stopMenuCache } from './menuCache';
 import { initLogging } from './logger';
 import { startPrinterWatch, stopPrinterWatch } from './printerManager';
-import { destroyHtmlPrintWindow } from './htmlPrint';
+import { destroyHtmlPrintWindow } from './htmlPrintHelper';
 import { IpcChannels } from '../shared/types';
 
 // First thing: copy every console line into the log file (see logger.ts), so

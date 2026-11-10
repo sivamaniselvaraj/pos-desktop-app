@@ -27,7 +27,7 @@ import {
   setGroupMembers,
   setUserGroups,
   getUserAccess,
-} from './userAdmin';
+} from './userManager';
 import { getMenuItem, listMenuCategories, listMenuCategoriesAdmin, reorderMenuCategories, saveMenuCategory, saveMenuItem, setMenuCategoryActive } from './menuManager';
 import { getMyAccess,getReceiptText, saveBrandColor, saveReceiptText } from './accessManager';
 import { getTaxRate, placeOrder } from './orderEntryManager';
@@ -72,7 +72,7 @@ import {
   setManagedTableStatus,
 } from './tablesManager';
 import { config, normalizePrintMethod } from './config';
-import { setPrinterAddress } from './imagePrint';
+import { setPrinterAddress } from './imagePrintHelper';
 import { IpcChannels } from '../shared/types';
 import type {
   ReceiptText,

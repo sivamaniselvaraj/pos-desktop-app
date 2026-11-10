@@ -8,7 +8,7 @@ import {
   DINE_IN_ORDER_TYPE,
   PICK_UP_ORDER_TYPE,
 }from '../shared/types';
-import { printQueue } from './printQueue';
+import { printQueue } from './printQueueManager';
 import { orderManager } from './orderManager';
 
 /**

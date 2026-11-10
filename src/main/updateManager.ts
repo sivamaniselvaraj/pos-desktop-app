@@ -19,7 +19,7 @@ import { readFileSync, writeFileSync } from 'fs';
 import { autoUpdater, type UpdateInfo } from 'electron-updater';
 import { config } from './config';
 import { db } from './data';
-import { printQueue } from './printQueue';
+import { printQueue } from './printQueueManager';
 import { policyBlocks } from './updatePolicy';
 import {
   IpcChannels,

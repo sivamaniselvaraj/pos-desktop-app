@@ -1,7 +1,7 @@
 import { db } from './data';
 import { config } from './config';
 import { orderManager } from './orderManager';
-import { printQueue } from './printQueue';
+import { printQueue } from './printQueueManager';
 import type {
   OrderListFilter,
   OrderListPage,

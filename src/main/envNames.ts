@@ -1,4 +1,4 @@
-import { embeddedConfig } from './embeddedConfig';
+import { ConnectionConfig } from '../shared/connectionTypes';
 
 /**
  * envNames.ts
@@ -32,5 +32,5 @@ export function dbEnv(name: DbEnvName): string {
 
 /** Value baked in from .env.build (scripts/embed-config.js already maps old names). Never the service key. */
 export function dbBuilt(name: Exclude<DbEnvName, 'DB_SERVICE_KEY'>): string {
-  return embeddedConfig[name] || '';
+  return ConnectionConfig[name] || '';
 }

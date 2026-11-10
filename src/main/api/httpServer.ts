@@ -5,7 +5,7 @@ import { readFileSync } from 'fs';
 import type { Server } from 'http';
 import { config } from '../config';
 import { orderManager } from '../orderManager';
-import { printQueue } from '../printQueue';
+import { printQueue } from '../printQueueManager';
 import { db } from '../data';
 import { getCachedMenuItems } from '../menuCache';
 import { checkCode, consumeCode, describeCodeState, noteFailedSignIn } from './pairingCodes';

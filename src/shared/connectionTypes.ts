@@ -36,3 +36,13 @@ export interface ConnectionSetupResult {
   /** The values are valid but the database check failed; the UI offers "Save without checking". */
   checkFailed?: boolean;
 }
+
+export const ConnectionConfig = {
+  "DB_URL": "",
+  "DB_KEY": "",
+  "DB_ORDERS_TABLE": "",
+  "HTTP_PORT": "",
+  "HTTP_HOST": "",
+  "ALLOWED_ORIGINS": "",
+  "UPDATE_BASE_URL": ""
+} as const;

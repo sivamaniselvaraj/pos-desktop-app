@@ -5,9 +5,9 @@ import path from 'path';
 import { promisify } from 'util';
 import { app, BrowserWindow } from 'electron';
 import { config } from './config';
-import { PAPER_MM } from './htmlPrint';
+import { PAPER_MM } from './htmlPrintHelper';
 import { getPrinters } from './printerManager';
-import { PrintTimeoutError, withTimeout } from './printQueue';
+import { PrintTimeoutError, withTimeout } from './printQueueManager';
 
 /**
  * imagePrint.ts

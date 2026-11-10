@@ -2,7 +2,7 @@ import { db } from './data';
 import { config } from './config';
 import { getMyAccess } from './accessManager';
 import { orderManager } from './orderManager';
-import { printQueue } from './printQueue';
+import { printQueue } from './printQueueManager';
 import { listManagedTables } from './tablesManager';
 import { ApiMyOrder, DINE_IN_ORDER_TYPE, PRINT_KOT_ONLY, type ApiTable, type PhoneKotSettings, type RemoteOrderRequest, type RemoteOrderResult } from '../shared/types';
 import { BadRemoteOrder } from './remoteOrderValidation';
