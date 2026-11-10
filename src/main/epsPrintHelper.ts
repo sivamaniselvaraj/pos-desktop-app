@@ -55,42 +55,6 @@ interface RuleCapablePrinter {
   println(text: string): void;
 }
 
-/**
- * Thin solid rule — a continuous hairline across the paper.
- * Underline mode over a row of spaces.
- */
-export function solidLine(printer: RuleCapablePrinter, width = RECEIPT_WIDTH): void {
-  printer.underline(true);
-  printer.println(' '.repeat(width));
-  printer.underline(false);
-}
-
-/**
- * Heavy solid rule — a thicker continuous line.
- */
-export function solidLineThick(printer: RuleCapablePrinter, width = RECEIPT_WIDTH): void {
-  printer.underlineThick(true);
-  printer.println(' '.repeat(width));
-  printer.underlineThick(false);
-}
-
-/**
- * Solid black bar — inverted (white-on-black) spaces fill the row completely.
- * Use for strong section breaks, e.g. above the grand total.
- */
-export function solidBar(printer: RuleCapablePrinter, width = RECEIPT_WIDTH): void {
-  printer.invert(true);
-  printer.println(' '.repeat(width));
-  printer.invert(false);
-}
-
-function formatKeyValue(key: string, value: string, padded: boolean = false): string {
-  const maxKeyWidth = 15;
-  const maxKeyValue = !padded ? 1 : maxKeyWidth - key.length;
-  const padding = Math.max(0, maxKeyValue);
-  return key + ' '.repeat(padding) + ': ' + value;
-}
-
 function formatCurrency(amount: number): string {
   return `₹ ${amount.toFixed(2)}`;
 }
@@ -136,7 +100,7 @@ function wrapText(text: string, width: number): string[] {
   return lines;
 }
 
-export async function renderEpsBill(
+export async function printBillEscPos(
   order: FoodOrder,
   printerName: string,
   isDuplicate = false,
@@ -353,7 +317,8 @@ export async function renderEpsBill(
   }
 }
 
-export async function renderEpsKOT(order: FoodOrder, printerName: string) {
+/** Print a KOT as ESC/POS. `name` is the trimmed, non-empty printer name. */
+export async function printKotEscPos(order: FoodOrder, printerName: string): Promise<void> {
   let isPickup = order.orderType === 'pickup' || order.orderType === 'takeaway';
   let kotTitle = isPickup ? 'TAKEAWAY' : 'WAITER KOT';
   let orderType = isPickup ? 'Pick Up' : 'Dine In';
@@ -459,12 +424,10 @@ export async function renderEpsKOT(order: FoodOrder, printerName: string) {
   }
 }
 
-
-export async function renderTestEPS(name: string){
-    try {
-
+/** Print the test slip as ESC/POS. `name` is the trimmed, non-empty printer name. */
+export async function testPrintEscPos(name: string): Promise<string> {
+  try {
     const printer = loadPrinterDriver(name);
-
 
     const connected = await printer.isPrinterConnected();
     if (!connected) {
@@ -506,5 +469,64 @@ export async function renderTestEPS(name: string){
     }
     throw new Error(message);
   }
+}
 
+// ---- Solid rules (ESC/POS) -------------------------------------------------
+// NOTE: printer.drawLine() appends its character with Buffer.from(), with NO
+// codepage conversion. A multi-byte character such as '─' (U+2500) therefore
+// emits its 3 raw UTF-8 bytes (E2 94 80) per column and prints as garbage.
+// Only single-byte ASCII is safe with drawLine().
+//
+// To get a genuinely SOLID (unbroken) rule we don't use a character at all —
+// we switch on a print mode and emit spaces, so the printer fills the row
+// itself. This is codepage-independent and works on any ESC/POS device.
+
+
+// Minimal structural type: avoids depending on the library's exported class
+// type while still being type-safe about what we call.
+interface RuleCapablePrinter {
+  underline(enabled: boolean): void;
+  underlineThick(enabled: boolean): void;
+  invert(enabled: boolean): void;
+  println(text: string): void;
+}
+
+/**
+ * Thin solid rule — a continuous hairline across the paper.
+ * Underline mode over a row of spaces.
+ */
+export function solidLine(printer: RuleCapablePrinter, width = RECEIPT_WIDTH): void {
+  printer.underline(true);
+  printer.println(' '.repeat(width));
+  printer.underline(false);
+}
+
+/**
+ * Heavy solid rule — a thicker continuous line.
+ */
+export function solidLineThick(printer: RuleCapablePrinter, width = RECEIPT_WIDTH): void {
+  printer.underlineThick(true);
+  printer.println(' '.repeat(width));
+  printer.underlineThick(false);
+}
+
+/**
+ * Solid black bar — inverted (white-on-black) spaces fill the row completely.
+ * Use for strong section breaks, e.g. above the grand total.
+ */
+export function solidBar(printer: RuleCapablePrinter, width = RECEIPT_WIDTH): void {
+  printer.invert(true);
+  printer.println(' '.repeat(width));
+  printer.invert(false);
+}
+
+function formatKeyValue(key: string, value: string): string {
+  const maxKeyWidth = 15;
+  const padding = Math.max(0, maxKeyWidth - key.length);
+  return key + ' '.repeat(padding) + ': ' + value;
+}
+
+function padRight(text: string, width: number): string {
+  const padding = Math.max(0, width - text.length);
+  return text + ' '.repeat(padding);
 }

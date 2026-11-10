@@ -1,14 +1,12 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { BrowserWindow } from 'electron';
-import { ThermalPrinter, PrinterTypes, CharacterSet } from 'node-thermal-printer';
 import { config } from './config';
-import { taxBillLines } from '../shared/orderTotals';
 import type { FoodOrder, PrinterInfo, HeaderConfig } from '../shared/types';
 import { printHtml, renderBillHtml, renderKotHtml, renderTestHtml } from './htmlPrintHelper';
 import { printImage } from './imagePrintHelper';
+import { printBillEscPos, printKotEscPos, testPrintEscPos } from './epsPrintHelper';
 import { journalPrint } from './logger';
-import { renderEpsBill, renderEpsKOT, renderTestEPS } from './epsPrintHelper';
 
 const electron = typeof process !== 'undefined' && process.versions && !!process.versions.electron;
 
@@ -160,86 +158,8 @@ export function stopPrinterWatch(): void {
   printerWatchTimer = null;
 }
 
-// ---- Receipt formatting (80mm thermal, 48-char width) -----------------------
-
-// ---- Rupee symbol emission -------------------------------------------------
-// printer.println() encodes text through iconv-lite. No iconv codepage
-// contains U+20B9 (₹), so it is substituted with 0x3F ('?') BEFORE the bytes
-// ever reach the printer — even on a printer whose font has the glyph.
-//
-// Three strategies, selected by RUPEE_MODE:
-//   'image' — render ₹ as an ESC/POS bit image (raw dot data). Font/codepage
-//             independent: works on ANY ESC/POS printer. Default.
-//   'byte'  — emit a single raw byte from the printer's own font. Needs the
-//             printer-specific RUPEE_CODEPAGE/RUPEE_BYTE (find via
-//             probeCodePages() or the self-test). Cheapest, perfectly inline.
-//   'text'  — fall back to the ASCII string "Rs.".
-
-interface RawPrinter {
-  append(data: Buffer | string): void;
-}
-
 // ---- Header / footer config -----------------------------------------------
-/**
- * Send a short diagnostic slip to an OS-installed printer to verify it is
- * reachable through the spooler. `target` is the printer name; if omitted,
- * the configured kitchen printer is used.
- *
- * Returns a human-readable success line; throws with a friendly message on
- * failure so the UI can surface it directly.
- */
-// export async function testPrint(target?: string): Promise<string> {
-//   const name = (target ?? config.cashierPrinter ?? '').trim();
 
-//   if (!name) {
-//     throw new Error('No printer selected. Choose a printer first.');
-//   }
-
-//   try {
-//     const printer = loadPrinterDriver(name);
-
-//     const connected = await printer.isPrinterConnected();
-//     if (!connected) {
-//       throw new Error(
-//         `Printer "${name}" was not found or is unavailable. Check it is installed in the OS and the name matches exactly.`,
-//       );
-//     }
-
-//     printer.alignCenter();
-//     printer.bold(true);
-//     printer.setTextSize(1, 1);
-//     printer.println('TEST PRINT');
-//     printer.bold(false);
-//     printer.setTextSize(0, 0);
-//     solidLine(printer);
-//     printer.alignLeft();
-//     printer.println(`Printer : ${name}`);
-//     printer.println(`Time    : ${new Date().toLocaleString('en-IN')}`);
-//     printer.println('Status  : Spooler OK');
-//     solidLine(printer);
-//     printer.alignCenter();
-//     printer.println('If you can read this,');
-//     printer.println('the printer is configured correctly.');
-//     printer.println('');
-//     printer.println('');
-//     printer.cut();
-
-//     await printer.execute();
-//     return `Test slip sent to "${name}"`;
-//   } catch (err) {
-//     let message = 'Test print failed';
-//     if (err instanceof Error) {
-//       message = err.message;
-//       if (message.includes('No driver set')) {
-//         message = `Print driver not initialized. The @timokunze/node-printer module is missing or not rebuilt for Electron.`;
-//       } else if (/not found|unavailable|NOT-AVAILABLE/i.test(message)) {
-//         message = `Printer "${name}" not found in the OS spooler. Verify the name matches Get-Printer / lpstat -p exactly and the printer is online.`;
-//       }
-//     }
-//     throw new Error(message);
-//   }
-// }
- 
 /**
  * Parse the header config, which may arrive as a JSON string or an already
  * parsed object. Returns null if it can't be parsed.
@@ -265,7 +185,7 @@ export function parseHeaderConfig(input: unknown): HeaderConfig | null {
     containerChargePercent: str(o.containerChargePercent),
   };
 }
- 
+
 /**
  * Split a text value on `<br>` (any case, any surrounding whitespace) into
  * individual lines, trimmed, with empty lines dropped. Each returned line is
@@ -279,7 +199,7 @@ export function splitBrLines(text?: string): string[] {
     .filter((s) => s.length > 0);
 }
 
-
+// ---- Bill header / footer lines --------------------------------------------
 
 /**
  * Lines under the business name on a bill. The outlet's own lines (Settings > Receipt)
@@ -303,11 +223,13 @@ export function billFooterLines(order: FoodOrder): string[] {
   return own.length > 0 ? own : splitBrLines(parseHeaderConfig(order.headerConfig)?.footerText);
 }
 
-// ---- Printing (ESC/POS format) -----------------------------------------------
- 
+// ---- Printing (method dispatch) --------------------------------------------
+
 /**
- * Print order using ESC/POS format directly to a thermal printer.
- * Requires a connected USB or network thermal printer.
+ * Print a bill. isDuplicate prints a "DUPLICATE BILL" heading after the
+ * header. Callers set it when the order's bill has printed before
+ * (orders.is_printed), and record the print afterwards with
+ * recordBillPrinted (orderManager.ts).
  */
 export async function printOrderEscpos(order: FoodOrder, printerName:string, isDuplicate = false): Promise<void> {
   return journalPrint(
@@ -327,7 +249,13 @@ export async function printOrderEscpos(order: FoodOrder, printerName:string, isD
 async function printOrderNow(order: FoodOrder, printerName:string, isDuplicate: boolean): Promise<void> {
   // Validate printer is configured
   if (!printerName || printerName.trim() === '') {
-    throw new Error('No printer configured. Set KITCHEN_PRINTER in .env.local');
+    throw new Error(
+      'No printer configured. Please configure a printer in Settings → Add Printer, or set CASHIER_PRINTER in .env.local',
+    );
+  }
+
+  if (printerName.length === 0) {
+    throw new Error('Printer device name is empty. Please configure a printer in Settings.');
   }
 
   if (config.printMethod === 'html') {
@@ -338,8 +266,8 @@ async function printOrderNow(order: FoodOrder, printerName:string, isDuplicate: 
     await printImage(renderBillHtml(order, isDuplicate), printerName);
     return;
   }
-  await renderEpsBill(order, printerName, isDuplicate);
-  return;
+
+  await printBillEscPos(order, printerName, isDuplicate);
 }
 
 /**
@@ -366,7 +294,6 @@ export async function printKot(order: FoodOrder, printerName: string): Promise<v
 
 async function printKotNow(order: FoodOrder, printerName: string): Promise<void> {
   const name = (printerName ?? '').trim();
-
   if (!name) {
     throw new Error(
       'No waiter printer configured. Add a "Waiter" printer in Settings to print KOTs.',
@@ -381,13 +308,10 @@ async function printKotNow(order: FoodOrder, printerName: string): Promise<void>
     await printImage(renderKotHtml(order), name);
     return;
   }
-  
-  await renderEpsKOT(order, printerName);
-  return;
-  
+
+  await printKotEscPos(order, name);
 }
- 
-// Helper functions
+
 /**
  * Send a short diagnostic slip to an OS-installed printer to verify it is
  * reachable through the spooler. `target` is the printer name; if omitted,
@@ -410,13 +334,11 @@ async function testPrintNow(name: string): Promise<string> {
     await printHtml(renderTestHtml(name), name);
     return `Test slip (HTML) sent to "${name}"`;
   }
-  
   if (config.printMethod === 'image') {
     const address = config.printerAddresses[name];
     await printImage(renderTestHtml(name, address ? `Image (ESC/POS) to ${address}` : 'Image (ESC/POS) via Windows'), name);
     return `Test slip (Image) sent to "${name}"${address ? ` at ${address}` : ''}`;
   }
 
-  await renderTestEPS(name);
-  return `Test slip sent to "${name}"`;  
+  return testPrintEscPos(name);
 }
