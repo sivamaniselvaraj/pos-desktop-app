@@ -7,9 +7,20 @@ export interface Range {
   to: string;
 }
 
-/** Today / Yesterday / This month / Last month / Custom range. Calls onChange with the date range (YYYY-MM-DD). */
-export function PeriodPicker({ value, onChange }: { value: Range; onChange: (r: Range) => void }) {
-  const [preset, setPreset] = useState<Preset>('today');
+/**
+ * Today / Yesterday / This month / Last month / Custom range. Calls onChange with the date range (YYYY-MM-DD).
+ * initialPreset only sets which button starts highlighted; the caller sets the matching starting range.
+ */
+export function PeriodPicker({
+  value,
+  onChange,
+  initialPreset = 'today',
+}: {
+  value: Range;
+  onChange: (r: Range) => void;
+  initialPreset?: Preset;
+}) {
+  const [preset, setPreset] = useState<Preset>(initialPreset);
 
   function choose(p: Preset) {
     setPreset(p);

@@ -1,7 +1,7 @@
 import { dialog, type BrowserWindow } from 'electron';
 import { writeFile } from 'fs/promises';
 import * as XLSX from 'xlsx';
-import type { SalesReportRow, TopItemRow } from '../shared/types';
+import type { SalesReportRow, TopItemRow } from '../shared/reportTypes';
 
 export interface SalesReportExportPayload {
   rows: SalesReportRow[];

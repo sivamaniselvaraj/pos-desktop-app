@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import type {
   PairingCode,
   PrinterInfo,
+  PrintMethod,
   InvoiceSequenceStatus,
   ApiDevice,
   ServerStatus,
@@ -57,7 +58,10 @@ export function Settings() {
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
 
-  const [printMethod, setPrintMethodState] = useState<'direct' | 'html'>('direct');
+  const [printMethod, setPrintMethodState] = useState<PrintMethod>('direct');
+  // Image method: saved network address per OS printer name, and the text being edited.
+  const [addresses, setAddresses] = useState<Record<string, string>>({});
+  const [addressDraft, setAddressDraft] = useState<Record<string, string>>({});
   const [configs, setConfigs] = useState<PrinterConfigs>({});
   // Separate from `configs` (the SAVED mapping) — this is what the dropdowns
   // actually display and what the user edits. Kept apart so a selection
@@ -127,7 +131,11 @@ export function Settings() {
 
       const list = await window.api.getPrinters(true); // fresh list, not the 60 s cache
       setOsPrinters(list ?? []);
-      setPrintMethodState((await window.api.getPrintMethod()) === 'html' ? 'html' : 'direct');
+      const method = await window.api.getPrintMethod();
+      setPrintMethodState(method === 'html' || method === 'image' ? method : 'direct');
+      const addr = (await window.api.getPrinterAddresses()) ?? {};
+      setAddresses(addr);
+      setAddressDraft(addr);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to load settings';
       setMessage({ type: 'error', text: errorMsg });
@@ -296,13 +304,36 @@ export function Settings() {
     }
   }
 
-  async function handlePrintMethod(method: 'direct' | 'html') {
+  async function handlePrintMethod(method: PrintMethod) {
     try {
       await window.api.setPrintMethod(method);
       setPrintMethodState(method);
-      flash('success', method === 'html' ? 'Printing bills and KOTs as HTML' : 'Printing bills and KOTs directly (ESC/POS)');
+      flash(
+        'success',
+        method === 'html'
+          ? 'Printing bills and KOTs as HTML'
+          : method === 'image'
+            ? 'Printing bills and KOTs as an image (ESC/POS)'
+            : 'Printing bills and KOTs directly (ESC/POS)',
+      );
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Could not save print method');
+    }
+  }
+
+  async function handleSaveAddress(printerName: string) {
+    const address = (addressDraft[printerName] ?? '').trim();
+    try {
+      await window.api.setPrinterAddress(printerName, address);
+      setAddresses((prev) => {
+        const next = { ...prev };
+        if (address) next[printerName] = address;
+        else delete next[printerName];
+        return next;
+      });
+      flash('success', address ? `"${printerName}" will print to ${address}` : `"${printerName}" will print through Windows`);
+    } catch (err) {
+      flash('error', err instanceof Error ? err.message : 'Could not save the address');
     }
   }
 
@@ -437,20 +468,58 @@ export function Settings() {
           <div className={styles.printerCard} style={{ marginBottom: 12 }}>
             <div>
               <div className={styles.printerName}>Print method</div>
-               <small className={styles.hint}>
-                Direct sends ESC/POS to the printer. HTML renders the bill and KOT as a page and prints it through
-                the printer driver (80 mm, no dialog). Use Test to compare.
+              <small className={styles.hint}>
+                Direct sends ESC/POS text to the printer. HTML renders the bill and KOT as a page and prints it
+                through the printer driver (72 mm, no dialog). Image renders the same page and sends it to the
+                printer as dots (any language and ₹, no driver settings involved). Use Test to compare.
               </small>
             </div>
             <select
               className={styles.roleSelect}
               value={printMethod}
-              onChange={(e) => handlePrintMethod(e.target.value as 'direct' | 'html')}
+              onChange={(e) => handlePrintMethod(e.target.value as PrintMethod)}
             >
               <option value="direct">Direct (ESC/POS)</option>
               <option value="html">HTML (via driver)</option>
+              <option value="image">Image (ESC/POS)</option>
             </select>
           </div>
+
+          {printMethod === 'image' && (
+            <div className={styles.printerCard} style={{ marginBottom: 12, flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+              <div>
+                <div className={styles.printerName}>Network address (optional)</div>
+                <small className={styles.hint}>
+                  For a network printer, enter its IP (for example 192.168.1.50, port 9100 by default) to send
+                  straight to it. Leave empty to print through the Windows printer.
+                </small>
+              </div>
+              {[...new Set(PRINTER_ROLES.map((r) => configs[roleKey(r)]).filter((n): n is string => !!n))].map(
+                (printerName) => (
+                  <div key={printerName} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ minWidth: 160, flex: '1 1 160px' }}>{printerName}</span>
+                    <input
+                      className={styles.roleSelect}
+                      style={{ flex: '1 1 180px' }}
+                      placeholder="192.168.1.50"
+                      value={addressDraft[printerName] ?? ''}
+                      onChange={(e) => setAddressDraft((d) => ({ ...d, [printerName]: e.target.value }))}
+                    />
+                    <button
+                      className={styles.saveBtn}
+                      disabled={(addressDraft[printerName] ?? '').trim() === (addresses[printerName] ?? '')}
+                      onClick={() => handleSaveAddress(printerName)}
+                    >
+                      Save
+                    </button>
+                  </div>
+                ),
+              )}
+              {PRINTER_ROLES.every((r) => !configs[roleKey(r)]) && (
+                <small className={styles.hint}>Save a printer for a role below first.</small>
+              )}
+            </div>
+          )}
 
           <div className={styles.printersList}>
             {PRINTER_ROLES.map((role) => {

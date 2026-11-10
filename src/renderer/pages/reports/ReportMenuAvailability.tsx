@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { MenuAvailabilityReport } from '@shared/types';
-import styles from '../styles/MenuAvailability.module.css';
-import { formatMoney, formatNumber, formatDateTime } from '../lib/format';
-import { presetRange } from '../lib/dateRange';
-import { PeriodPicker } from '../components/PeriodPicker';
+import type { MenuAvailabilityReport } from '@shared/reportTypes';
+import styles from '../../styles/MenuAvailability.module.css';
+import { formatMoney, formatNumber, formatDateTime } from '../../lib/format';
+import { presetRange } from '../../lib/dateRange';
+import { PeriodPicker } from '../../components/PeriodPicker';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 

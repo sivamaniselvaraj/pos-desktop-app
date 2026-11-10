@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { SalesByWaiterRow } from '@shared/types';
-import styles from '../styles/SalesByWaiter.module.css';
-import { formatMoney, formatNumber } from '../lib/format';
-import { presetRange } from '../lib/dateRange';
-import { PeriodPicker } from '../components/PeriodPicker';
+import type { SalesByWaiterRow } from '@shared/reportTypes';
+import styles from '../../styles/SalesByWaiter.module.css';
+import { formatMoney, formatNumber } from '../../lib/format';
+import { presetRange } from '../../lib/dateRange';
+import { PeriodPicker } from '../../components/PeriodPicker';
 
 function csvCell(v: string | number): string {
   const s = String(v);

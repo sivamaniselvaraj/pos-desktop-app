@@ -1,0 +1,20 @@
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border); background: #fff; color: var(--gray); font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.chipOn { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+.chip small { font-weight: 500; opacity: 0.8; margin-left: 4px; }
+.search { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit; min-width: 240px; }
+.tileSub { font-size: 12px; color: var(--gray); }
+.twoCol { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 18px; }
+.sectionTitle { margin: 0 0 8px; font-size: 15px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.kVoid { background: #fdecea; color: #b71c1c; }
+.kCancel { background: #fff3e0; color: #e65100; }
+.kKitchen { background: #fce4ec; color: #ad1457; }
+.kDiscount { background: #e3f2fd; color: #1565c0; }
+.kComp { background: #f3e5f5; color: #6a1b9a; }
+.kRemoved { background: #eceff1; color: #546e7a; }
+.when { white-space: nowrap; color: var(--dark); }
+.muted { color: var(--gray); font-size: 12px; }
+.reason { max-width: 260px; }
+.noReason { color: #b26a00; font-style: italic; }
+.wrapTable td { vertical-align: top; }

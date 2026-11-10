@@ -17,14 +17,21 @@ import type {
   TopItemRow,
   SalesByOrderTypeRow,
   SalesByTypeBucketRow,
-} from '@shared/types';
-import { DELIVERY_ORDER_TYPE, DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE } from '../../shared/types';
+} from '@shared/reportTypes';
+import { DELIVERY_ORDER_TYPE, DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE } from '../../../shared/types';
 import { SalesByWaiterTab } from './ReportSalesByWaiter';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import { MenuAvailabilityTab } from './ReportMenuAvailability';
-import pageStyles from '../styles/Page.module.css';
-import styles from '../styles/SalesReport.module.css';
-import { formatMoney as formatCurrency, dateInOrgZone, currencySymbol, formatNumber } from '../lib/format';
+import { VoidsDiscountsTab } from './VoidsDiscounts';
+import { DailySummaryTab } from './DailySummary';
+import { HourlySalesTab } from './HourlySales';
+import { ProductMixTab } from './ProductMix';
+import { ChannelSalesTab } from './ChannelSales';
+
+import pageStyles from '../../styles/Page.module.css';
+import styles from '../../styles/SalesReport.module.css';
+
+import { formatMoney as formatCurrency, dateInOrgZone, currencySymbol, formatNumber } from '../../lib/format';
 
 type Mode = 'daily' | 'monthly' | 'custom';
 
@@ -457,12 +464,19 @@ export function SalesReport() {
   // Each extra tab needs reports.view (to be on this page at all) plus its own permission.
   const canWaiterReport = can('reports.view') && can('reports.incentive');
   const canMenuReport = can('reports.view') && can('reports.menu_availability');
-  const [tab, setTab] = useState<'overview' | 'waiters' | 'menu'>('overview');
+  const canVoidsReport = can('reports.view') && can('reports.voids');
+  const [tab, setTab] = useState<'overview' | 'daily' | 'hourly' | 'pmix' | 'channels' | 'waiters' | 'menu' | 'voids'>('overview');
 
   const tabs: { key: typeof tab; label: string; show: boolean }[] = [
     { key: 'overview', label: 'Overview', show: true },
+    // Daily summary, Hourly, Product mix and Channels need only reports.view, like Overview (docs/SALES_REPORTS.md).
+    { key: 'daily', label: 'Daily summary', show: true },
+    { key: 'hourly', label: 'Hourly', show: true },
+    { key: 'pmix', label: 'Product mix', show: true },
+    { key: 'channels', label: 'Channels & categories', show: true },
     { key: 'waiters', label: 'By waiter', show: canWaiterReport },
     { key: 'menu', label: 'Menu availability', show: canMenuReport },
+    { key: 'voids', label: 'Voids and discounts', show: canVoidsReport },
   ];
   // A tab the user may not open (for example after a permission change) falls back to Overview.
   const active = tabs.find((t) => t.key === tab && t.show)?.key ?? 'overview';
@@ -484,7 +498,23 @@ export function SalesReport() {
             </button>
           ))}
       </div>
-      {active === 'waiters' ? <SalesByWaiterTab /> : active === 'menu' ? <MenuAvailabilityTab /> : <SalesOverview />}
+      {active === 'daily' ? (
+        <DailySummaryTab />
+      ) : active === 'hourly' ? (
+        <HourlySalesTab />
+      ) : active === 'pmix' ? (
+        <ProductMixTab />
+      ) : active === 'channels' ? (
+        <ChannelSalesTab />
+      ) : active === 'waiters' ? (
+        <SalesByWaiterTab />
+      ) : active === 'menu' ? (
+        <MenuAvailabilityTab />
+      ) : active === 'voids' ? (
+        <VoidsDiscountsTab />
+      ) : (
+        <SalesOverview />
+      )}
     </div>
   );
 }
