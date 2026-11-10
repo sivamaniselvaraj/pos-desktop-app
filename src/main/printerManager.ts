@@ -6,6 +6,7 @@ import { config } from './config';
 import { taxBillLines } from '../shared/orderTotals';
 import type { FoodOrder, PrinterInfo, HeaderConfig } from '../shared/types';
 import { printHtml, renderBillHtml, renderKotHtml, renderTestHtml } from './htmlPrint';
+import { printImage } from './imagePrint';
 import { journalPrint } from './logger';
 
 const electron = typeof process !== 'undefined' && process.versions && !!process.versions.electron;
@@ -493,6 +494,10 @@ async function printOrderNow(order: FoodOrder, printerName:string, isDuplicate: 
     await printHtml(renderBillHtml(order, isDuplicate), printerName);
     return;
   }
+  if (config.printMethod === 'image') {
+    await printImage(renderBillHtml(order, isDuplicate), printerName);
+    return;
+  }
 
   try {
 
@@ -725,6 +730,10 @@ async function printKotNow(order: FoodOrder, printerName: string): Promise<void>
     await printHtml(renderKotHtml(order), name);
     return;
   }
+  if (config.printMethod === 'image') {
+    await printImage(renderKotHtml(order), name);
+    return;
+  }
 
   try {
     const printer = loadPrinterDriver(printerName);
@@ -841,6 +850,12 @@ async function testPrintNow(name: string): Promise<string> {
   if (config.printMethod === 'html') {
     await printHtml(renderTestHtml(name), name);
     return `Test slip (HTML) sent to "${name}"`;
+  }
+  
+  if (config.printMethod === 'image') {
+    const address = config.printerAddresses[name];
+    await printImage(renderTestHtml(name, address ? `Image (ESC/POS) to ${address}` : 'Image (ESC/POS) via Windows'), name);
+    return `Test slip (Image) sent to "${name}"${address ? ` at ${address}` : ''}`;
   }
 
   try {

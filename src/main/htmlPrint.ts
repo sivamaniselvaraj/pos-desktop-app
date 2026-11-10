@@ -23,7 +23,7 @@ import { PrintTimeoutError, withTimeout } from './printQueue';
 // their Windows drivers offer paper such as "72 x 3276 mm" (RP3150 STAR). An
 // 80 mm page did not match it and came out as a blank strip (2026-11-05).
 //const PAPER_MM = 80;
-const PAPER_MM = 72;
+export const PAPER_MM = 72;
 // Longest page these drivers accept (72 x 3276 mm).
 const MAX_PAGE_MICRONS = 3276 * 1000;
 const PX_TO_MICRONS = 25400 / 96;
@@ -199,13 +199,14 @@ export function renderKotHtml(order: FoodOrder): string {
   return page(out.join(''));
 }
 
-export function renderTestHtml(printerName: string): string {
+export function renderTestHtml(printerName: string, method = 'HTML (Electron)'): string {
   return page(
     `<div class="c lg">TEST PRINT</div><div class="rule"></div>` +
       kv('Printer', printerName) +
       kv('Time', new Date().toLocaleString('en-IN')) +
-      kv('Method', 'HTML (Electron)') +
-      `<div class="rule"></div><div class="c">If you can read this,</div><div class="c">HTML printing works.</div>`,
+      kv('Method', method) +
+      `<div class="c">தமிழ் · ₹ 123.45</div>` +
+      `<div class="rule"></div><div class="c">If you can read this,</div><div class="c">printing works.</div>`,
   );
 }
 

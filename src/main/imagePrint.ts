@@ -1,0 +1,358 @@
+import { execFile } from 'child_process';
+import { promises as fs } from 'fs';
+import net from 'net';
+import path from 'path';
+import { promisify } from 'util';
+import { app, BrowserWindow } from 'electron';
+import { config } from './config';
+import { PAPER_MM } from './htmlPrint';
+import { getPrinters } from './printerManager';
+import { PrintTimeoutError, withTimeout } from './printQueue';
+
+/**
+ * imagePrint.ts
+ * ---------------------------------------------------------------------------
+ * "Image (ESC/POS)" print method: the same HTML bill / KOT as the HTML method
+ * is drawn in a hidden window, captured as a picture, turned into black and
+ * white dots and sent to the printer as an ESC/POS bit image (GS v 0), with
+ * the cut command at the end.
+ *
+ * Why: the page reaches the printer as dots, so Tamil (or any language), the
+ * ₹ sign and the layout print exactly as drawn, and the Windows driver's paper
+ * size, margins and scaling play no part (the HTML method printed blank strips
+ * when they did not match). No native module is needed either:
+ *
+ * - If the printer has a network address in Settings, the bytes go straight to
+ *   it over TCP (port 9100 unless given), skipping Windows completely.
+ * - Otherwise they go to the installed Windows printer as a RAW job through
+ *   winspool.drv, called from PowerShell (the printer name and data file are
+ *   passed as environment variables, never pasted into the command). macOS /
+ *   Linux use `lp -o raw`.
+ *
+ * See docs/IMAGE_PRINT.md.
+ * ---------------------------------------------------------------------------
+ */
+
+const execFileAsync = promisify(execFile);
+
+/** Dots across the paper: 72 mm at 203 dpi (8 dots per mm). */
+const DOTS = 576;
+const CSS_PX_PER_MM = 96 / 25.4;
+/** Zoom so the 72 mm page (about 272 CSS px) fills exactly DOTS pixels. A function,
+ *  not a constant: htmlPrint and this file import each other (via printerManager),
+ *  so PAPER_MM may not be set yet while this module loads. */
+const zoom = () => DOTS / (PAPER_MM * CSS_PX_PER_MM);
+/** Height of one captured slice, in device pixels. */
+const SLICE = 1000;
+/** Longest ticket we print (about 1.5 m). */
+const MAX_DOTS = 12_000;
+/** Pixels darker than this (0-255) print black. */
+const THRESHOLD = 160;
+/** Rows per GS v 0 command; small bands suit printers with little buffer. */
+const BAND_ROWS = 128;
+const JOB_TIMEOUT_MS = 30_000;
+const TCP_TIMEOUT_MS = 10_000;
+const DEFAULT_PORT = 9100;
+const GAP_MS = 500;
+
+// ---- Network addresses (per machine, settings.json) --------------------------
+
+const ADDRESS_RE = /^[A-Za-z0-9.-]+(:\d{1,5})?$/;
+
+/** Save or (with an empty address) remove the network address used for `printerName`. */
+export function setPrinterAddress(printerName: string, address: string): void {
+  const name = printerName.trim();
+  const addr = address.trim();
+  if (!name) throw new Error('Choose a printer first.');
+  if (addr && !ADDRESS_RE.test(addr)) {
+    throw new Error('Enter the printer address like 192.168.1.50 or 192.168.1.50:9100.');
+  }
+  const all = config.printerAddresses;
+  if (addr) all[name] = addr;
+  else delete all[name];
+  config.printerAddresses = all;
+}
+
+function parseAddress(addr: string): { host: string; port: number } {
+  const [host, port] = addr.split(':');
+  const p = port ? Number(port) : DEFAULT_PORT;
+  if (!host || !Number.isInteger(p) || p < 1 || p > 65535)
+    throw new Error(`Bad printer address "${addr}".`);
+  return { host, port: p };
+}
+
+// ---- Queue -------------------------------------------------------------------
+
+let chain: Promise<void> = Promise.resolve();
+
+/** Print an HTML page as an ESC/POS bit image (queued, one job at a time). */
+export function printImage(html: string, printerName: string): Promise<void> {
+  const job = chain.then(() => printImageNow(html, printerName));
+  chain = job.then(
+    () => new Promise<void>((r) => setTimeout(r, GAP_MS)),
+    () => new Promise<void>((r) => setTimeout(r, GAP_MS)),
+  );
+  return job;
+}
+
+async function printImageNow(html: string, printerName: string): Promise<void> {
+  const name = (printerName ?? '').trim();
+  if (!name) throw new Error('No printer selected.');
+  const address = config.printerAddresses[name];
+  try {
+    await withTimeout(
+      (async () => {
+        const bytes = toEscPos(await renderToDots(html));
+        if (address) await sendTcp(address, bytes);
+        else await sendSpooler(name, bytes);
+      })(),
+      JOB_TIMEOUT_MS,
+      `Image print to "${name}"`,
+    );
+  } catch (err) {
+    if (err instanceof PrintTimeoutError) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Image print to "${name}"${address ? ` (${address})` : ''} failed: ${msg}`);
+  }
+}
+
+// ---- HTML -> black and white dots ----------------------------------------------
+
+interface Dots {
+  width: number;
+  height: number;
+  /** 1 bit per dot, rows of width/8 bytes, MSB = leftmost, 1 = black. */
+  data: Buffer;
+}
+
+let jobFile: string | null = null;
+
+async function writeJobFile(html: string): Promise<string> {
+  if (!jobFile) {
+    const dir = path.join(app.getPath('temp'), 'virunthagam-pos-print');
+    await fs.mkdir(dir, { recursive: true });
+    jobFile = path.join(dir, 'image-job.html');
+  }
+  await fs.writeFile(jobFile, html, 'utf8');
+  return jobFile;
+}
+
+const PAINTED_JS = `Promise.race([
+  (document.fonts ? document.fonts.ready : Promise.resolve()).then(
+    () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))),
+  new Promise((r) => setTimeout(() => r(false), 1000)),
+])`;
+
+const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Exported for tests. */
+export async function renderToDots(html: string): Promise<Dots> {
+  // Offscreen: the page is drawn to memory at any size, never on screen.
+  // A new window per job (a reused print window failed to load on Windows).
+  const win = new BrowserWindow({
+    show: false,
+    width: DOTS,
+    height: SLICE,
+    useContentSize: true,
+    webPreferences: {
+      offscreen: true,
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      javascript: true,
+      backgroundThrottling: false,
+    },
+  });
+  const ZOOM = zoom();
+  try {
+    win.setContentSize(DOTS, SLICE);
+    try {
+      await win.loadFile(await writeJobFile(html));
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `could not prepare the page (${/ERR_[A-Z_]+ \(-?\d+\)/.exec(raw)?.[0] ?? raw.slice(0, 120)})`,
+      );
+    }
+    win.webContents.setZoomFactor(ZOOM);
+    await win.webContents.executeJavaScript(
+      `document.documentElement.style.overflow = 'hidden'; document.body.style.transformOrigin = '0 0'; true`,
+    );
+    await win.webContents.executeJavaScript(PAINTED_JS);
+    await wait(100);
+
+    const cssHeight = (await win.webContents.executeJavaScript(
+      'Math.ceil(document.body.getBoundingClientRect().height)',
+    )) as number;
+    const height = Math.min(MAX_DOTS, Math.max(1, Math.ceil(cssHeight * ZOOM)));
+    const rowBytes = DOTS / 8;
+    const data = Buffer.alloc(rowBytes * height);
+
+    for (let top = 0; top < height; top += SLICE) {
+      const rows = Math.min(SLICE, height - top);
+      // Move the page up instead of scrolling: no scroll limits, exact offsets.
+      await win.webContents.executeJavaScript(
+        `document.body.style.transform = 'translateY(-${top / ZOOM}px)'; true`,
+      );
+      await win.webContents.executeJavaScript(PAINTED_JS);
+      win.webContents.invalidate();
+      await wait(60);
+      let img = await win.webContents.capturePage({ x: 0, y: 0, width: DOTS, height: rows });
+      const size = img.getSize();
+      if (size.width !== DOTS || size.height !== rows) {
+        img = img.resize({ width: DOTS, height: rows, quality: 'best' });
+      }
+      // toBitmap() is BGRA (RGBA order does not matter for grey text on white).
+      const px = img.toBitmap();
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < DOTS; x++) {
+          const i = (y * DOTS + x) * 4;
+          const a = px[i + 3];
+          const lum = a === 0 ? 255 : (px[i] * 114 + px[i + 1] * 587 + px[i + 2] * 299) / 1000;
+          if (lum < THRESHOLD) data[(top + y) * rowBytes + (x >> 3)] |= 0x80 >> (x & 7);
+        }
+      }
+    }
+    return trimBottom({ width: DOTS, height, data });
+  } finally {
+    if (!win.isDestroyed()) win.destroy();
+  }
+}
+
+/** Drop blank rows at the bottom (keep a few for spacing). */
+function trimBottom(d: Dots): Dots {
+  const rowBytes = d.width / 8;
+  let last = d.height - 1;
+  while (last > 0) {
+    const row = d.data.subarray(last * rowBytes, (last + 1) * rowBytes);
+    if (row.some((b) => b !== 0)) break;
+    last--;
+  }
+  const height = Math.min(d.height, last + 1 + 16);
+  return { width: d.width, height, data: d.data.subarray(0, height * rowBytes) };
+}
+
+// ---- Dots -> ESC/POS ---------------------------------------------------------------
+
+/** ESC @, the image in GS v 0 bands, feed, partial cut. Exported for tests. */
+export function toEscPos(d: Dots): Buffer {
+  const rowBytes = d.width / 8;
+  const parts: Buffer[] = [Buffer.from([0x1b, 0x40])]; // ESC @ initialise
+  for (let top = 0; top < d.height; top += BAND_ROWS) {
+    const rows = Math.min(BAND_ROWS, d.height - top);
+    parts.push(
+      Buffer.from([0x1d, 0x76, 0x30, 0x00, rowBytes & 0xff, rowBytes >> 8, rows & 0xff, rows >> 8]),
+      d.data.subarray(top * rowBytes, (top + rows) * rowBytes),
+    );
+  }
+  parts.push(Buffer.from([0x1b, 0x64, 0x04])); // ESC d 4: feed 4 lines
+  parts.push(Buffer.from([0x1d, 0x56, 0x42, 0x00])); // GS V 66 0: feed to cutter, partial cut
+  return Buffer.concat(parts);
+}
+
+// ---- Sending -------------------------------------------------------------------
+
+function sendTcp(address: string, bytes: Buffer): Promise<void> {
+  const { host, port } = parseAddress(address);
+  return new Promise<void>((resolve, reject) => {
+    const socket = net.createConnection({ host, port });
+    let done = false;
+    const finish = (err?: Error) => {
+      if (done) return;
+      done = true;
+      socket.destroy();
+      if (err) reject(err);
+      else resolve();
+    };
+    socket.setTimeout(TCP_TIMEOUT_MS, () =>
+      finish(
+        new Error(
+          `no answer from ${host}:${port} within ${TCP_TIMEOUT_MS / 1000} s. Check the printer is on and the address is right.`,
+        ),
+      ),
+    );
+    socket.on('error', (err) =>
+      finish(new Error(`could not reach ${host}:${port} (${err.message}).`)),
+    );
+    socket.on('connect', () => {
+      socket.end(bytes, () => finish());
+    });
+  });
+}
+
+// Fixed script: the printer name and data file arrive as environment variables.
+const RAW_PRINT_PS = String.raw`
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class VposRawPrint {
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  public class DOCINFO { public string pDocName; public string pOutputFile; public string pDataType; }
+  [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+  static extern bool OpenPrinter(string name, out IntPtr h, IntPtr d);
+  [DllImport("winspool.drv", SetLastError = true)] static extern bool ClosePrinter(IntPtr h);
+  [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+  static extern int StartDocPrinter(IntPtr h, int level, [In] DOCINFO di);
+  [DllImport("winspool.drv", SetLastError = true)] static extern bool EndDocPrinter(IntPtr h);
+  [DllImport("winspool.drv", SetLastError = true)] static extern bool StartPagePrinter(IntPtr h);
+  [DllImport("winspool.drv", SetLastError = true)] static extern bool EndPagePrinter(IntPtr h);
+  [DllImport("winspool.drv", SetLastError = true)]
+  static extern bool WritePrinter(IntPtr h, byte[] b, int count, out int written);
+  public static void Send(string name, byte[] data) {
+    IntPtr h;
+    if (!OpenPrinter(name, out h, IntPtr.Zero)) throw new Exception("OpenPrinter failed, Windows error " + Marshal.GetLastWin32Error());
+    try {
+      DOCINFO di = new DOCINFO();
+      di.pDocName = "Virunthagam POS";
+      di.pDataType = "RAW";
+      if (StartDocPrinter(h, 1, di) == 0) throw new Exception("StartDocPrinter failed, Windows error " + Marshal.GetLastWin32Error());
+      try {
+        StartPagePrinter(h);
+        int written;
+        if (!WritePrinter(h, data, data.Length, out written) || written != data.Length)
+          throw new Exception("WritePrinter failed, Windows error " + Marshal.GetLastWin32Error());
+        EndPagePrinter(h);
+      } finally { EndDocPrinter(h); }
+    } finally { ClosePrinter(h); }
+  }
+}
+"@
+[VposRawPrint]::Send($env:VPOS_PRINTER, [System.IO.File]::ReadAllBytes($env:VPOS_FILE))
+`;
+
+async function sendSpooler(name: string, bytes: Buffer): Promise<void> {
+  const known =
+    (await getPrinters()).some((p) => p.name === name) ||
+    (await getPrinters(true)).some((p) => p.name === name);
+  if (!known)
+    throw new Error(
+      `printer "${name}" was not found in the OS. Check it is installed, or enter its network address.`,
+    );
+
+  const dir = path.join(app.getPath('temp'), 'virunthagam-pos-print');
+  await fs.mkdir(dir, { recursive: true });
+  const file = path.join(dir, 'image-job.bin');
+  await fs.writeFile(file, bytes);
+  try {
+    if (process.platform === 'win32') {
+      await execFileAsync(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', RAW_PRINT_PS],
+        {
+          env: { ...process.env, VPOS_PRINTER: name, VPOS_FILE: file },
+          windowsHide: true,
+          timeout: 25_000,
+        },
+      );
+    } else {
+      await execFileAsync('lp', ['-d', name, '-o', 'raw', file], { timeout: 25_000 });
+    }
+  } catch (err) {
+    const e = err as { stderr?: string; message?: string };
+    const detail =
+      (e.stderr || e.message || String(err)).split(/\r?\n/).find((l) => l.trim()) ??
+      'unknown error';
+    throw new Error(`the Windows spooler refused the job (${detail.trim().slice(0, 200)}).`);
+  }
+}
