@@ -5,7 +5,7 @@
 -- nested in the response, as one JSON object.
 --
 -- Call it from the client with:
---   const { data, error } = await supabase.rpc('get_order_with_items', {
+--   const { data, error } = await client.rpc('get_order_with_items', {
 --     p_order_id: '550e8400-e29b-41d4-a716-446655440000',
 --   });
 --
@@ -98,8 +98,8 @@ create index if not exists idx_orders_outlet_id on orders (outlet_id);
 -- Joined to menu_items for the display name. Ordered by creation so the KOT
 -- lists items in the order they were added.
 --
--- Consumed by fetchUnprintedItems() in supabaseClient. Call with:
---   supabase.rpc('get_pending_kot_items', { p_order_id: '<order uuid>' })
+-- Consumed by fetchUnprintedItems() in the data layer. Call with:
+--   client.rpc('get_pending_kot_items', { p_order_id: '<order uuid>' })
 
 create or replace function get_pending_kot_items(p_order_id uuid)
 returns table (
@@ -149,8 +149,8 @@ grant execute on function get_pending_kot_items(uuid) to anon, authenticated;
 -- queries and an id list. Same rule the row-level security applied:
 -- orders.view permission, caller's own outlet only. No session, no rows.
 --
--- Consumed by findOrdersWithPendingKot() in src/main/data/supabase/orders.ts:
---   supabase.rpc('find_orders_with_pending_kot')
+-- Consumed by findOrdersWithPendingKot() in the data layer (src/main/data/<provider>/orders.ts):
+--   client.rpc('find_orders_with_pending_kot')
 create or replace function find_orders_with_pending_kot()
 returns table (order_id uuid, order_type text)
 language sql
@@ -253,8 +253,8 @@ create index if not exists idx_order_items_pending
 -- Returns the number of rows updated. Only flips rows still unprinted, so a
 -- repeat call is idempotent (0 rows the second time).
 --
--- Consumed by markItemsKotPrinted() in supabaseClient. Call with:
---   supabase.rpc('mark_kot_printed', { p_item_ids: ['<uuid>', ...] })
+-- Consumed by markItemsKotPrinted() in the data layer. Call with:
+--   client.rpc('mark_kot_printed', { p_item_ids: ['<uuid>', ...] })
 
 create or replace function mark_kot_printed(p_item_ids uuid[])
 returns integer
@@ -485,7 +485,7 @@ create index if not exists idx_orders_outlet_status_created
 -- misleading (an admin thinking they deactivated someone when nothing
 -- happened), so those raise an exception instead.
 --
--- User CREATION is not here — creating a login requires Supabase's Auth
+-- User CREATION is not here — creating a login requires the database's auth
 -- Admin API (to set a password), which only works with the service_role
 -- key from application code, not from a SQL function. See userAdmin.ts.
 
@@ -952,7 +952,7 @@ drop function if exists list_orders(uuid, text, text, date, date, integer, integ
 -- SCALING REWRITE: earlier versions grouped EVERY order matching the filters
 -- (window functions / GROUP BY over the whole matching set) just to return
 -- one page, so cost grew linearly with history — ~1s at 185k orders, ~9s at
--- 1.5M, past Supabase's statement timeout. Now cost is bounded by the page:
+-- 1.5M, past the database's statement timeout. Now cost is bounded by the page:
 --   * `cand` walks orders newest-first through idx_orders_outlet_created_at
 --     and keeps only each invoice's FIRST order (lowest order_number) — the
 --     group "anchor" — via an index-backed NOT EXISTS on
@@ -1449,7 +1449,7 @@ revoke execute on function recompute_order_totals(uuid) from public;
 -- so it cannot be skipped by calling the RPCs directly.
 --
 -- Passwords are verified against auth.users.encrypted_password with
--- pgcrypto's crypt() (Supabase stores bcrypt there). This never creates a
+-- pgcrypto's crypt() (the auth schema stores bcrypt there). This never creates a
 -- session or touches the signed-in user's login.
 --
 -- Failed attempts are logged and throttled: 5 failures for the same username
@@ -2001,7 +2001,7 @@ grant execute on function cancel_invoice(uuid, text, text, text, text) to authen
 -- ---------------------------------------------------------------------------
 -- complete_order(): manual status change from the Orders List page (and the
 -- same status flip the Android settle flow applies via the anon-key path in
--- src/main/supabaseClient.ts). Deliberately does NOT print here — printing
+-- src/main/data/<provider>/orders.ts). Deliberately does NOT print here — printing
 -- is its own separate action (see printOrder/isDuplicate in
 -- printerManager.ts, and the settle flow in orderManager.ts).
 --
@@ -3330,7 +3330,14 @@ grant execute on function get_kot_board_as(uuid) to authenticated;
 -- changed_at = now(), order_details {status-from, status-to}. Needs kot.move;
 -- the order must belong to the caller's outlet. If nothing is in `from` any
 -- more (someone else just moved it) it fails with a clear message.
-create or replace function kot_move_for(p_actor uuid, v_outlet uuid, p_order_id uuid, p_to_status uuid, p_from_status uuid)
+-- p_reason (added 2026-11-08): the reason typed on the desktop KOT board when a card is
+-- moved to a step with code 'cancelled' (see move_kot_with_reason). Without one the log
+-- keeps the old "<from> to <to>" text. A move to 'cancelled' also saves the items it
+-- cancelled (id, name, quantity, unit_price, total_price) in order_details.items, so the
+-- Voids and discounts report can show what was cancelled and its value.
+drop function if exists kot_move_for(uuid, uuid, uuid, uuid, uuid);
+create or replace function kot_move_for(p_actor uuid, v_outlet uuid, p_order_id uuid, p_to_status uuid, p_from_status uuid,
+                                        p_reason text default null)
 returns void
 language plpgsql
 security definer
@@ -3339,6 +3346,8 @@ as $$
 declare
   v_from   text;
   v_to     text;
+  v_items  jsonb;
+  v_details jsonb;
 begin
   select code into v_from from kot_statuses where id = p_from_status and outlet_id = v_outlet;
   select code into v_to   from kot_statuses where id = p_to_status   and outlet_id = v_outlet;
@@ -3358,16 +3367,27 @@ begin
     raise exception 'That move is not allowed';
   end if;
 
+  v_details := jsonb_build_object('status-from', v_from, 'status-to', v_to);
+  if v_to = 'cancelled' then
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'id', oi.id, 'name', coalesce(mi.name, 'Item'), 'quantity', oi.quantity,
+             'unit_price', oi.unit_price, 'total_price', oi.total_price) order by oi.created_at), '[]'::jsonb)
+      into v_items
+      from order_items oi left join menu_items mi on mi.id = oi.menu_item_id
+     where oi.order_id = p_order_id and oi.status = v_from and not coalesce(oi.is_deleted, false);
+    v_details := v_details || jsonb_build_object('items', v_items);
+  end if;
+
   update order_items set status = v_to where order_id = p_order_id and status = v_from;
 
   insert into app_activity_log
     (order_id, changed_by, changed_at, created_at, order_details, reason, activity)
-  values (p_order_id, p_actor, now(), now(),
-          jsonb_build_object('status-from', v_from, 'status-to', v_to)::json,
-          v_from || ' to ' || v_to, 'order.item.status.updated');
+  values (p_order_id, p_actor, now(), now(), v_details::json,
+          coalesce(nullif(btrim(coalesce(p_reason, '')), ''), v_from || ' to ' || v_to),
+          'order.item.status.updated');
 end;
 $$;
-revoke all on function kot_move_for(uuid, uuid, uuid, uuid, uuid) from public, anon, authenticated;
+revoke all on function kot_move_for(uuid, uuid, uuid, uuid, uuid, text) from public, anon, authenticated;
 
 create or replace function move_kot(p_order_id uuid, p_to_status uuid, p_from_status uuid)
 returns void
@@ -3416,6 +3436,33 @@ begin
 end;
 $$;
 grant execute on function move_kot_as(uuid, uuid, uuid, uuid) to authenticated;
+
+-- move_kot_with_reason(order, to, from, reason): move_kot with a reason, used by the
+-- desktop KOT board when a card goes to a step with code 'cancelled' (the board asks
+-- why). The reason (1 to 200 characters) is saved in app_activity_log.reason and shows
+-- in the Voids and discounts report. move_kot stays for older apps and kitchen screens.
+create or replace function move_kot_with_reason(p_order_id uuid, p_to_status uuid, p_from_status uuid, p_reason text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
+begin
+  if not has_permission('kot.move') then
+    raise exception 'Not allowed to move KOTs';
+  end if;
+  if v_reason is null or char_length(v_reason) > 200 then
+    raise exception 'A reason of 1 to 200 characters is required';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  perform kot_move_for(auth.uid(), v_outlet, p_order_id, p_to_status, p_from_status, v_reason);
+end;
+$$;
+grant execute on function move_kot_with_reason(uuid, uuid, uuid, text) to authenticated;
 
 
 -- get_kot_workflow(): the settings view. Steps in order with their button
@@ -4818,3 +4865,653 @@ as $$
 $$;
 revoke all on function get_app_release_policy() from public;
 grant execute on function get_app_release_policy() to anon, authenticated;
+
+
+-- ============================================================================
+-- VOIDS, CANCELLATIONS AND DISCOUNTS REPORT (from app_activity_log)
+-- ============================================================================
+-- get_voids_discounts(from, to): every void, cancellation and discount in the caller's
+-- outlet whose log row falls in the range (outlet local dates). Needs reports.view AND
+-- reports.voids. One event per app_activity_log row:
+--   item_removed      delete_item                        value = the line's total_price
+--   qty_reduced       edit_item with a lower quantity    value = (old - new) * unit_price
+--   order_cancelled   cancel_order (and each round of cancel_invoice)  value = order total
+--   kitchen_cancelled order.item.status.updated to a 'cancelled' step  value = items moved
+--                     (rows written before 2026-11-08 have no item list, so value 0)
+--   discount          order.discount.updated, mode percent or amount   value = amount off
+--   complimentary     order.discount.updated, mode complimentary       value = amount off
+--   discount_removed  order.discount.updated, mode none                value = 0
+-- "by" is the signed-in user who did it (changed_by), "approved_by" the editor account
+-- that approved it (edits, removals and cancels ask for one). Quantity increases are not
+-- voids and are left out.
+-- Summary discount and complimentary totals come from the orders themselves (discount
+-- still in place, given in the range, order not cancelled), so a discount that was changed
+-- twice counts once; the event list keeps every change.
+-- Returns { summary, events[], staff[], reasons[] }.
+create or replace function get_voids_discounts(p_from date, p_to date)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_tz text;
+  v_out jsonb;
+begin
+  if not (has_permission('reports.view') and has_permission('reports.voids')) then
+    raise exception 'Not allowed to see the voids and discounts report';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  v_tz := outlet_timezone(v_outlet);
+
+  with raw as (
+    select l.id, l.activity, coalesce(l.changed_at, l.created_at) as at, l.changed_by,
+           l.reason, coalesce(l.order_details::jsonb, '{}'::jsonb) as d,
+           l.old_quantity, l.new_quantity, l.order_item_id,
+           o.id as order_id, o.order_number, o.invoice_number, o.order_type, o.status as order_status,
+           t.table_number
+      from app_activity_log l
+      join orders o on o.id = l.order_id
+      left join tables t on t.id = o.table_id
+     where o.outlet_id = v_outlet
+       and l.created_at >= (p_from::timestamp at time zone v_tz) - interval '1 day'
+       and l.created_at < ((p_to + 1)::timestamp at time zone v_tz) + interval '1 day'
+       and (coalesce(l.changed_at, l.created_at) at time zone v_tz)::date between p_from and p_to
+       and (l.activity in ('delete_item', 'cancel_order', 'order.discount.updated')
+            or (l.activity = 'edit_item' and l.new_quantity < l.old_quantity)
+            or (l.activity = 'order.item.status.updated'
+                and l.order_details::jsonb->>'status-to' = 'cancelled'))
+  ),
+  ev as (
+    select r.*,
+           case r.activity
+             when 'delete_item' then 'item_removed'
+             when 'edit_item' then 'qty_reduced'
+             when 'cancel_order' then 'order_cancelled'
+             when 'order.item.status.updated' then 'kitchen_cancelled'
+             else case r.d->>'mode'
+                    when 'complimentary' then 'complimentary'
+                    when 'none' then 'discount_removed'
+                    else 'discount' end
+           end as kind,
+           case
+             when r.activity in ('delete_item', 'edit_item')
+               then coalesce(nullif(r.d->>'item_name', ''), nullif(r.d->'old_item'->>'name', ''), mi.name, 'Item')
+             when r.activity = 'order.item.status.updated'
+               then (select string_agg((x->>'quantity') || ' x ' || (x->>'name'), ', ')
+                       from jsonb_array_elements(case when jsonb_typeof(r.d->'items') = 'array' then r.d->'items' else '[]'::jsonb end) x)
+           end as item,
+           case
+             when r.activity = 'delete_item' then r.old_quantity
+             when r.activity = 'edit_item' then r.old_quantity - r.new_quantity
+             when r.activity = 'order.item.status.updated'
+               then (select sum((x->>'quantity')::numeric)
+                       from jsonb_array_elements(case when jsonb_typeof(r.d->'items') = 'array' then r.d->'items' else '[]'::jsonb end) x)
+           end as qty,
+           round(coalesce(case
+             when r.activity = 'delete_item'
+               then coalesce((r.d->'old_item'->>'total_price')::numeric,
+                             r.old_quantity * (r.d->'old_item'->>'unit_price')::numeric)
+             when r.activity = 'edit_item'
+               then (r.old_quantity - r.new_quantity) * (r.d->'old_item'->>'unit_price')::numeric
+             when r.activity = 'cancel_order' then (r.d->>'total_amount')::numeric
+             when r.activity = 'order.item.status.updated'
+               then (select sum((x->>'total_price')::numeric)
+                       from jsonb_array_elements(case when jsonb_typeof(r.d->'items') = 'array' then r.d->'items' else '[]'::jsonb end) x)
+             when r.d->>'mode' = 'none' then 0
+             else (r.d->>'discount_amount')::numeric
+           end, 0), 2) as value,
+           case
+             when r.activity = 'edit_item'
+               then 'Quantity ' || trim(trailing '.' from trim(trailing '0' from r.old_quantity::text))
+                    || ' to ' || trim(trailing '.' from trim(trailing '0' from r.new_quantity::text))
+             when r.activity = 'cancel_order' and r.d->>'scope' = 'invoice' then 'Whole bill cancelled'
+             when r.activity = 'order.discount.updated' and r.d->>'mode' = 'percent'
+               then trim(trailing '.' from trim(trailing '0' from (r.d->>'value'))) || '% off'
+             when r.activity = 'order.discount.updated' and r.d->>'mode' = 'amount' then 'Fixed amount off'
+             when r.activity = 'order.discount.updated' and r.d->>'mode' = 'none' then 'Discount removed'
+           end as detail,
+           -- discount_removed rows carry the placeholder text 'discount removed'; the KOT
+           -- board's moves without a reason carry '<from> to <to>'.
+           case
+             when r.activity = 'order.discount.updated' and r.d->>'mode' = 'none' then null
+             when r.activity = 'order.item.status.updated'
+                  and r.reason = (r.d->>'status-from') || ' to ' || (r.d->>'status-to') then null
+             else nullif(btrim(r.reason), '')
+           end as why,
+           coalesce(nullif(btrim(p.first_name), ''), nullif(btrim(p.full_name), ''), p.email, u.email,
+                    case when r.changed_by is null then 'Unknown' else 'Unknown user' end) as by_name,
+           nullif(r.d->>'approved_by', '') as approved_by
+      from raw r
+      left join menu_items mi on mi.id = nullif(r.d->'old_item'->>'menu_item_id', '')::uuid
+                                and r.activity in ('delete_item', 'edit_item')
+      left join profiles p on p.user_id = r.changed_by
+      left join auth.users u on u.id = r.changed_by
+  ),
+  disc as (
+    select coalesce(count(*) filter (where not coalesce(o.is_complimentary, false)), 0) as discount_orders,
+           coalesce(sum(o.discount_amount) filter (where not coalesce(o.is_complimentary, false)), 0) as discount_value,
+           coalesce(count(*) filter (where coalesce(o.is_complimentary, false)), 0) as comp_orders,
+           coalesce(sum(o.discount_amount) filter (where coalesce(o.is_complimentary, false)), 0) as comp_value
+      from orders o
+     where o.outlet_id = v_outlet
+       and o.status <> 'cancelled'
+       and o.discount_at is not null
+       and (o.discount_at at time zone v_tz)::date between p_from and p_to
+       and (coalesce(o.is_complimentary, false) or coalesce(o.discount_amount, 0) > 0)
+  )
+  select jsonb_build_object(
+    'summary', (
+      select jsonb_build_object(
+        'events', count(*),
+        'void_count', count(*) filter (where kind in ('item_removed', 'qty_reduced')),
+        'void_qty', coalesce(sum(qty) filter (where kind in ('item_removed', 'qty_reduced')), 0),
+        'void_value', coalesce(sum(value) filter (where kind in ('item_removed', 'qty_reduced')), 0),
+        'kitchen_cancel_count', count(*) filter (where kind = 'kitchen_cancelled'),
+        'kitchen_cancel_value', coalesce(sum(value) filter (where kind = 'kitchen_cancelled'), 0),
+        'cancelled_orders', count(distinct order_id) filter (where kind = 'order_cancelled'),
+        'cancelled_value', coalesce(sum(value) filter (where kind = 'order_cancelled'), 0),
+        'discount_orders', (select discount_orders from disc),
+        'discount_value', (select discount_value from disc),
+        'complimentary_orders', (select comp_orders from disc),
+        'complimentary_value', (select comp_value from disc),
+        'no_reason', count(*) filter (where why is null and kind <> 'discount_removed'))
+      from ev),
+    'events', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'id', id, 'at', at, 'kind', kind, 'order_id', order_id, 'order_number', order_number,
+               'invoice_number', invoice_number, 'order_type', order_type, 'order_status', order_status,
+               'table_number', table_number, 'item', item, 'qty', qty, 'value', value, 'detail', detail,
+               'reason', why, 'by', by_name, 'approved_by', approved_by)
+             order by at desc, id desc)
+        from ev), '[]'::jsonb),
+    'staff', coalesce((
+      select jsonb_agg(s order by (s->>'total_value')::numeric desc, s->>'name')
+        from (select jsonb_build_object(
+                       'name', by_name,
+                       'voids', count(*) filter (where kind in ('item_removed', 'qty_reduced', 'kitchen_cancelled')),
+                       'void_value', coalesce(sum(value) filter (where kind in ('item_removed', 'qty_reduced', 'kitchen_cancelled')), 0),
+                       'cancels', count(*) filter (where kind = 'order_cancelled'),
+                       'cancel_value', coalesce(sum(value) filter (where kind = 'order_cancelled'), 0),
+                       'discounts', count(*) filter (where kind in ('discount', 'complimentary')),
+                       'discount_value', coalesce(sum(value) filter (where kind in ('discount', 'complimentary')), 0),
+                       'total_value', coalesce(sum(value), 0)) as s
+                from ev group by by_name) z), '[]'::jsonb),
+    'reasons', coalesce((
+      select jsonb_agg(jsonb_build_object('reason', reason, 'count', n, 'value', v) order by n desc, v desc)
+        from (select coalesce(why, 'No reason given') as reason, count(*) as n, coalesce(sum(value), 0) as v
+                from ev where kind <> 'discount_removed'
+               group by coalesce(why, 'No reason given')) z), '[]'::jsonb)
+  ) into v_out;
+  return v_out;
+end;
+$$;
+grant execute on function get_voids_discounts(date, date) to authenticated;
+
+
+-- ============================================================================
+-- SALES AND REVENUE REPORTS (docs/SALES_REPORTS.md)
+-- ============================================================================
+-- Four reports on the Sales Report page, all for the caller's outlet and all
+-- needing reports.view (like the Overview tab):
+--   get_daily_summary(from, to, shift_start, shift_end)  Daily summary / Z-report
+--   get_sales_by_hour(from, to)                          Hourly sales
+--   get_product_mix(from, to)                            Product mix (P-Mix)
+--   get_sales_by_channel(from, to)                       Channels and categories
+-- Same rules as the other reports: completed orders only, dated by created_at
+-- in the outlet's time zone (my_timezone()), dates are outlet-local and
+-- inclusive. Amounts per order:
+--   net sales = total_amount - tax_amount   (after discount, before tax)
+--   gross     = net sales + discount_amount (before discount and tax)
+--   discount_amount is reported as Complimentary when is_complimentary.
+-- Item-level figures (product mix, categories) use the line value before tax
+-- and before the order discount (a tax-inclusive line has its tax taken out),
+-- and skip cancelled and deleted lines; container charges are not item sales.
+
+-- The caller's outlet for a sales report, or an error.
+create or replace function report_outlet_for_caller()
+returns uuid
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  if not has_permission('reports.view') then
+    raise exception 'Not allowed to see sales reports';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true) and p.outlet_id is not null;
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  return v_outlet;
+end;
+$$;
+revoke all on function report_outlet_for_caller() from public;
+grant execute on function report_outlet_for_caller() to authenticated;
+
+-- Value of an order line before tax (and before any order discount).
+create or replace function order_line_net(p_total numeric, p_includes_tax boolean, p_rate numeric)
+returns numeric
+language sql
+immutable
+as $$
+  select case when coalesce(p_includes_tax, false)
+              then coalesce(p_total, 0) * 100 / (100 + coalesce(p_rate, 0))
+              else coalesce(p_total, 0) end;
+$$;
+grant execute on function order_line_net(numeric, boolean, numeric) to authenticated;
+
+
+-- ----------------------------------------------------------------------------
+-- get_daily_summary: the Z-report. Optional shift window (outlet-local time of
+-- day the order was placed): start <= time < end; when start > end the shift
+-- runs past midnight (22:00 to 02:00), and its orders stay on their own date.
+-- Both null = the whole day. Returns
+--   { summary{...}, tax_lines[], payments[], order_types[], days[] }
+-- Payments come from payment_details: cash, card and upi; a part payment is
+-- shared between its methods in proportion to the amounts recorded; an order
+-- with no payment recorded is 'unpaid'.
+-- ----------------------------------------------------------------------------
+create or replace function get_daily_summary(
+  p_from date,
+  p_to date,
+  p_shift_start time default null,
+  p_shift_end time default null
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid := report_outlet_for_caller();
+  v_tz text := (select my_timezone());
+  v_result jsonb;
+begin
+  if p_from is null or p_to is null or p_from > p_to then
+    raise exception 'Pick a valid date range';
+  end if;
+  if (p_shift_start is null) <> (p_shift_end is null) then
+    raise exception 'Give both shift times, or neither';
+  end if;
+
+  with base as (
+    select o.*, (o.created_at at time zone v_tz) as local_at
+      from orders o
+     where o.outlet_id = v_outlet
+       and o.status in ('completed', 'cancelled')
+       and (o.created_at at time zone v_tz)::date between p_from and p_to
+  ),
+  inshift as (
+    select b.* from base b
+     where p_shift_start is null
+        or (p_shift_start <= p_shift_end and b.local_at::time >= p_shift_start and b.local_at::time < p_shift_end)
+        or (p_shift_start > p_shift_end and (b.local_at::time >= p_shift_start or b.local_at::time < p_shift_end))
+  ),
+  done as (
+    select i.*,
+           coalesce(i.total_amount, 0) - coalesce(i.tax_amount, 0) as net,
+           case when i.is_complimentary then 0 else coalesce(i.discount_amount, 0) end as disc,
+           case when i.is_complimentary then coalesce(i.discount_amount, 0) else 0 end as comp
+      from inshift i where i.status = 'completed'
+  ),
+  items as (
+    select coalesce(sum(oi.quantity), 0) as qty
+      from order_items oi join done d on d.id = oi.order_id
+     where not coalesce(oi.is_deleted, false) and oi.status <> 'cancelled'
+  ),
+  pay as (
+    select d.id, d.total_amount, d.payment_details pd,
+           coalesce((d.payment_details->>'cashAmount')::numeric, 0) c,
+           coalesce((d.payment_details->>'cardAmount')::numeric, 0) k,
+           coalesce((d.payment_details->>'upiAmount')::numeric, 0) u
+      from done d
+  ),
+  pay_split as (
+    select p.id, m.method, m.amount
+      from pay p
+      cross join lateral (
+        select x.method, x.amount from (values
+          ('cash', case when p.pd is null then 0
+                        when p.pd->>'method' = 'part-payment' then
+                          case when p.c + p.k + p.u > 0 then coalesce(p.total_amount, 0) * p.c / (p.c + p.k + p.u) else 0 end
+                        when p.pd->>'method' = 'cash' then coalesce(p.total_amount, 0) else 0 end),
+          ('card', case when p.pd is null then 0
+                        when p.pd->>'method' = 'part-payment' then
+                          case when p.c + p.k + p.u > 0 then coalesce(p.total_amount, 0) * p.k / (p.c + p.k + p.u) else 0 end
+                        when p.pd->>'method' = 'card' then coalesce(p.total_amount, 0) else 0 end),
+          ('upi',  case when p.pd is null then 0
+                        when p.pd->>'method' = 'part-payment' then
+                          case when p.c + p.k + p.u > 0 then coalesce(p.total_amount, 0) * p.u / (p.c + p.k + p.u) else 0 end
+                        when p.pd->>'method' = 'upi' then coalesce(p.total_amount, 0) else 0 end),
+          ('unpaid', case when p.pd is null then coalesce(p.total_amount, 0) else 0 end)
+        ) x(method, amount)
+      ) m
+  ),
+  pay_rows as (
+    select method,
+           count(*) filter (where amount <> 0) as orders,
+           round(sum(amount), 2) as amount
+      from pay_split ps group by method
+  ),
+  tax_rows as (
+    select coalesce(t->>'name', 'Tax') as name, coalesce((t->>'rate')::numeric, 0) as rate,
+           round(sum(coalesce((t->>'taxable')::numeric, 0)), 2) as taxable,
+           round(sum(coalesce((t->>'tax')::numeric, 0)), 2) as tax
+      from done d
+      cross join lateral jsonb_array_elements(case when jsonb_typeof(d.tax_breakdown) = 'array' then d.tax_breakdown else '[]'::jsonb end) t
+     group by 1, 2
+  ),
+  -- Tax on orders saved before per-rate tax (no breakdown): one line so the lines add up to the total tax.
+  tax_legacy as (
+    select round(sum(coalesce(d.tax_amount, 0)), 2) as tax, round(sum(d.net), 2) as taxable
+      from done d
+     where not coalesce(jsonb_typeof(d.tax_breakdown) = 'array' and jsonb_array_length(d.tax_breakdown) > 0, false)
+       and coalesce(d.tax_amount, 0) <> 0
+  ),
+  type_rows as (
+    select d.order_type, count(*) as orders, round(sum(d.net), 2) as net_sales, round(sum(d.total_amount), 2) as total
+      from done d group by d.order_type
+  ),
+  day_rows as (
+    select g::date as day,
+           count(d.id) as orders,
+           round(coalesce(sum(d.net + d.disc + d.comp), 0), 2) as gross_sales,
+           round(coalesce(sum(d.disc + d.comp), 0), 2) as discounts,
+           round(coalesce(sum(d.net), 0), 2) as net_sales,
+           round(coalesce(sum(d.tax_amount), 0), 2) as tax,
+           round(coalesce(sum(d.total_amount), 0), 2) as total
+      from generate_series(p_from::timestamp, p_to::timestamp, interval '1 day') g
+      left join done d on d.local_at::date = g::date
+     group by g order by g
+  )
+  select jsonb_build_object(
+    'summary', (
+      select jsonb_build_object(
+        'orders', count(*),
+        'invoices', count(distinct coalesce(d.invoice_number, d.id::text)),
+        'items_sold', (select qty from items),
+        'gross_sales', round(coalesce(sum(d.net + d.disc + d.comp), 0), 2),
+        'discounts', round(coalesce(sum(d.disc), 0), 2),
+        'discount_orders', count(*) filter (where d.disc > 0),
+        'complimentary', round(coalesce(sum(d.comp), 0), 2),
+        'complimentary_orders', count(*) filter (where d.is_complimentary),
+        'net_sales', round(coalesce(sum(d.net), 0), 2),
+        'container_charges', round(coalesce(sum(d.container_charge_amount), 0), 2),
+        'tax', round(coalesce(sum(d.tax_amount), 0), 2),
+        'total', round(coalesce(sum(d.total_amount), 0), 2),
+        'avg_order_value', case when count(*) > 0 then round(sum(d.total_amount) / count(*), 2) else 0 end,
+        'avg_bill_value', case when count(*) > 0 then round(sum(d.total_amount) / count(distinct coalesce(d.invoice_number, d.id::text)), 2) else 0 end,
+        'first_order_at', min(d.local_at),
+        'last_order_at', max(d.local_at),
+        'cancelled_orders', (select count(*) from inshift where status = 'cancelled'),
+        'cancelled_value', (select round(coalesce(sum(total_amount), 0), 2) from inshift where status = 'cancelled')
+      ) from done d
+    ),
+    'tax_lines', coalesce((
+      select jsonb_agg(jsonb_build_object('name', name, 'rate', rate, 'taxable', taxable, 'tax', tax) order by rate, name)
+        from (select * from tax_rows
+              union all
+              select 'Tax (no breakdown)', null, taxable, tax from tax_legacy where tax is not null) tl
+    ), '[]'::jsonb),
+    'payments', coalesce((
+      select jsonb_agg(jsonb_build_object('method', method, 'orders', orders, 'amount', amount)
+                       order by array_position(array['cash','card','upi','unpaid'], method))
+        from pay_rows where amount <> 0
+    ), '[]'::jsonb),
+    'order_types', coalesce((
+      select jsonb_agg(jsonb_build_object('order_type', order_type, 'orders', orders, 'net_sales', net_sales, 'total', total)
+                       order by total desc)
+        from type_rows
+    ), '[]'::jsonb),
+    'days', coalesce((
+      select jsonb_agg(jsonb_build_object('date', day, 'orders', orders, 'gross_sales', gross_sales, 'discounts', discounts,
+                                          'net_sales', net_sales, 'tax', tax, 'total', total) order by day)
+        from day_rows
+    ), '[]'::jsonb)
+  ) into v_result;
+
+  return v_result;
+end;
+$$;
+revoke all on function get_daily_summary(date, date, time, time) from public;
+grant execute on function get_daily_summary(date, date, time, time) to authenticated;
+
+
+-- ----------------------------------------------------------------------------
+-- get_sales_by_hour: completed orders by weekday (0 = Sunday) and hour of the
+-- day they were placed (outlet-local). Returns
+--   { cells[{dow, hour, orders, items_sold, net_sales, total}],
+--     days[{dow, days, days_open}] }
+-- days = how many of that weekday fall in the range; days_open = how many of
+-- them had at least one completed order (used for "average per day").
+-- ----------------------------------------------------------------------------
+create or replace function get_sales_by_hour(p_from date, p_to date)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid := report_outlet_for_caller();
+  v_tz text := (select my_timezone());
+  v_result jsonb;
+begin
+  if p_from is null or p_to is null or p_from > p_to then
+    raise exception 'Pick a valid date range';
+  end if;
+
+  with done as (
+    select o.id, (o.created_at at time zone v_tz) as local_at,
+           coalesce(o.total_amount, 0) - coalesce(o.tax_amount, 0) as net,
+           coalesce(o.total_amount, 0) as total
+      from orders o
+     where o.outlet_id = v_outlet
+       and o.status = 'completed'
+       and (o.created_at at time zone v_tz)::date between p_from and p_to
+  ),
+  qty as (
+    select oi.order_id, sum(oi.quantity) as q
+      from order_items oi join done d on d.id = oi.order_id
+     where not coalesce(oi.is_deleted, false) and oi.status <> 'cancelled'
+     group by oi.order_id
+  ),
+  cells as (
+    select extract(dow from d.local_at)::int as dow, extract(hour from d.local_at)::int as hour,
+           count(*) as orders, coalesce(sum(q.q), 0) as items_sold,
+           round(sum(d.net), 2) as net_sales, round(sum(d.total), 2) as total
+      from done d left join qty q on q.order_id = d.id
+     group by 1, 2
+  ),
+  cal as (
+    select extract(dow from g)::int as dow, count(*) as days,
+           count(*) filter (where exists (select 1 from done d where d.local_at::date = g::date)) as days_open
+      from generate_series(p_from::timestamp, p_to::timestamp, interval '1 day') g
+     group by 1
+  )
+  select jsonb_build_object(
+    'cells', coalesce((select jsonb_agg(to_jsonb(c) order by c.dow, c.hour) from cells c), '[]'::jsonb),
+    'days', coalesce((select jsonb_agg(to_jsonb(k) order by k.dow) from cal k), '[]'::jsonb)
+  ) into v_result;
+  return v_result;
+end;
+$$;
+revoke all on function get_sales_by_hour(date, date) from public;
+grant execute on function get_sales_by_hour(date, date) to authenticated;
+
+
+-- ----------------------------------------------------------------------------
+-- get_product_mix: every menu item of the outlet with what it sold in the
+-- range and in the period of the same length just before it (for the
+-- change). Active items that sold nothing are included (qty 0) so slow
+-- sellers show up; inactive items only when they sold something. Lines whose
+-- menu item was deleted are grouped as one 'Removed item' row. Returns
+--   { items[{menu_item_id, name, category, is_active, qty, net_sales, orders,
+--            avg_price, comp_qty, prev_qty, prev_net_sales}],
+--     totals{qty, net_sales, orders, prev_from, prev_to} }
+-- comp_qty = units given on complimentary orders (included in qty, worth 0
+-- to the business but kept at menu value here, like the bill shows them).
+-- ----------------------------------------------------------------------------
+create or replace function get_product_mix(p_from date, p_to date)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid := report_outlet_for_caller();
+  v_tz text := (select my_timezone());
+  v_prev_to date;
+  v_prev_from date;
+  v_result jsonb;
+begin
+  if p_from is null or p_to is null or p_from > p_to then
+    raise exception 'Pick a valid date range';
+  end if;
+  v_prev_to := p_from - 1;
+  v_prev_from := p_from - (p_to - p_from + 1);
+
+  with lines as (
+    select oi.menu_item_id, oi.order_id, oi.quantity,
+           order_line_net(oi.total_price, oi.price_includes_tax, oi.tax_rate_percent) as net,
+           o.is_complimentary,
+           ((o.created_at at time zone v_tz)::date >= p_from) as cur
+      from order_items oi
+      join orders o on o.id = oi.order_id
+     where o.outlet_id = v_outlet
+       and o.status = 'completed'
+       and (o.created_at at time zone v_tz)::date between v_prev_from and p_to
+       and not coalesce(oi.is_deleted, false) and oi.status <> 'cancelled'
+  ),
+  agg as (
+    select l.menu_item_id,
+           coalesce(sum(l.quantity) filter (where l.cur), 0) as qty,
+           coalesce(sum(l.net) filter (where l.cur), 0) as net_sales,
+           count(distinct l.order_id) filter (where l.cur) as orders,
+           coalesce(sum(l.quantity) filter (where l.cur and l.is_complimentary), 0) as comp_qty,
+           coalesce(sum(l.quantity) filter (where not l.cur), 0) as prev_qty,
+           coalesce(sum(l.net) filter (where not l.cur), 0) as prev_net_sales
+      from lines l
+     group by l.menu_item_id
+  ),
+  rows as (
+    select mi.id as menu_item_id, mi.name,
+           coalesce(c.name, nullif(trim(mi.category), ''), 'Uncategorised') as category,
+           coalesce(mi.is_active, true) as is_active,
+           coalesce(a.qty, 0) as qty, round(coalesce(a.net_sales, 0), 2) as net_sales,
+           coalesce(a.orders, 0) as orders,
+           case when coalesce(a.qty, 0) > 0 then round(a.net_sales / a.qty, 2) else 0 end as avg_price,
+           coalesce(a.comp_qty, 0) as comp_qty,
+           coalesce(a.prev_qty, 0) as prev_qty, round(coalesce(a.prev_net_sales, 0), 2) as prev_net_sales
+      from menu_items mi
+      left join agg a on a.menu_item_id = mi.id
+      left join categories c on c.id = mi.category_id
+     where mi.outlet_id = v_outlet
+       and (coalesce(mi.is_active, true) or coalesce(a.qty, 0) > 0 or coalesce(a.prev_qty, 0) > 0)
+    union all
+    select null, 'Removed item', 'Uncategorised', false,
+           sum(a.qty), round(sum(a.net_sales), 2), sum(a.orders),
+           case when sum(a.qty) > 0 then round(sum(a.net_sales) / sum(a.qty), 2) else 0 end,
+           sum(a.comp_qty), sum(a.prev_qty), round(sum(a.prev_net_sales), 2)
+      from agg a
+     where a.menu_item_id is null or not exists (select 1 from menu_items mi where mi.id = a.menu_item_id and mi.outlet_id = v_outlet)
+    having sum(a.qty) > 0 or sum(a.prev_qty) > 0
+  )
+  select jsonb_build_object(
+    'items', coalesce((select jsonb_agg(to_jsonb(r) order by r.qty desc, r.net_sales desc, r.name) from rows r), '[]'::jsonb),
+    'totals', jsonb_build_object(
+      'qty', (select coalesce(sum(quantity), 0) from lines where cur),
+      'net_sales', (select round(coalesce(sum(net), 0), 2) from lines where cur),
+      'orders', (select count(distinct order_id) from lines where cur),
+      'prev_qty', (select coalesce(sum(quantity), 0) from lines where not cur),
+      'prev_net_sales', (select round(coalesce(sum(net), 0), 2) from lines where not cur),
+      'prev_from', v_prev_from,
+      'prev_to', v_prev_to
+    )
+  ) into v_result;
+  return v_result;
+end;
+$$;
+revoke all on function get_product_mix(date, date) from public;
+grant execute on function get_product_mix(date, date) to authenticated;
+
+
+-- ----------------------------------------------------------------------------
+-- get_sales_by_channel: revenue by dining option (order_type: dine-in,
+-- pickup = Takeaway, delivery) and where it was placed (order_source: pos,
+-- mobile), and item sales by menu category. Returns
+--   { channels[{order_type, order_source, orders, gross_sales, discounts,
+--               net_sales, tax, total}],
+--     categories[{category_id, category, qty, net_sales, orders, items}] }
+-- Category figures are item values before tax and before the order discount,
+-- so their sum is the item sales total, not the channels' net sales.
+-- ----------------------------------------------------------------------------
+create or replace function get_sales_by_channel(p_from date, p_to date)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid := report_outlet_for_caller();
+  v_tz text := (select my_timezone());
+  v_result jsonb;
+begin
+  if p_from is null or p_to is null or p_from > p_to then
+    raise exception 'Pick a valid date range';
+  end if;
+
+  with done as (
+    select o.*, coalesce(o.total_amount, 0) - coalesce(o.tax_amount, 0) as net
+      from orders o
+     where o.outlet_id = v_outlet
+       and o.status = 'completed'
+       and (o.created_at at time zone v_tz)::date between p_from and p_to
+  ),
+  ch as (
+    select d.order_type, coalesce(d.order_source, 'pos') as order_source,
+           count(*) as orders,
+           round(sum(d.net + coalesce(d.discount_amount, 0)), 2) as gross_sales,
+           round(sum(coalesce(d.discount_amount, 0)), 2) as discounts,
+           round(sum(d.net), 2) as net_sales,
+           round(sum(coalesce(d.tax_amount, 0)), 2) as tax,
+           round(sum(coalesce(d.total_amount, 0)), 2) as total
+      from done d group by 1, 2
+  ),
+  cat as (
+    select c.id as category_id,
+           coalesce(c.name, nullif(trim(mi.category), ''), 'Uncategorised') as category,
+           sum(oi.quantity) as qty,
+           round(sum(order_line_net(oi.total_price, oi.price_includes_tax, oi.tax_rate_percent)), 2) as net_sales,
+           count(distinct oi.order_id) as orders,
+           count(distinct oi.menu_item_id) as items
+      from order_items oi
+      join done d on d.id = oi.order_id
+      left join menu_items mi on mi.id = oi.menu_item_id
+      left join categories c on c.id = mi.category_id
+     where not coalesce(oi.is_deleted, false) and oi.status <> 'cancelled'
+     group by 1, 2
+  )
+  select jsonb_build_object(
+    'channels', coalesce((select jsonb_agg(to_jsonb(x) order by x.total desc) from ch x), '[]'::jsonb),
+    'categories', coalesce((select jsonb_agg(to_jsonb(y) order by y.net_sales desc, y.category) from cat y), '[]'::jsonb)
+  ) into v_result;
+  return v_result;
+end;
+$$;
+revoke all on function get_sales_by_channel(date, date) from public;
+grant execute on function get_sales_by_channel(date, date) to authenticated;

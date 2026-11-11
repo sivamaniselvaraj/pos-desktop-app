@@ -1,4 +1,4 @@
--- Run this in the Supabase SQL editor to create the orders table.
+-- Run this in the database SQL editor to create the orders table.
 
 create table if not exists orders (
   id uuid primary key default gen_random_uuid(),
@@ -31,7 +31,7 @@ on conflict (order_id) do nothing;
 -- ============================================================================
 -- AUTH: profiles + authorization
 -- ============================================================================
--- The app authenticates operators with Supabase Auth and authorizes them via
+-- The app authenticates operators with the database's auth service and authorizes them via
 -- this profiles table: an account must have a profile row and is_active = true.
 
 create table if not exists profiles (
@@ -75,7 +75,7 @@ create trigger on_auth_user_created
 
 -- ----------------------------------------------------------------------------
 -- Creating the first operator:
---   1. In Supabase dashboard > Authentication > Users > "Add user"
+--   1. In the database's user admin page, "Add user"
 --      (set email + password; the trigger creates the profile automatically).
 --   2. Optionally promote to admin / set name:
 --        update profiles set role = 'admin', full_name = 'Owner'
@@ -88,7 +88,7 @@ create trigger on_auth_user_created
 -- The local print HTTP endpoint runs without an operator session, so it reads
 -- orders using the anon key. If you enable RLS on `orders`, add a policy that
 -- permits the print path, or (recommended for production) give the desktop's
--- main process a SUPABASE_SERVICE_ROLE_KEY used only server-side for fetching
+-- main process a DB_SERVICE_KEY used only server-side for fetching
 -- orders, and keep the anon key for operator auth.
 
 
@@ -250,7 +250,7 @@ create index if not exists idx_orders_id_text_trgm on orders using gin ((id::tex
 
 -- Editor approval (second factor for edit/delete/cancel — see
 -- verify_editor_approval() in db/functions.sql). Passwords are checked with
--- pgcrypto's crypt() against auth.users.encrypted_password (Supabase keeps
+-- pgcrypto's crypt() against auth.users.encrypted_password (the auth schema keeps
 -- pgcrypto in the `extensions` schema).
 create extension if not exists pgcrypto with schema extensions;
 
@@ -274,7 +274,7 @@ alter table editor_approval_attempts enable row level security;
 -- written by edit_order_item()/delete_order_item()/cancel_order() in
 -- db/functions.sql (alongside order_item_audit, which the Orders List
 -- activity log reads). Mirrors the columns of the table as it already exists
--- in Supabase; `create table if not exists` is a no-op there. activity is one
+-- in the database; `create table if not exists` is a no-op there. activity is one
 -- of 'edit_item' | 'delete_item' | 'cancel_order'. Assumes id and created_at
 -- have defaults (the functions also set created_at explicitly). RLS is left
 -- as-is on the existing table; the functions are security definer, so they
@@ -370,7 +370,7 @@ alter table orders
 -- ============================================================================
 -- editOrderItem()/deleteOrderItem() (src/main/ordersListManager.ts) now do a
 -- pre-flight read as plain .from('order_items')/.from('orders') SELECTs
--- (easier to see and debug — the network tab and Supabase logs show the
+-- (easier to see and debug — the network tab and database logs show the
 -- actual table/filter, not an opaque rpc() call) before calling
 -- edit_order_item()/delete_order_item() to do the actual write. Those two
 -- RPCs are still `security definer` and still fully re-check "caller is
@@ -388,7 +388,7 @@ alter table orders
 -- (the RPC path bypasses RLS as security definer) — they're left in as
 -- defense-in-depth in case a future direct write is ever added here.
 --
--- IMPORTANT: the Android-facing print/settle path (src/main/supabaseClient.ts,
+-- IMPORTANT: the Android-facing print/settle path (src/main/data/<provider>/orders.ts,
 -- via getClient() / the ANON key, no user session) ALSO queries orders/
 -- order_items/tables directly and must keep working exactly as before —
 -- turning RLS on for a table blocks every role that has no matching policy,
@@ -518,7 +518,7 @@ insert into app_menus (code, label, icon, sort_order, required_permission) value
   ('new-order',    'New Order',    'plus',      20, 'orders.place'),
   ('history',      'History',      'history',   30, 'history.view'),
   ('orders-list',  'Orders',       'print',     40, 'orders.view'),
-  ('tables',       'Tables',       'dashboard', 50, 'tables.view'),
+  ('tables',       'Tables',       'table',     50, 'tables.view'),
   ('menu-items',   'Menu Items',   'menu',      60, 'menu.view'),
   ('sales-report', 'Sales Report', 'reports',   70, 'reports.view'),
   ('users',        'Users',        'users',     80, 'users.manage'),
@@ -1743,6 +1743,11 @@ insert into app_menus (code, label, icon, sort_order, required_permission) value
   ('unprinted-kots', 'Unprinted KOTs', 'print', 46, 'orders.view')
 on conflict (code) do nothing;
 
+-- Tables menu uses its own table icon (was the dashboard grid). Only changes
+-- the old default, so a custom icon set by hand is kept. App versions before
+-- this change do not know 'table' and show the info icon until they update.
+update app_menus set icon = 'table' where code = 'tables' and icon = 'dashboard';
+
 
 -- ============================================================================
 -- REMOTE ORDERING (phones order through the desktop app; see place_order_as())
@@ -2413,7 +2418,7 @@ alter table orders add column if not exists printed_at timestamptz;
 -- APP RELEASE POLICY (docs/APP_UPDATES.md)
 -- ============================================================================
 -- One row for the whole project (all businesses run the same desktop app).
--- Set by the developer in the Supabase SQL editor, never from the app:
+-- Set by the developer in the database SQL editor, never from the app:
 --   update app_release_policy set blocked_versions = array['1.2.0'],
 --     message = 'Please install the update.' where id = true;
 -- A desktop whose version is in blocked_versions, or below minimum_version,
@@ -2429,3 +2434,35 @@ create table if not exists app_release_policy (
 insert into app_release_policy (id) values (true) on conflict (id) do nothing;
 alter table app_release_policy enable row level security;
 revoke all on app_release_policy from anon, authenticated;
+
+
+-- ============================================================================
+-- reports.voids: the Voids and discounts tab of Sales Report (2026-11-08)
+-- ============================================================================
+-- Same rule as reports.menu_availability: the tab needs reports.view AND this permission.
+-- Manager, owner and admin get it; groups that already hold reports.view get it once so
+-- nobody loses access at the upgrade. Remove it from a group in User groups to take the
+-- tab away. (Admins always have every permission.) The report reads app_activity_log by
+-- date, hence the index.
+insert into permissions (code, description) values
+  ('reports.voids', 'See the Voids and discounts report (every removed or cancelled item, cancelled order and discount, who did it and why)')
+on conflict (code) do nothing;
+
+insert into role_permissions (role, permission_code)
+select r.role, 'reports.voids'
+from (values ('manager'), ('owner'), ('admin')) as r(role)
+on conflict do nothing;
+
+do $$
+begin
+  if to_regclass('public.group_permissions') is not null
+     and not exists (select 1 from group_permissions where permission_code = 'reports.voids') then
+    insert into group_permissions (group_id, permission_code)
+    select distinct gp.group_id, 'reports.voids'
+      from group_permissions gp
+     where gp.permission_code = 'reports.view'
+    on conflict do nothing;
+  end if;
+end $$;
+
+create index if not exists idx_app_activity_log_created_at on app_activity_log (created_at);
