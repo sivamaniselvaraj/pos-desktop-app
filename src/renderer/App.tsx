@@ -23,7 +23,7 @@ import { ConnectionSetupStatus } from '../shared/connectionTypes';
 // smaller file. The Sales report pulls in Recharts (about half the old bundle);
 // Settings (with Tax rates), User management and Menu items are admin pages.
 const SalesReport = lazy(() =>
-  import('./pages/reports/ReportSalesByOutlet').then((m) => ({ default: m.SalesReport })),
+  import('./pages/Reports').then((m) => ({ default: m.Reports })),
 );
 const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })));
 const UserManagement = lazy(() =>

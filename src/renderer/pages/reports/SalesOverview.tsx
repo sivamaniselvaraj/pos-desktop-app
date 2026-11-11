@@ -18,27 +18,22 @@ import type {
   SalesByOrderTypeRow,
   SalesByTypeBucketRow,
 } from '@shared/reportTypes';
-import { DELIVERY_ORDER_TYPE, DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE } from '../../../shared/types';
-import { SalesByWaiterTab } from './ReportSalesByWaiter';
-import { useAuth } from '../../context/AuthContext';
-import { MenuAvailabilityTab } from './ReportMenuAvailability';
-import { VoidsDiscountsTab } from './VoidsDiscounts';
-import { DailySummaryTab } from './DailySummary';
-import { HourlySalesTab } from './HourlySales';
-import { ProductMixTab } from './ProductMix';
-import { ChannelSalesTab } from './ChannelSales';
-
 import pageStyles from '../../styles/Page.module.css';
-import styles from '../../styles/SalesReport.module.css';
+import styles from '../../styles/SalesOverview.module.css';
+import {
+  formatMoney as formatCurrency,
+  dateInOrgZone,
+  currencySymbol,
+  formatNumber,
+} from '../../lib/format';
 
-import { formatMoney as formatCurrency, dateInOrgZone, currencySymbol, formatNumber } from '../../lib/format';
+import { DELIVERY_ORDER_TYPE, DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE } from '@shared/types';
 
 type Mode = 'daily' | 'monthly' | 'custom';
 
 function toIsoDate(d: Date): string {
   return dateInOrgZone(d);
 }
-
 
 // 'pickup' displays as "Takeaway" to match how the business refers to it,
 // even though the stored order_type value is 'pickup'.
@@ -178,11 +173,20 @@ function MinHeightBar(props: {
   const finalHeight = numericValue > 0 && height < MIN_BAR_HEIGHT ? MIN_BAR_HEIGHT : height;
   const finalY = baseline - finalHeight;
   return (
-    <rect x={x} y={finalY} width={width} height={Math.max(finalHeight, 0)} fill={fill} rx={2} ry={2} />
+    <rect
+      x={x}
+      y={finalY}
+      width={width}
+      height={Math.max(finalHeight, 0)}
+      fill={fill}
+      rx={2}
+      ry={2}
+    />
   );
 }
 
-function SalesOverview() {
+/** Overview tab of the Sales report: totals, sales chart, orders by type and top items. */
+export function SalesOverview() {
   const [mode, setMode] = useState<Mode>('daily');
   const [range, setRange] = useState(() => presetRange('daily'));
   const [rows, setRows] = useState<SalesReportRow[]>([]);
@@ -192,9 +196,10 @@ function SalesOverview() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<ReportExportFormat | null>(null);
-  const [exportMessage, setExportMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(
-    null,
-  );
+  const [exportMessage, setExportMessage] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
   async function handleExport(format: ReportExportFormat) {
     if (rows.length === 0 && topItems.length === 0) return;
@@ -287,11 +292,7 @@ function SalesOverview() {
 
       <div className={styles.shortcutsRow}>
         {SHORTCUTS.map((s) => (
-          <button
-            key={s.key}
-            className={styles.shortcutBtn}
-            onClick={() => selectShortcut(s.key)}
-          >
+          <button key={s.key} className={styles.shortcutBtn} onClick={() => selectShortcut(s.key)}>
             {s.label}
           </button>
         ))}
@@ -394,7 +395,11 @@ function SalesOverview() {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" />
                   <YAxis
-                    label={{ value: `Amount (${currencySymbol()})`, angle: -90, position: 'insideLeft' }}
+                    label={{
+                      value: `Amount (${currencySymbol()})`,
+                      angle: -90,
+                      position: 'insideLeft',
+                    }}
                     tickFormatter={(v: number) => formatNumber(v)}
                   />
                   <Tooltip content={<ChartTooltip />} />
@@ -413,7 +418,10 @@ function SalesOverview() {
                 <BarChart data={typeChartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" />
-                  <YAxis allowDecimals={false} label={{ value: 'Orders', angle: -90, position: 'insideLeft' }} />
+                  <YAxis
+                    allowDecimals={false}
+                    label={{ value: 'Orders', angle: -90, position: 'insideLeft' }}
+                  />
                   <Tooltip />
                   <Legend />
                   <Bar dataKey="dineInCount" name="Dine-in" fill="#4CAF50" shape={MinHeightBar}>
@@ -423,7 +431,12 @@ function SalesOverview() {
                     <LabelList dataKey="pickupCount" position="top" fontSize={11} fill="#2563eb" />
                   </Bar>
                   <Bar dataKey="deliveryCount" name="Delivery" fill="#f59e0b" shape={MinHeightBar}>
-                    <LabelList dataKey="deliveryCount" position="top" fontSize={11} fill="#f59e0b" />
+                    <LabelList
+                      dataKey="deliveryCount"
+                      position="top"
+                      fontSize={11}
+                      fill="#f59e0b"
+                    />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -454,66 +467,6 @@ function SalesOverview() {
             </table>
           )}
         </>
-      )}
-    </div>
-  );
-}
-
-export function SalesReport() {
-  const { can } = useAuth();
-  // Each extra tab needs reports.view (to be on this page at all) plus its own permission.
-  const canWaiterReport = can('reports.view') && can('reports.incentive');
-  const canMenuReport = can('reports.view') && can('reports.menu_availability');
-  const canVoidsReport = can('reports.view') && can('reports.voids');
-  const [tab, setTab] = useState<'overview' | 'daily' | 'hourly' | 'pmix' | 'channels' | 'waiters' | 'menu' | 'voids'>('overview');
-
-  const tabs: { key: typeof tab; label: string; show: boolean }[] = [
-    { key: 'overview', label: 'Overview', show: true },
-    // Daily summary, Hourly, Product mix and Channels need only reports.view, like Overview (docs/SALES_REPORTS.md).
-    { key: 'daily', label: 'Daily summary', show: true },
-    { key: 'hourly', label: 'Hourly', show: true },
-    { key: 'pmix', label: 'Product mix', show: true },
-    { key: 'channels', label: 'Channels & categories', show: true },
-    { key: 'waiters', label: 'By waiter', show: canWaiterReport },
-    { key: 'menu', label: 'Menu availability', show: canMenuReport },
-    { key: 'voids', label: 'Voids and discounts', show: canVoidsReport },
-  ];
-  // A tab the user may not open (for example after a permission change) falls back to Overview.
-  const active = tabs.find((t) => t.key === tab && t.show)?.key ?? 'overview';
-
-  return (
-    <div className={styles.tabsShell}>
-      <div className={styles.topTabs} role="tablist">
-        {tabs
-          .filter((t) => t.show)
-          .map((t) => (
-            <button
-              key={t.key}
-              role="tab"
-              aria-selected={active === t.key}
-              className={`${styles.topTab} ${active === t.key ? styles.topTabOn : ''}`}
-              onClick={() => setTab(t.key)}
-            >
-              {t.label}
-            </button>
-          ))}
-      </div>
-      {active === 'daily' ? (
-        <DailySummaryTab />
-      ) : active === 'hourly' ? (
-        <HourlySalesTab />
-      ) : active === 'pmix' ? (
-        <ProductMixTab />
-      ) : active === 'channels' ? (
-        <ChannelSalesTab />
-      ) : active === 'waiters' ? (
-        <SalesByWaiterTab />
-      ) : active === 'menu' ? (
-        <MenuAvailabilityTab />
-      ) : active === 'voids' ? (
-        <VoidsDiscountsTab />
-      ) : (
-        <SalesOverview />
       )}
     </div>
   );
