@@ -44,6 +44,7 @@ function mapOutlet(row: Record<string, unknown>): OutletInfo {
     phone: row.phone ? String(row.phone) : undefined,
     gstNumber: row.gst_number ? String(row.gst_number) : undefined,
     address: row.address ? String(row.address) : undefined,
+    businessName: row.business_name ? String(row.business_name) : undefined,
     receiptHeader: row.receipt_header ? String(row.receipt_header) : undefined,
     receiptFooter: row.receipt_footer ? String(row.receipt_footer) : undefined,
   };

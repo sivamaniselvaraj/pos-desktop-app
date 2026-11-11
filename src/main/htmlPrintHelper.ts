@@ -3,7 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { taxBillLines } from '../shared/orderTotals';
 import { DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE, type FoodOrder } from '../shared/types';
-import { billFooterLines, billHeaderLines, getPrinters, parseHeaderConfig } from './printerManager';
+import { billFooterLines, billHeaderLines, getPrinters } from './printerManager';
 import { PrintTimeoutError, withTimeout } from './printQueueManager';
 
 /**
@@ -72,11 +72,10 @@ function kv(k: string, v: string): string {
 }
 
 export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
-  const header = parseHeaderConfig(order.headerConfig);
   const out: string[] = [];
 
   out.push(
-    `<div class="c lg">${esc(header?.restaurantName?.trim() || order.outlet?.businessName || order.outlet?.name || 'RESTAURANT PRINTER')}</div>`,
+    `<div class="c lg">${esc(order.outlet?.businessName || order.outlet?.name || 'RESTAURANT PRINTER')}</div>`,
   );
   for (const l of billHeaderLines(order)) out.push(`<div class="c">${esc(l)}</div>`);
   out.push('<div class="rule"></div>');

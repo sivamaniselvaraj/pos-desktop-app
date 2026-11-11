@@ -1,6 +1,6 @@
 import { ThermalPrinter, PrinterTypes, CharacterSet } from 'node-thermal-printer';
 import { FoodOrder } from '../shared/types';
-import { billFooterLines, billHeaderLines, parseHeaderConfig } from './printerManager';
+import { billFooterLines, billHeaderLines } from './printerManager';
 import { taxBillLines } from '../shared/orderTotals';
 
 const electron = typeof process !== 'undefined' && process.versions && !!process.versions.electron;
@@ -120,15 +120,10 @@ export async function printBillEscPos(
         `Printer "${printerName}" was not found or is unavailable. Check it is installed in the OS (Get-Printer / lpstat -p) and the name matches exactly.`,
       );
     }
-
-    // Build receipt header. Prefer the JSON headerConfig (restaurantName +
-    // headerText with <br> line breaks); fall back to outlet fields.
-    const header = parseHeaderConfig(order.headerConfig);
-
     printer.alignCenter();
     printer.setTextSize(1, 1);
     printer.bold(true);
-    printer.println(order.outlet?.name || 'Virunthagam');
+    printer.println(order.outlet?.businessName || order.outlet?.name || 'RESTAURANT PRINTER');
     printer.bold(false);
     printer.setTextSize(0, 0);
 
