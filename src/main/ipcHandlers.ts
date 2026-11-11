@@ -202,37 +202,42 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     resetDevicePin(id);
   });
 
-  ipcMain.handle(IpcChannels.GET_MENU_AVAILABILITY, (_e, from: string, to: string) => db.reports.menuAvailability(from, to));
-  ipcMain.handle(IpcChannels.GET_VOIDS_DISCOUNTS, (_e, from: string, to: string) => db.reports.voidsDiscounts(from, to));
-  ipcMain.handle(IpcChannels.GET_SALES_BY_WAITER, (_e, from: string, to: string) => db.reports.salesByWaiter(from, to));
+  // Reports: every report function takes the outlet. It is this PC's outlet (OUTLET_ID in the
+  // connection settings, else the signed-in user's own outlet); the database checks the caller may
+  // see it (docs/SALES_REPORTS.md, "Outlet parameter").
+
+
+  ipcMain.handle(IpcChannels.GET_MENU_AVAILABILITY, (_e, outlet: string, from: string, to: string) => db.reports.menuAvailability(outlet, from, to));
+  ipcMain.handle(IpcChannels.GET_VOIDS_DISCOUNTS, (_e, outlet: string, from: string, to: string) => db.reports.voidsDiscounts(outlet, from, to));
+  ipcMain.handle(IpcChannels.GET_SALES_BY_WAITER, (_e, outlet: string, from: string, to: string) => db.reports.salesByWaiter(outlet, from, to));
 
   // Sales report (manager/owner/admin — enforced server-side by the RPC)
   ipcMain.handle(
     IpcChannels.GET_SALES_REPORT,
-    (_e, from: string, to: string, bucket: 'day' | 'month') =>
-    db.reports.salesReport(from, to, bucket),
+    (_e, outlet: string, from: string, to: string, bucket: 'day' | 'month') =>
+    db.reports.salesReport(outlet, from, to, bucket),
   );
-  ipcMain.handle(IpcChannels.GET_TOP_ITEMS, (_e, from: string, to: string) =>
-    db.reports.topItems(from, to, 10),
+  ipcMain.handle(IpcChannels.GET_TOP_ITEMS, (_e, outlet: string, from: string, to: string) =>
+    db.reports.topItems(outlet, from, to, 10),
   );
-  ipcMain.handle(IpcChannels.GET_SALES_BY_ORDER_TYPE, (_e, from: string, to: string) =>
-    db.reports.salesByOrderType(from, to),
+  ipcMain.handle(IpcChannels.GET_SALES_BY_ORDER_TYPE, (_e, outlet: string, from: string, to: string) =>
+    db.reports.salesByOrderType(outlet, from, to),
   );
   ipcMain.handle(
     IpcChannels.GET_SALES_BY_TYPE_BUCKETED,
-    (_e, from: string, to: string, bucket: ReportBucket) =>
-      db.reports.salesByTypeBucketed(from, to, bucket),
+    (_e, outlet: string, from: string, to: string, bucket: ReportBucket) =>
+      db.reports.salesByTypeBucketed(outlet, from, to, bucket),
   );
   ipcMain.handle(IpcChannels.EXPORT_SALES_REPORT, (_e, payload: SalesReportExportPayload) =>
     exportSalesReport(getWindow(), payload),
   );
   // Sales and revenue reports (reports.view, checked by each RPC; docs/SALES_REPORTS.md)
-  ipcMain.handle(IpcChannels.GET_DAILY_SUMMARY, (_e, from: string, to: string, shift: ShiftWindow | null) =>
-    db.reports.dailySummary(from, to, shift ?? null),
+  ipcMain.handle(IpcChannels.GET_DAILY_SUMMARY, (_e, outlet: string, from: string, to: string, shift: ShiftWindow | null) =>
+    db.reports.dailySummary(outlet, from, to, shift ?? null),
   );
-  ipcMain.handle(IpcChannels.GET_SALES_BY_HOUR, (_e, from: string, to: string) => db.reports.salesByHour(from, to));
-  ipcMain.handle(IpcChannels.GET_PRODUCT_MIX, (_e, from: string, to: string) => db.reports.productMix(from, to));
-  ipcMain.handle(IpcChannels.GET_SALES_BY_CHANNEL, (_e, from: string, to: string) => db.reports.salesByChannel(from, to));
+  ipcMain.handle(IpcChannels.GET_SALES_BY_HOUR, (_e, outlet: string, from: string, to: string) => db.reports.salesByHour(outlet, from, to));
+  ipcMain.handle(IpcChannels.GET_PRODUCT_MIX, (_e, outlet: string, from: string, to: string) => db.reports.productMix(outlet, from, to));
+  ipcMain.handle(IpcChannels.GET_SALES_BY_CHANNEL, (_e, outlet: string, from: string, to: string) => db.reports.salesByChannel(outlet, from, to));
 
   // User management (admin-only — enforced server-side by the RPCs / assertCallerIsAdmin)
   ipcMain.handle(IpcChannels.LIST_USERS, () => listUsers());

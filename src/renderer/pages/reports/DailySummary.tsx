@@ -31,7 +31,7 @@ function taxLineLabel(l: { name: string; rate: number | null }): string {
   return l.rate == null ? l.name : `${l.name} ${Number.isInteger(l.rate) ? l.rate : l.rate.toFixed(2)}%`;
 }
 
-export function DailySummaryTab() {
+export function DailySummaryTab({ outletId }: { outletId: string }) {
   const [range, setRange] = useState<DateRange>(() => presetRange('today'));
   const [shiftMode, setShiftMode] = useState<ShiftMode>('day');
   const [shift, setShift] = useState<ShiftWindow>({ start: '11:00', end: '16:00' });
@@ -51,8 +51,8 @@ export function DailySummaryTab() {
     setError(null);
     const p = previousRange(range);
     Promise.all([
-      window.api.getDailySummary(range.from, range.to, activeShift),
-      window.api.getDailySummary(p.from, p.to, activeShift),
+      window.api.getDailySummary(outletId, range.from, range.to, activeShift),
+      window.api.getDailySummary(outletId, p.from, p.to, activeShift),
     ])
       .then(([cur, old]) => {
         if (cancelled) return;

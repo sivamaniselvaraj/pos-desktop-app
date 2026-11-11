@@ -50,7 +50,7 @@ function Bars({ data, label }: { data: { key: string; value: number }[]; label: 
   );
 }
 
-export function MenuAvailabilityTab() {
+export function MenuAvailabilityTab({ outletId }: { outletId: string }) {
   const [range, setRange] = useState(() => presetRange('today'));
   const [report, setReport] = useState<MenuAvailabilityReport | null>(null);
   const [loading, setLoading] = useState(false);
@@ -61,7 +61,7 @@ export function MenuAvailabilityTab() {
     setLoading(true);
     setError(null);
     try {
-      setReport(await window.api.getMenuAvailability(from, to));
+      setReport(await window.api.getMenuAvailability(outletId, from, to));
     } catch (err) {
       setReport(null);
       setError(err instanceof Error ? err.message : 'Could not load the report');

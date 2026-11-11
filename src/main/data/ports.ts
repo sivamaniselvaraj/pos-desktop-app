@@ -397,24 +397,24 @@ export interface InvoiceRepository {
 }
 
 export interface ReportRepository {
-  salesReport(from: string, to: string, bucket: ReportBucket): Promise<SalesReportRow[]>;
+  salesReport(outletId: string, from: string, to: string, bucket: ReportBucket): Promise<SalesReportRow[]>;
   /** When menu items were turned off, why and for how long (get_menu_availability). */
-  menuAvailability(from: string, to: string): Promise<MenuAvailabilityReport>;
+  menuAvailability(outletId: string, from: string, to: string): Promise<MenuAvailabilityReport>;
   /** Settled sales per waiter in the date range (get_sales_by_waiter). */
-  salesByWaiter(from: string, to: string): Promise<SalesByWaiterRow[]>;
+  salesByWaiter(outletId: string, from: string, to: string): Promise<SalesByWaiterRow[]>;
   /** Every void, cancellation and discount with who and why (get_voids_discounts). */
-  voidsDiscounts(from: string, to: string): Promise<VoidsDiscountsReport>;
-  topItems(from: string, to: string, limit: number): Promise<TopItemRow[]>;
-  salesByOrderType(from: string, to: string): Promise<SalesByOrderTypeRow[]>;
-  salesByTypeBucketed(from: string, to: string, bucket: ReportBucket): Promise<SalesByTypeBucketRow[]>;
+  voidsDiscounts(outletId: string, from: string, to: string): Promise<VoidsDiscountsReport>;
+  topItems(outletId: string, from: string, to: string, limit: number): Promise<TopItemRow[]>;
+  salesByOrderType(outletId: string, from: string, to: string): Promise<SalesByOrderTypeRow[]>;
+  salesByTypeBucketed(outletId: string, from: string, to: string, bucket: ReportBucket): Promise<SalesByTypeBucketRow[]>;
   /** Daily summary / Z-report (get_daily_summary). */
-  dailySummary(from: string, to: string, shift: ShiftWindow | null): Promise<DailySummaryReport>;
+  dailySummary(outletId: string, from: string, to: string, shift: ShiftWindow | null): Promise<DailySummaryReport>;
   /** Sales by weekday and hour (get_sales_by_hour). */
-  salesByHour(from: string, to: string): Promise<HourlySalesReport>;
+  salesByHour(outletId: string, from: string, to: string): Promise<HourlySalesReport>;
   /** Product mix (get_product_mix). */
-  productMix(from: string, to: string): Promise<ProductMixReport>;
+  productMix(outletId: string, from: string, to: string): Promise<ProductMixReport>;
   /** Sales by channel and category (get_sales_by_channel). */
-  salesByChannel(from: string, to: string): Promise<ChannelSalesReport>;
+  salesByChannel(outletId: string, from: string, to: string): Promise<ChannelSalesReport>;
 }
 
 export interface ReleaseRepository {

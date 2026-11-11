@@ -363,7 +363,40 @@ drop function if exists get_sales_report(date, date, text);
 
 
 -- ============================================================================
--- RPC: get_sales_report_uid(p_from, p_to, p_bucket)
+-- REPORTS: OUTLET PARAMETER (docs/SALES_REPORTS.md, "Outlet parameter")
+-- ============================================================================
+-- Every report function on the Sales Report page takes the outlet as its first
+-- parameter, p_outlet_id, and returns that outlet's figures only, in that outlet's
+-- time zone. Each checks reports.view (plus its own tab permission) and that the
+-- outlet belongs to the caller's organization, else 'Not allowed to see this report'.
+drop function if exists report_outlet_check(uuid, text);
+
+-- The caller's own outlet (profiles.outlet_id), used by the old report signatures
+-- that had no outlet parameter. Raises when the account has no outlet.
+create or replace function report_caller_outlet()
+returns uuid
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true) and p.outlet_id is not null;
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  return v_outlet;
+end;
+$$;
+revoke all on function report_caller_outlet() from public;
+grant execute on function report_caller_outlet() to authenticated;
+
+
+-- ============================================================================
+-- RPC: get_sales_report_uid(p_outlet_id, p_from, p_to, p_bucket)
 -- ============================================================================
 -- Completed orders in the caller's outlet for the given date range,
 -- aggregated by day or month (p_bucket = 'day' | 'month', default 'day').
@@ -385,7 +418,9 @@ drop function if exists get_sales_report(date, date, text);
 -- profile isn't manager/owner/admin, or who have no outlet_id, get an
 -- empty result rather than an error (keeps the client simple).
 
-create or replace function get_sales_report_uid(p_from date, p_to date, p_bucket text default 'day')
+-- 2026-11-11: takes the outlet as p_outlet_id ; the old
+-- (p_from, p_to, p_bucket) form is a wrapper at the end of this file (REPORTS: OLD SIGNATURES).
+create or replace function get_sales_report_uid(p_outlet_id uuid, p_from date, p_to date, p_bucket text default 'day')
 returns table (
   bucket_date date,
   order_count bigint,
@@ -393,36 +428,45 @@ returns table (
   net_total numeric,
   avg_order_value numeric
 )
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
+#variable_conflict use_column
+declare
+  v_outlet uuid := p_outlet_id;
+  v_tz text := outlet_timezone(v_outlet);
+begin
+  if not has_permission('reports.view')
+     or not exists (select 1 from outlets ol where ol.id = p_outlet_id and ol.org_id = current_org_id()) then
+    raise exception 'Not allowed to see this report';
+  end if;
+  return query
   select
     date_trunc(
       case when p_bucket = 'month' then 'month' else 'day' end,
-      (o.created_at at time zone (select my_timezone()))
+      (o.created_at at time zone v_tz)
     )::date as bucket_date,
     count(*)::bigint as order_count,
     sum(o.tax_amount) as tax_total,
     sum(o.total_amount) as net_total,
     round((sum(o.total_amount) / count(*))::numeric, 2) as avg_order_value
   from orders o
-  join profiles p on p.user_id = auth.uid()
-  where has_permission('reports.view')
-    and p.outlet_id is not null
-    and o.outlet_id = p.outlet_id
+  where o.outlet_id = v_outlet
     and o.status = 'completed'
-    and (o.created_at at time zone (select my_timezone()))::date between p_from and p_to
+    and (o.created_at at time zone v_tz)::date between p_from and p_to
   group by 1
   order by 1;
+end;
 $$;
 
-grant execute on function get_sales_report_uid(date, date, text) to authenticated;
+revoke all on function get_sales_report_uid(uuid, date, date, text) from public;
+grant execute on function get_sales_report_uid(uuid, date, date, text) to authenticated;
 
 
 -- ============================================================================
--- RPC: get_top_items(p_from, p_to, p_limit)
+-- RPC: get_top_items(p_outlet_id, p_from, p_to, p_limit)
 -- ============================================================================
 -- Top-selling items (by quantity sold) in the caller's outlet for the given
 -- date range, from completed orders only. Same auth.uid()-via-profiles.user_id
@@ -434,38 +478,47 @@ grant execute on function get_sales_report_uid(date, date, text) to authenticate
 -- check those column names next using the same approach (confirm real names,
 -- fix here).
 
-create or replace function get_top_items(p_from date, p_to date, p_limit integer default 10)
+create or replace function get_top_items(p_outlet_id uuid, p_from date, p_to date, p_limit integer default 10)
 returns table (
   menu_item_id uuid,
   name text,
   quantity_sold bigint,
   revenue numeric
 )
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
+#variable_conflict use_column
+declare
+  v_outlet uuid := p_outlet_id;
+  v_tz text := outlet_timezone(v_outlet);
+begin
+  if not has_permission('reports.view')
+     or not exists (select 1 from outlets ol where ol.id = p_outlet_id and ol.org_id = current_org_id()) then
+    raise exception 'Not allowed to see this report';
+  end if;
+  return query
   select
     mi.id as menu_item_id,
-    mi.name,
+    mi.name::text,
     sum(oi.quantity)::bigint as quantity_sold,
-    sum(oi.total_price) as revenue
+    sum(oi.total_price)::numeric as revenue
   from order_items oi
   join orders o on o.id = oi.order_id
   join menu_items mi on mi.id = oi.menu_item_id
-  join profiles p on p.user_id = auth.uid()
-  where has_permission('reports.view')
-    and p.outlet_id is not null
-    and o.outlet_id = p.outlet_id
+  where o.outlet_id = v_outlet
     and o.status = 'completed'
-    and (o.created_at at time zone (select my_timezone()))::date between p_from and p_to
+    and (o.created_at at time zone v_tz)::date between p_from and p_to
   group by mi.id, mi.name
-  order by quantity_sold desc
+  order by 3 desc
   limit p_limit;
+end;
 $$;
 
-grant execute on function get_top_items(date, date, integer) to authenticated;
+revoke all on function get_top_items(uuid, date, date, integer) from public;
+grant execute on function get_top_items(uuid, date, date, integer) to authenticated;
 
 -- Supports both report RPCs.
 create index if not exists idx_orders_outlet_status_created
@@ -2417,31 +2470,42 @@ grant execute on function create_table(text) to authenticated;
 
 -- Range total — one row per type, for the whole selected date range. Backs
 -- the three summary stat cards.
-create or replace function get_sales_by_order_type(p_from date, p_to date)
+create or replace function get_sales_by_order_type(p_outlet_id uuid, p_from date, p_to date)
 returns table (order_type text, order_count bigint)
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
-  select o.order_type, count(*)::bigint as order_count
+#variable_conflict use_column
+declare
+  v_outlet uuid := p_outlet_id;
+  v_tz text := outlet_timezone(v_outlet);
+begin
+  if not has_permission('reports.view')
+     or not exists (select 1 from outlets ol where ol.id = p_outlet_id and ol.org_id = current_org_id()) then
+    raise exception 'Not allowed to see this report';
+  end if;
+  return query
+  select o.order_type::text, count(*)::bigint as order_count
   from orders o
-  join profiles p on p.user_id = auth.uid()
-  where has_permission('reports.view')
-    and p.outlet_id = o.outlet_id
+  where o.outlet_id = v_outlet
     and o.status = 'completed'
-    and (o.created_at at time zone (select my_timezone()))::date between p_from and p_to
+    and (o.created_at at time zone v_tz)::date between p_from and p_to
   group by o.order_type
   order by o.order_type;
+end;
 $$;
 
-grant execute on function get_sales_by_order_type(date, date) to authenticated;
+revoke all on function get_sales_by_order_type(uuid, date, date) from public;
+grant execute on function get_sales_by_order_type(uuid, date, date) to authenticated;
 
 
 -- Per-bucket breakdown — one row per day/month with a count per type,
 -- pivoted server-side (via FILTER) into fixed columns so the client can
 -- plot it directly as a grouped bar chart with no client-side reshaping.
 create or replace function get_sales_by_type_bucketed(
+  p_outlet_id uuid,
   p_from date,
   p_to date,
   p_bucket text default 'day'
@@ -2452,30 +2516,40 @@ returns table (
   pickup_count bigint,
   delivery_count bigint
 )
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
+#variable_conflict use_column
+declare
+  v_outlet uuid := p_outlet_id;
+  v_tz text := outlet_timezone(v_outlet);
+begin
+  if not has_permission('reports.view')
+     or not exists (select 1 from outlets ol where ol.id = p_outlet_id and ol.org_id = current_org_id()) then
+    raise exception 'Not allowed to see this report';
+  end if;
+  return query
   select
     date_trunc(
       case when p_bucket = 'month' then 'month' else 'day' end,
-      (o.created_at at time zone (select my_timezone()))
+      (o.created_at at time zone v_tz)
     )::date as bucket_date,
     count(*) filter (where o.order_type = 'dine-in')::bigint as dine_in_count,
     count(*) filter (where o.order_type = 'pickup')::bigint as pickup_count,
     count(*) filter (where o.order_type = 'delivery')::bigint as delivery_count
   from orders o
-  join profiles p on p.user_id = auth.uid()
-  where has_permission('reports.view')
-    and p.outlet_id = o.outlet_id
+  where o.outlet_id = v_outlet
     and o.status = 'completed'
-    and (o.created_at at time zone (select my_timezone()))::date between p_from and p_to
+    and (o.created_at at time zone v_tz)::date between p_from and p_to
   group by 1
   order by 1;
+end;
 $$;
 
-grant execute on function get_sales_by_type_bucketed(date, date, text) to authenticated;
+revoke all on function get_sales_by_type_bucketed(uuid, date, date, text) from public;
+grant execute on function get_sales_by_type_bucketed(uuid, date, date, text) to authenticated;
 
 
 -- ============================================================================
@@ -4398,8 +4472,7 @@ grant execute on function mark_item_served(uuid, uuid, uuid) to authenticated;
 --                  'percent' = value % of the line value before tax (discounts are
 --                  not deducted); 'fixed' = value per unit sold.
 -- Orders with no waiter are grouped as 'Unassigned' (waiter_id null).
-drop function if exists get_sales_by_waiter(date, date);
-create or replace function get_sales_by_waiter(p_from date, p_to date)
+create or replace function get_sales_by_waiter(p_outlet_id uuid, p_from date, p_to date)
 returns table (
   waiter_id uuid,
   waiter_name text,
@@ -4415,21 +4488,29 @@ returns table (
   eligible_sales numeric,
   incentive_total numeric
 )
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
+#variable_conflict use_column
+declare
+  v_outlet uuid := p_outlet_id;
+  v_tz text := outlet_timezone(v_outlet);
+begin
+  if not has_permission('reports.view') or not has_permission('reports.incentive')
+     or not exists (select 1 from outlets ol where ol.id = p_outlet_id and ol.org_id = current_org_id()) then
+    raise exception 'Not allowed to see this report';
+  end if;
+  return query
   with me as (
-    select p.outlet_id from profiles p
-     where p.user_id = auth.uid() and coalesce(p.is_active, true) and p.outlet_id is not null
+    select v_outlet as outlet_id
   ),
   mine as (
     select o.*
       from orders o join me on o.outlet_id = me.outlet_id
-     where has_permission('reports.view') and has_permission('reports.incentive')
-       and o.status = 'completed'
-       and (o.created_at at time zone (select my_timezone()))::date between p_from and p_to
+     where o.status = 'completed'
+       and (o.created_at at time zone v_tz)::date between p_from and p_to
   ),
   per_order as (
     select m.waiter_id,
@@ -4477,8 +4558,10 @@ as $$
     left join profiles p on p.user_id = po.waiter_id
    group by po.waiter_id
    order by sum(po.total) desc, 2;
+end;
 $$;
-grant execute on function get_sales_by_waiter(date, date) to authenticated;
+revoke all on function get_sales_by_waiter(uuid, date, date) from public;
+grant execute on function get_sales_by_waiter(uuid, date, date) to authenticated;
 
 
 -- ============================================================================
@@ -4496,7 +4579,7 @@ grant execute on function get_sales_by_waiter(date, date) to authenticated;
 -- add nothing. It is an estimate, not a measured loss.
 -- Returns { summary, items[], reasons[], category_events[], timeline[], staff[], by_weekday[],
 --           by_hour[], currently_off[] }.
-create or replace function get_menu_availability(p_from date, p_to date)
+create or replace function get_menu_availability(p_outlet_id uuid, p_from date, p_to date)
 returns jsonb
 language plpgsql
 stable
@@ -4511,15 +4594,12 @@ declare
   v_now timestamp;
   v_result jsonb;
 begin
-  if not (has_permission('reports.view') and has_permission('reports.menu_availability')) then
-    raise exception 'Not allowed to see the menu availability report';
+  if not has_permission('reports.view') or not has_permission('reports.menu_availability')
+     or not exists (select 1 from outlets ol where ol.id = p_outlet_id and ol.org_id = current_org_id()) then
+    raise exception 'Not allowed to see this report';
   end if;
-  select p.outlet_id into v_outlet
-    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true) and p.outlet_id is not null;
-  if v_outlet is null then
-    raise exception 'Your account has no outlet';
-  end if;
-  v_tz := (select my_timezone());
+  v_outlet := p_outlet_id;
+  v_tz := outlet_timezone(v_outlet);
   v_ws := p_from::timestamp;
   v_we := (p_to + 1)::timestamp;
   v_now := now() at time zone v_tz;
@@ -4660,7 +4740,8 @@ begin
   return v_result;
 end;
 $$;
-grant execute on function get_menu_availability(date, date) to authenticated;
+revoke all on function get_menu_availability(uuid, date, date) from public;
+grant execute on function get_menu_availability(uuid, date, date) to authenticated;
 
 
 -- ============================================================================
@@ -4888,7 +4969,7 @@ grant execute on function get_app_release_policy() to anon, authenticated;
 -- still in place, given in the range, order not cancelled), so a discount that was changed
 -- twice counts once; the event list keeps every change.
 -- Returns { summary, events[], staff[], reasons[] }.
-create or replace function get_voids_discounts(p_from date, p_to date)
+create or replace function get_voids_discounts(p_outlet_id uuid, p_from date, p_to date)
 returns jsonb
 language plpgsql
 stable
@@ -4900,14 +4981,11 @@ declare
   v_tz text;
   v_out jsonb;
 begin
-  if not (has_permission('reports.view') and has_permission('reports.voids')) then
-    raise exception 'Not allowed to see the voids and discounts report';
+  if not has_permission('reports.view') or not has_permission('reports.voids')
+     or not exists (select 1 from outlets ol where ol.id = p_outlet_id and ol.org_id = current_org_id()) then
+    raise exception 'Not allowed to see this report';
   end if;
-  select p.outlet_id into v_outlet
-    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
-  if v_outlet is null then
-    raise exception 'Your account has no outlet';
-  end if;
+  v_outlet := p_outlet_id;
   v_tz := outlet_timezone(v_outlet);
 
   with raw as (
@@ -5052,7 +5130,8 @@ begin
   return v_out;
 end;
 $$;
-grant execute on function get_voids_discounts(date, date) to authenticated;
+revoke all on function get_voids_discounts(uuid, date, date) from public;
+grant execute on function get_voids_discounts(uuid, date, date) to authenticated;
 
 
 -- ============================================================================
@@ -5060,12 +5139,12 @@ grant execute on function get_voids_discounts(date, date) to authenticated;
 -- ============================================================================
 -- Four reports on the Sales Report page, all for the caller's outlet and all
 -- needing reports.view (like the Overview tab):
---   get_daily_summary(from, to, shift_start, shift_end)  Daily summary / Z-report
---   get_sales_by_hour(from, to)                          Hourly sales
---   get_product_mix(from, to)                            Product mix (P-Mix)
---   get_sales_by_channel(from, to)                       Channels and categories
+--   get_daily_summary(outlet, from, to, shift_start, shift_end)  Daily summary / Z-report
+--   get_sales_by_hour(outlet, from, to)                          Hourly sales
+--   get_product_mix(outlet, from, to)                            Product mix (P-Mix)
+--   get_sales_by_channel(outlet, from, to)                       Channels and categories
 -- Same rules as the other reports: completed orders only, dated by created_at
--- in the outlet's time zone (my_timezone()), dates are outlet-local and
+-- in the outlet's time zone (outlet_timezone(p_outlet_id)), dates are outlet-local and
 -- inclusive. Amounts per order:
 --   net sales = total_amount - tax_amount   (after discount, before tax)
 --   gross     = net sales + discount_amount (before discount and tax)
@@ -5123,6 +5202,7 @@ grant execute on function order_line_net(numeric, boolean, numeric) to authentic
 -- with no payment recorded is 'unpaid'.
 -- ----------------------------------------------------------------------------
 create or replace function get_daily_summary(
+  p_outlet_id uuid,
   p_from date,
   p_to date,
   p_shift_start time default null,
@@ -5135,10 +5215,14 @@ security definer
 set search_path = public
 as $$
 declare
-  v_outlet uuid := report_outlet_for_caller();
-  v_tz text := (select my_timezone());
+  v_outlet uuid := p_outlet_id;
+  v_tz text := outlet_timezone(v_outlet);
   v_result jsonb;
 begin
+  if not has_permission('reports.view')
+     or not exists (select 1 from outlets ol where ol.id = p_outlet_id and ol.org_id = current_org_id()) then
+    raise exception 'Not allowed to see this report';
+  end if;
   if p_from is null or p_to is null or p_from > p_to then
     raise exception 'Pick a valid date range';
   end if;
@@ -5285,8 +5369,8 @@ begin
   return v_result;
 end;
 $$;
-revoke all on function get_daily_summary(date, date, time, time) from public;
-grant execute on function get_daily_summary(date, date, time, time) to authenticated;
+revoke all on function get_daily_summary(uuid, date, date, time, time) from public;
+grant execute on function get_daily_summary(uuid, date, date, time, time) to authenticated;
 
 
 -- ----------------------------------------------------------------------------
@@ -5297,7 +5381,7 @@ grant execute on function get_daily_summary(date, date, time, time) to authentic
 -- days = how many of that weekday fall in the range; days_open = how many of
 -- them had at least one completed order (used for "average per day").
 -- ----------------------------------------------------------------------------
-create or replace function get_sales_by_hour(p_from date, p_to date)
+create or replace function get_sales_by_hour(p_outlet_id uuid, p_from date, p_to date)
 returns jsonb
 language plpgsql
 stable
@@ -5305,10 +5389,14 @@ security definer
 set search_path = public
 as $$
 declare
-  v_outlet uuid := report_outlet_for_caller();
-  v_tz text := (select my_timezone());
+  v_outlet uuid := p_outlet_id;
+  v_tz text := outlet_timezone(v_outlet);
   v_result jsonb;
 begin
+  if not has_permission('reports.view')
+     or not exists (select 1 from outlets ol where ol.id = p_outlet_id and ol.org_id = current_org_id()) then
+    raise exception 'Not allowed to see this report';
+  end if;
   if p_from is null or p_to is null or p_from > p_to then
     raise exception 'Pick a valid date range';
   end if;
@@ -5348,8 +5436,8 @@ begin
   return v_result;
 end;
 $$;
-revoke all on function get_sales_by_hour(date, date) from public;
-grant execute on function get_sales_by_hour(date, date) to authenticated;
+revoke all on function get_sales_by_hour(uuid, date, date) from public;
+grant execute on function get_sales_by_hour(uuid, date, date) to authenticated;
 
 
 -- ----------------------------------------------------------------------------
@@ -5364,7 +5452,7 @@ grant execute on function get_sales_by_hour(date, date) to authenticated;
 -- comp_qty = units given on complimentary orders (included in qty, worth 0
 -- to the business but kept at menu value here, like the bill shows them).
 -- ----------------------------------------------------------------------------
-create or replace function get_product_mix(p_from date, p_to date)
+create or replace function get_product_mix(p_outlet_id uuid, p_from date, p_to date)
 returns jsonb
 language plpgsql
 stable
@@ -5372,12 +5460,16 @@ security definer
 set search_path = public
 as $$
 declare
-  v_outlet uuid := report_outlet_for_caller();
-  v_tz text := (select my_timezone());
+  v_outlet uuid := p_outlet_id;
+  v_tz text := outlet_timezone(v_outlet);
   v_prev_to date;
   v_prev_from date;
   v_result jsonb;
 begin
+  if not has_permission('reports.view')
+     or not exists (select 1 from outlets ol where ol.id = p_outlet_id and ol.org_id = current_org_id()) then
+    raise exception 'Not allowed to see this report';
+  end if;
   if p_from is null or p_to is null or p_from > p_to then
     raise exception 'Pick a valid date range';
   end if;
@@ -5445,8 +5537,8 @@ begin
   return v_result;
 end;
 $$;
-revoke all on function get_product_mix(date, date) from public;
-grant execute on function get_product_mix(date, date) to authenticated;
+revoke all on function get_product_mix(uuid, date, date) from public;
+grant execute on function get_product_mix(uuid, date, date) to authenticated;
 
 
 -- ----------------------------------------------------------------------------
@@ -5459,7 +5551,7 @@ grant execute on function get_product_mix(date, date) to authenticated;
 -- Category figures are item values before tax and before the order discount,
 -- so their sum is the item sales total, not the channels' net sales.
 -- ----------------------------------------------------------------------------
-create or replace function get_sales_by_channel(p_from date, p_to date)
+create or replace function get_sales_by_channel(p_outlet_id uuid, p_from date, p_to date)
 returns jsonb
 language plpgsql
 stable
@@ -5467,10 +5559,14 @@ security definer
 set search_path = public
 as $$
 declare
-  v_outlet uuid := report_outlet_for_caller();
-  v_tz text := (select my_timezone());
+  v_outlet uuid := p_outlet_id;
+  v_tz text := outlet_timezone(v_outlet);
   v_result jsonb;
 begin
+  if not has_permission('reports.view')
+     or not exists (select 1 from outlets ol where ol.id = p_outlet_id and ol.org_id = current_org_id()) then
+    raise exception 'Not allowed to see this report';
+  end if;
   if p_from is null or p_to is null or p_from > p_to then
     raise exception 'Pick a valid date range';
   end if;
@@ -5513,5 +5609,75 @@ begin
   return v_result;
 end;
 $$;
-revoke all on function get_sales_by_channel(date, date) from public;
+revoke all on function get_sales_by_channel(uuid, date, date) from public;
+grant execute on function get_sales_by_channel(uuid, date, date) to authenticated;
+
+-- ============================================================================
+-- REPORTS: OLD SIGNATURES (kept for one release, docs/SALES_REPORTS.md)
+-- ============================================================================
+-- App versions before 2026-11-11 call the report functions without an outlet.
+-- These wrappers keep them working during the rollout: they pass the caller's own
+-- outlet to the new functions, so the same checks apply. Drop them once every PC
+-- runs the new version. Unlike before, a caller without reports.view now gets an
+-- error instead of an empty result.
+create or replace function get_sales_report_uid(p_from date, p_to date, p_bucket text default 'day')
+returns table (bucket_date date, order_count bigint, tax_total numeric, net_total numeric, avg_order_value numeric)
+language sql stable security definer set search_path = public
+as $$ select * from get_sales_report_uid(report_caller_outlet(), p_from, p_to, p_bucket); $$;
+grant execute on function get_sales_report_uid(date, date, text) to authenticated;
+
+create or replace function get_top_items(p_from date, p_to date, p_limit integer default 10)
+returns table (menu_item_id uuid, name text, quantity_sold bigint, revenue numeric)
+language sql stable security definer set search_path = public
+as $$ select * from get_top_items(report_caller_outlet(), p_from, p_to, p_limit); $$;
+grant execute on function get_top_items(date, date, integer) to authenticated;
+
+create or replace function get_sales_by_order_type(p_from date, p_to date)
+returns table (order_type text, order_count bigint)
+language sql stable security definer set search_path = public
+as $$ select * from get_sales_by_order_type(report_caller_outlet(), p_from, p_to); $$;
+grant execute on function get_sales_by_order_type(date, date) to authenticated;
+
+create or replace function get_sales_by_type_bucketed(p_from date, p_to date, p_bucket text default 'day')
+returns table (bucket_date date, dine_in_count bigint, pickup_count bigint, delivery_count bigint)
+language sql stable security definer set search_path = public
+as $$ select * from get_sales_by_type_bucketed(report_caller_outlet(), p_from, p_to, p_bucket); $$;
+grant execute on function get_sales_by_type_bucketed(date, date, text) to authenticated;
+
+create or replace function get_sales_by_waiter(p_from date, p_to date)
+returns table (waiter_id uuid, waiter_name text, order_count bigint, invoice_count bigint, items_sold numeric,
+               subtotal numeric, discount_total numeric, tax_total numeric, sales_excl_tax numeric,
+               total_sales numeric, avg_order_value numeric, eligible_sales numeric, incentive_total numeric)
+language sql stable security definer set search_path = public
+as $$ select * from get_sales_by_waiter(report_caller_outlet(), p_from, p_to); $$;
+grant execute on function get_sales_by_waiter(date, date) to authenticated;
+
+create or replace function get_menu_availability(p_from date, p_to date)
+returns jsonb language sql stable security definer set search_path = public
+as $$ select get_menu_availability(report_caller_outlet(), p_from, p_to); $$;
+grant execute on function get_menu_availability(date, date) to authenticated;
+
+create or replace function get_voids_discounts(p_from date, p_to date)
+returns jsonb language sql stable security definer set search_path = public
+as $$ select get_voids_discounts(report_caller_outlet(), p_from, p_to); $$;
+grant execute on function get_voids_discounts(date, date) to authenticated;
+
+create or replace function get_daily_summary(p_from date, p_to date, p_shift_start time default null, p_shift_end time default null)
+returns jsonb language sql stable security definer set search_path = public
+as $$ select get_daily_summary(report_caller_outlet(), p_from, p_to, p_shift_start, p_shift_end); $$;
+grant execute on function get_daily_summary(date, date, time, time) to authenticated;
+
+create or replace function get_sales_by_hour(p_from date, p_to date)
+returns jsonb language sql stable security definer set search_path = public
+as $$ select get_sales_by_hour(report_caller_outlet(), p_from, p_to); $$;
+grant execute on function get_sales_by_hour(date, date) to authenticated;
+
+create or replace function get_product_mix(p_from date, p_to date)
+returns jsonb language sql stable security definer set search_path = public
+as $$ select get_product_mix(report_caller_outlet(), p_from, p_to); $$;
+grant execute on function get_product_mix(date, date) to authenticated;
+
+create or replace function get_sales_by_channel(p_from date, p_to date)
+returns jsonb language sql stable security definer set search_path = public
+as $$ select get_sales_by_channel(report_caller_outlet(), p_from, p_to); $$;
 grant execute on function get_sales_by_channel(date, date) to authenticated;

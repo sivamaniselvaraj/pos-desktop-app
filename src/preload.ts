@@ -79,7 +79,7 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.RETRY_PRINT, orderId) as Promise<PrintOrderResponse>,
   cancelOrder: (orderId) => ipcRenderer.invoke(IpcChannels.CANCEL_ORDER, orderId) as Promise<void>,
   clearPrinted: () => ipcRenderer.invoke(IpcChannels.CLEAR_PRINTED) as Promise<void>,
-  getPrintMethod: () => ipcRenderer.invoke(IpcChannels.GET_PRINT_METHOD) as Promise<'direct' | 'html'>,
+  getPrintMethod: () => ipcRenderer.invoke(IpcChannels.GET_PRINT_METHOD) as Promise<PrintMethod>,
   setPrintMethod: (method) => ipcRenderer.invoke(IpcChannels.SET_PRINT_METHOD, method) as Promise<void>,
   getPrinterAddresses: () =>
     ipcRenderer.invoke(IpcChannels.GET_PRINTER_ADDRESSES) as Promise<Record<string, string>>,
@@ -87,34 +87,34 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.SET_PRINTER_ADDRESS, printerName, address) as Promise<void>,
   getPrinters: (refresh?: boolean) =>
     ipcRenderer.invoke(IpcChannels.GET_PRINTERS, refresh === true) as Promise<PrinterInfo[]>,
-  getSalesReport: (from, to, bucket) =>
-    ipcRenderer.invoke(IpcChannels.GET_SALES_REPORT, from, to, bucket) as Promise<SalesReportRow[]>,
-  getMenuAvailability: (from, to) =>
-    ipcRenderer.invoke(IpcChannels.GET_MENU_AVAILABILITY, from, to) as Promise<MenuAvailabilityReport>,
-  getVoidsDiscounts: (from, to) =>
-    ipcRenderer.invoke(IpcChannels.GET_VOIDS_DISCOUNTS, from, to) as Promise<VoidsDiscountsReport>,
-  getSalesByWaiter: (from, to) =>
-    ipcRenderer.invoke(IpcChannels.GET_SALES_BY_WAITER, from, to) as Promise<SalesByWaiterRow[]>,
-  getTopItems: (from, to) =>
-    ipcRenderer.invoke(IpcChannels.GET_TOP_ITEMS, from, to) as Promise<TopItemRow[]>,
-  getSalesByOrderType: (from, to) =>
-    ipcRenderer.invoke(IpcChannels.GET_SALES_BY_ORDER_TYPE, from, to) as Promise<
+  getSalesReport: (outletId, from, to, bucket) =>
+    ipcRenderer.invoke(IpcChannels.GET_SALES_REPORT, outletId, from, to, bucket) as Promise<SalesReportRow[]>,
+  getMenuAvailability: (outletId, from, to) =>
+    ipcRenderer.invoke(IpcChannels.GET_MENU_AVAILABILITY, outletId, from, to) as Promise<MenuAvailabilityReport>,
+  getVoidsDiscounts: (outletId, from, to) =>
+    ipcRenderer.invoke(IpcChannels.GET_VOIDS_DISCOUNTS, outletId, from, to) as Promise<VoidsDiscountsReport>,
+  getSalesByWaiter: (outletId, from, to) =>
+    ipcRenderer.invoke(IpcChannels.GET_SALES_BY_WAITER, outletId, from, to) as Promise<SalesByWaiterRow[]>,
+  getTopItems: (outletId, from, to) =>
+    ipcRenderer.invoke(IpcChannels.GET_TOP_ITEMS, outletId, from, to) as Promise<TopItemRow[]>,
+  getSalesByOrderType: (outletId, from, to) =>
+    ipcRenderer.invoke(IpcChannels.GET_SALES_BY_ORDER_TYPE, outletId, from, to) as Promise<
       SalesByOrderTypeRow[]
     >,
-  getSalesByTypeBucketed: (from, to, bucket) =>
-    ipcRenderer.invoke(IpcChannels.GET_SALES_BY_TYPE_BUCKETED, from, to, bucket) as Promise<
+  getSalesByTypeBucketed: (outletId, from, to, bucket) =>
+    ipcRenderer.invoke(IpcChannels.GET_SALES_BY_TYPE_BUCKETED, outletId, from, to, bucket) as Promise<
       SalesByTypeBucketRow[]
     >,
   exportSalesReport: (payload) =>
     ipcRenderer.invoke(IpcChannels.EXPORT_SALES_REPORT, payload) as Promise<ExportResult>,
-  getDailySummary: (from, to, shift) =>
-    ipcRenderer.invoke(IpcChannels.GET_DAILY_SUMMARY, from, to, shift ?? null) as Promise<DailySummaryReport>,
-  getSalesByHour: (from, to) =>
-    ipcRenderer.invoke(IpcChannels.GET_SALES_BY_HOUR, from, to) as Promise<HourlySalesReport>,
-  getProductMix: (from, to) =>
-    ipcRenderer.invoke(IpcChannels.GET_PRODUCT_MIX, from, to) as Promise<ProductMixReport>,
-  getSalesByChannel: (from, to) =>
-    ipcRenderer.invoke(IpcChannels.GET_SALES_BY_CHANNEL, from, to) as Promise<ChannelSalesReport>,
+  getDailySummary: (outletId, from, to, shift) =>
+    ipcRenderer.invoke(IpcChannels.GET_DAILY_SUMMARY, outletId, from, to, shift ?? null) as Promise<DailySummaryReport>,
+  getSalesByHour: (outletId, from, to) =>
+    ipcRenderer.invoke(IpcChannels.GET_SALES_BY_HOUR, outletId, from, to) as Promise<HourlySalesReport>,
+  getProductMix: (outletId, from, to) =>
+    ipcRenderer.invoke(IpcChannels.GET_PRODUCT_MIX, outletId, from, to) as Promise<ProductMixReport>,
+  getSalesByChannel: (outletId, from, to) =>
+    ipcRenderer.invoke(IpcChannels.GET_SALES_BY_CHANNEL, outletId, from, to) as Promise<ChannelSalesReport>,
   listUsers: () => ipcRenderer.invoke(IpcChannels.LIST_USERS) as Promise<ManagedUser[]>,
   listOutlets: () => ipcRenderer.invoke(IpcChannels.LIST_OUTLETS) as Promise<OutletOption[]>,
   createUser: (payload) => ipcRenderer.invoke(IpcChannels.CREATE_USER, payload) as Promise<void>,

@@ -24,6 +24,7 @@ import type {
  * enforces this server-side; the caller doesn't need to check separately.
  */
 async function fetchSalesReport(
+  outletId: string,
   from: string,
   to: string,
   bucket: ReportBucket = 'day',
@@ -31,6 +32,7 @@ async function fetchSalesReport(
   const supabase = getAuthedClient();
 
   const { data, error } = await supabase.rpc('get_sales_report_uid', {
+    p_outlet_id: outletId,
     p_from: from,
     p_to: to,
     p_bucket: bucket,
@@ -47,10 +49,11 @@ async function fetchSalesReport(
 }
 
 /**
- * Top-selling items (by quantity sold) for the signed-in user's outlet, in
+ * Top-selling items (by quantity sold) for the given outlet, in
  * the given date range. Same access rules as fetchSalesReport.
  */
 async function fetchTopItems(
+  outletId: string,
   from: string,
   to: string,
   limit = 10,
@@ -58,6 +61,7 @@ async function fetchTopItems(
   const supabase = getAuthedClient();
 
   const { data, error } = await supabase.rpc('get_top_items', {
+    p_outlet_id: outletId,
     p_from: from,
     p_to: to,
     p_limit: limit,
@@ -74,12 +78,14 @@ async function fetchTopItems(
 
 /** Range totals per order type ('dine-in' | 'pickup' | 'delivery') — the summary stat cards. */
 async function fetchSalesByOrderType(
+  outletId: string,
   from: string,
   to: string,
 ): Promise<SalesByOrderTypeRow[]> {
   const supabase = getAuthedClient();
 
   const { data, error } = await supabase.rpc('get_sales_by_order_type', {
+    p_outlet_id: outletId,
     p_from: from,
     p_to: to,
   });
@@ -93,6 +99,7 @@ async function fetchSalesByOrderType(
 
 /** Per-bucket order-type counts, pre-pivoted server-side — the grouped bar chart. */
 async function fetchSalesByTypeBucketed(
+  outletId: string,
   from: string,
   to: string,
   bucket: ReportBucket = 'day',
@@ -100,6 +107,7 @@ async function fetchSalesByTypeBucketed(
   const supabase = getAuthedClient();
 
   const { data, error } = await supabase.rpc('get_sales_by_type_bucketed', {
+    p_outlet_id: outletId,
     p_from: from,
     p_to: to,
     p_bucket: bucket,
@@ -114,8 +122,8 @@ async function fetchSalesByTypeBucketed(
   }));
 }
 
-async function fetchSalesByWaiter(from: string, to: string): Promise<SalesByWaiterRow[]> {
-  const { data, error } = await getAuthedClient().rpc('get_sales_by_waiter', { p_from: from, p_to: to });
+async function fetchSalesByWaiter(outletId: string, from: string, to: string): Promise<SalesByWaiterRow[]> {
+  const { data, error } = await getAuthedClient().rpc('get_sales_by_waiter', { p_outlet_id: outletId, p_from: from, p_to: to });
   if (error) throw new Error(error.message);
   return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
     waiterId: r.waiter_id == null ? null : String(r.waiter_id),
@@ -134,8 +142,8 @@ async function fetchSalesByWaiter(from: string, to: string): Promise<SalesByWait
   }));
 }
 
-async function fetchMenuAvailability(from: string, to: string): Promise<MenuAvailabilityReport> {
-  const { data, error } = await getAuthedClient().rpc('get_menu_availability', { p_from: from, p_to: to });
+async function fetchMenuAvailability(outletId: string, from: string, to: string): Promise<MenuAvailabilityReport> {
+  const { data, error } = await getAuthedClient().rpc('get_menu_availability', { p_outlet_id: outletId, p_from: from, p_to: to });
   if (error) throw new Error(error.message);
   const d = (data ?? {}) as Record<string, unknown>;
   const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
@@ -207,8 +215,8 @@ const VOID_KINDS: VoidEventKind[] = [
   'item_removed', 'qty_reduced', 'order_cancelled', 'kitchen_cancelled', 'discount', 'complimentary', 'discount_removed',
 ];
 
-async function fetchVoidsDiscounts(from: string, to: string): Promise<VoidsDiscountsReport> {
-  const { data, error } = await getAuthedClient().rpc('get_voids_discounts', { p_from: from, p_to: to });
+async function fetchVoidsDiscounts(outletId: string, from: string, to: string): Promise<VoidsDiscountsReport> {
+  const { data, error } = await getAuthedClient().rpc('get_voids_discounts', { p_outlet_id: outletId, p_from: from, p_to: to });
   if (error) throw new Error(error.message);
   const d = (data ?? {}) as Record<string, unknown>;
   const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
@@ -276,8 +284,9 @@ async function callJson(fn: string, args: Record<string, unknown>): Promise<Row>
   return (data ?? {}) as Row;
 }
 
-async function fetchDailySummary(from: string, to: string, shift: ShiftWindow | null): Promise<DailySummaryReport> {
+async function fetchDailySummary(outletId: string, from: string, to: string, shift: ShiftWindow | null): Promise<DailySummaryReport> {
   const d = await callJson('get_daily_summary', {
+    p_outlet_id: outletId,
     p_from: from,
     p_to: to,
     p_shift_start: shift ? shift.start : null,
@@ -330,8 +339,8 @@ async function fetchDailySummary(from: string, to: string, shift: ShiftWindow | 
   };
 }
 
-async function fetchSalesByHour(from: string, to: string): Promise<HourlySalesReport> {
-  const d = await callJson('get_sales_by_hour', { p_from: from, p_to: to });
+async function fetchSalesByHour(outletId: string, from: string, to: string): Promise<HourlySalesReport> {
+  const d = await callJson('get_sales_by_hour', { p_outlet_id: outletId, p_from: from, p_to: to });
   return {
     cells: rows(d.cells).map((r) => ({
       dow: num(r.dow),
@@ -345,8 +354,8 @@ async function fetchSalesByHour(from: string, to: string): Promise<HourlySalesRe
   };
 }
 
-async function fetchProductMix(from: string, to: string): Promise<ProductMixReport> {
-  const d = await callJson('get_product_mix', { p_from: from, p_to: to });
+async function fetchProductMix(outletId: string, from: string, to: string): Promise<ProductMixReport> {
+  const d = await callJson('get_product_mix', { p_outlet_id: outletId, p_from: from, p_to: to });
   const t = (d.totals ?? {}) as Row;
   return {
     items: rows(d.items).map((r) => ({
@@ -374,8 +383,8 @@ async function fetchProductMix(from: string, to: string): Promise<ProductMixRepo
   };
 }
 
-async function fetchSalesByChannel(from: string, to: string): Promise<ChannelSalesReport> {
-  const d = await callJson('get_sales_by_channel', { p_from: from, p_to: to });
+async function fetchSalesByChannel(outletId: string, from: string, to: string): Promise<ChannelSalesReport> {
+  const d = await callJson('get_sales_by_channel', { p_outlet_id: outletId, p_from: from, p_to: to });
   return {
     channels: rows(d.channels).map((r) => ({
       orderType: String(r.order_type ?? ''),

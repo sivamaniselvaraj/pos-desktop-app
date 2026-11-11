@@ -1089,24 +1089,25 @@ export interface ElectronApi {
   getPrinterAddresses(): Promise<Record<string, string>>;
   /** Empty address removes it (the job then goes through the Windows spooler). */
   setPrinterAddress(printerName: string, address: string): Promise<void>;
-  getSalesReport(from: string, to: string, bucket: ReportBucket): Promise<SalesReportRow[]>;
-  getSalesByWaiter(from: string, to: string): Promise<SalesByWaiterRow[]>;
-  getMenuAvailability(from: string, to: string): Promise<MenuAvailabilityReport>;
+  getSalesReport(outletId: string, from: string, to: string, bucket: ReportBucket): Promise<SalesReportRow[]>;
+  getSalesByWaiter(outletId: string, from: string, to: string): Promise<SalesByWaiterRow[]>;
+  getMenuAvailability(outletId: string, from: string, to: string): Promise<MenuAvailabilityReport>;
   /** Every void, cancellation and discount in the range, with who and why. */
-  getVoidsDiscounts(from: string, to: string): Promise<VoidsDiscountsReport>;
-  getTopItems(from: string, to: string): Promise<TopItemRow[]>;
-  getSalesByOrderType(from: string, to: string): Promise<SalesByOrderTypeRow[]>;
+  getVoidsDiscounts(outletId: string, from: string, to: string): Promise<VoidsDiscountsReport>;
+  getTopItems(outletId: string, from: string, to: string): Promise<TopItemRow[]>;
+  getSalesByOrderType(outletId: string, from: string, to: string): Promise<SalesByOrderTypeRow[]>;
   getSalesByTypeBucketed(
+    outletId: string, 
     from: string,
     to: string,
     bucket: ReportBucket,
   ): Promise<SalesByTypeBucketRow[]>;
   exportSalesReport(payload: SalesReportExportPayload): Promise<ExportResult>;
   /** Daily summary / Z-report; shift = optional time-of-day window. */
-  getDailySummary(from: string, to: string, shift?: ShiftWindow | null): Promise<DailySummaryReport>;
-  getSalesByHour(from: string, to: string): Promise<HourlySalesReport>;
-  getProductMix(from: string, to: string): Promise<ProductMixReport>;
-  getSalesByChannel(from: string, to: string): Promise<ChannelSalesReport>;
+  getDailySummary(outletId: string, from: string, to: string, shift?: ShiftWindow | null): Promise<DailySummaryReport>;
+  getSalesByHour(outletId: string, from: string, to: string): Promise<HourlySalesReport>;
+  getProductMix(outletId: string, from: string, to: string): Promise<ProductMixReport>;
+  getSalesByChannel(outletId: string, from: string, to: string): Promise<ChannelSalesReport>;
   listUsers(): Promise<ManagedUser[]>;
   listOutlets(): Promise<OutletOption[]>;
   createUser(payload: CreateUserPayload): Promise<void>;

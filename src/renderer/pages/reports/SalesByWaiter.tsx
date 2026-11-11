@@ -10,7 +10,7 @@ function csvCell(v: string | number): string {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-export function SalesByWaiterTab() {
+export function SalesByWaiterTab({ outletId }: { outletId: string }) {
   const [range, setRange] = useState(() => presetRange('today'));
   const [rows, setRows] = useState<SalesByWaiterRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -20,7 +20,7 @@ export function SalesByWaiterTab() {
     setLoading(true);
     setError(null);
     try {
-      setRows(await window.api.getSalesByWaiter(from, to));
+      setRows(await window.api.getSalesByWaiter(outletId, from, to));
     } catch (err) {
       setRows([]);
       setError(err instanceof Error ? err.message : 'Could not load the report');

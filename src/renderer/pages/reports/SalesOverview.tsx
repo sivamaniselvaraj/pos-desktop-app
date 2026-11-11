@@ -186,7 +186,7 @@ function MinHeightBar(props: {
 }
 
 /** Overview tab of the Sales report: totals, sales chart, orders by type and top items. */
-export function SalesOverview() {
+export function SalesOverview({ outletId }: { outletId: string }) {
   const [mode, setMode] = useState<Mode>('daily');
   const [range, setRange] = useState(() => presetRange('daily'));
   const [rows, setRows] = useState<SalesReportRow[]>([]);
@@ -242,10 +242,10 @@ export function SalesOverview() {
     setError(null);
 
     Promise.all([
-      window.api.getSalesReport(range.from, range.to, bucket),
-      window.api.getTopItems(range.from, range.to),
-      window.api.getSalesByOrderType(range.from, range.to),
-      window.api.getSalesByTypeBucketed(range.from, range.to, bucket),
+      window.api.getSalesReport(outletId, range.from, range.to, bucket),
+      window.api.getTopItems(outletId, range.from, range.to),
+      window.api.getSalesByOrderType(outletId, range.from, range.to),
+      window.api.getSalesByTypeBucketed(outletId, range.from, range.to, bucket),
     ])
       .then(([reportRows, items, byType, byTypeBucketed]) => {
         if (cancelled) return;

@@ -12,7 +12,7 @@ const TYPE_ORDER = ['dine-in', 'pickup', 'delivery'];
 // Fixed series colours for the three dining options (the brand colour leads), like the Overview's order-type chart.
 const typeColour = (t: string, brand: string): string => (t === 'dine-in' ? brand : t === 'pickup' ? '#2563eb' : t === 'delivery' ? '#f59e0b' : '#9ca3af');
 
-export function ChannelSalesTab() {
+export function ChannelSalesTab({ outletId }: { outletId: string }) {
   const [range, setRange] = useState<DateRange>(() => presetRange('thisMonth'));
   const [data, setData] = useState<ChannelSalesReport | null>(null);
   const [loading, setLoading] = useState(false);
@@ -24,7 +24,7 @@ export function ChannelSalesTab() {
     setLoading(true);
     setError(null);
     window.api
-      .getSalesByChannel(range.from, range.to)
+      .getSalesByChannel(outletId, range.from, range.to)
       .then((d) => {
         if (!cancelled) setData(d);
       })

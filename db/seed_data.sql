@@ -105,3 +105,8 @@ on conflict (code) do nothing;
 insert into app_menus (code, label, icon, sort_order, required_permission) values
   ('unprinted-kots', 'Unprinted KOTs', 'print', 46, 'orders.view')
 on conflict (code) do nothing;
+
+
+insert into permissions (code, description) values
+  ('reports.voids', 'See the Voids and discounts report (every removed or cancelled item, cancelled order and discount, who did it and why)')
+on conflict (code) do nothing;

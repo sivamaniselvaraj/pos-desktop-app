@@ -37,7 +37,7 @@ interface HourRow {
   itemsSold: number;
 }
 
-export function HourlySalesTab() {
+export function HourlySalesTab({ outletId }: { outletId: string }) {
   const [range, setRange] = useState<DateRange>(() => presetRange('thisMonth'));
   const [data, setData] = useState<HourlySalesReport | null>(null);
   const [metric, setMetric] = useState<Metric>('orders');
@@ -51,7 +51,7 @@ export function HourlySalesTab() {
     setLoading(true);
     setError(null);
     window.api
-      .getSalesByHour(range.from, range.to)
+      .getSalesByHour(outletId, range.from, range.to)
       .then((d) => {
         if (!cancelled) setData(d);
       })

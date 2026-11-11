@@ -46,7 +46,7 @@ function orderLabel(e: VoidEvent): string {
 }
 
 /** Sales Report > Voids and discounts: every void, cancellation and discount, with who did it and why. */
-export function VoidsDiscountsTab() {
+export function VoidsDiscountsTab({ outletId }: { outletId: string }) {
   const [range, setRange] = useState(() => presetRange('today'));
   const [report, setReport] = useState<VoidsDiscountsReport | null>(null);
   const [loading, setLoading] = useState(false);
@@ -58,7 +58,7 @@ export function VoidsDiscountsTab() {
     setLoading(true);
     setError(null);
     try {
-      setReport(await window.api.getVoidsDiscounts(from, to));
+      setReport(await window.api.getVoidsDiscounts(outletId, from, to));
     } catch (err) {
       setReport(null);
       setError(err instanceof Error ? err.message : 'Could not load the report');

@@ -25,10 +25,8 @@ function describe(s: UpdateStatus): string {
 }
 
 export function About({ update }: { update: UpdateStatus | null }) {
-  const { access } = useAuth();
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
-  const isAdmin = access?.role === 'admin';
 
   const check = async () => {
     setBusy(true);

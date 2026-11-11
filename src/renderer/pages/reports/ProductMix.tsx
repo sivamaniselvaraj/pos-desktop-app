@@ -44,7 +44,7 @@ function grade(rows: ProductMixItem[], total: number): Map<ProductMixItem, { gra
 
 const change = (r: ProductMixItem): number => (r.prevQty > 0 ? (r.qty - r.prevQty) / r.prevQty : r.qty > 0 ? Infinity : 0);
 
-export function ProductMixTab() {
+export function ProductMixTab({ outletId }: { outletId: string }) {
   const [range, setRange] = useState<DateRange>(() => presetRange('thisMonth'));
   const [data, setData] = useState<ProductMixReport | null>(null);
   const [loading, setLoading] = useState(false);
@@ -60,7 +60,7 @@ export function ProductMixTab() {
     setLoading(true);
     setError(null);
     window.api
-      .getProductMix(range.from, range.to)
+      .getProductMix(outletId, range.from, range.to)
       .then((d) => {
         if (!cancelled) setData(d);
       })

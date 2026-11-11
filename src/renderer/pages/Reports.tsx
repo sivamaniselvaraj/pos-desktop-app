@@ -31,7 +31,7 @@ const VoidsDiscountsTab = lazy(() =>
 const tabLoading = <div style={{ padding: 24, color: 'var(--gray)' }}>Loading…</div>;
 
 export function Reports() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   // Each extra tab needs reports.view (to be on this page at all) plus its own permission.
   const canWaiterReport = can('reports.view') && can('reports.incentive');
   const canMenuReport = can('reports.view') && can('reports.menu_availability');
@@ -73,21 +73,21 @@ export function Reports() {
       </div>
       <Suspense fallback={tabLoading}>
         {active === 'daily' ? (
-          <DailySummaryTab />
+          <DailySummaryTab outletId={user?.outletId!}/>
         ) : active === 'hourly' ? (
-          <HourlySalesTab />
+          <HourlySalesTab outletId={user?.outletId!}/>
         ) : active === 'pmix' ? (
-          <ProductMixTab />
+          <ProductMixTab outletId={user?.outletId!}/>
         ) : active === 'channels' ? (
-          <ChannelSalesTab />
+          <ChannelSalesTab outletId={user?.outletId!}/>
         ) : active === 'waiters' ? (
-          <SalesByWaiterTab />
+          <SalesByWaiterTab outletId={user?.outletId!}/>
         ) : active === 'menu' ? (
-          <MenuAvailabilityTab />
+          <MenuAvailabilityTab outletId={user?.outletId!}/>
         ) : active === 'voids' ? (
-          <VoidsDiscountsTab />
+          <VoidsDiscountsTab outletId={user?.outletId!}/>
         ) : (
-          <SalesOverview />
+          <SalesOverview outletId={user?.outletId!} />
         )}
       </Suspense>
     </div>
