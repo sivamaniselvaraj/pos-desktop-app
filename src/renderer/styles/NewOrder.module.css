@@ -43,16 +43,20 @@
 .catOn small { background: rgba(255,255,255,.25); color: #fff; }
 .scroll { flex: 1; overflow-y: auto; padding-bottom: 24px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
-.card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-height: 96px; }
+.card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-height: 96px; cursor: pointer; user-select: none; transition: border-color .12s, background .12s, transform .06s; }
+.card:hover { border-color: var(--brand); }
+.card:active { transform: scale(.98); }
+.card:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
 .cardIn { border: 2px solid var(--brand); padding: 11px 13px; background: var(--brand-softer); }
 .cardName { font-size: 14px; font-weight: 600; line-height: 1.25; }
 .cardRow { display: flex; justify-content: space-between; align-items: center; margin-top: auto; }
 .price { font-size: 13px; color: #555; }
 .add { width: 32px; height: 32px; border: 0; border-radius: 8px; background: var(--brand); color: var(--on-brand); display: flex; align-items: center; justify-content: center; cursor: pointer; }
-.add:hover { background: var(--brand-dark); }
+.card:hover .add { background: var(--brand-dark); }
 .step { display: inline-flex; align-items: center; border: 1px solid var(--brand); border-radius: 8px; overflow: hidden; background: #fff; }
 .step button { width: 30px; height: 30px; border: 0; background: var(--brand-soft); color: var(--brand-text); font-size: 17px; line-height: 1; cursor: pointer; }
-.step b { min-width: 28px; text-align: center; font-size: 14px; }
+.qtyInput { width: 34px; height: 30px; border: 0; border-left: 1px solid var(--brand-soft); border-right: 1px solid var(--brand-soft); text-align: center; font-size: 14px; font-weight: 700; color: inherit; background: #fff; padding: 0; cursor: text; }
+.qtyInput:focus { outline: 2px solid var(--brand); outline-offset: -2px; background: var(--brand-softer); }
 .dot { display: inline-flex; width: 10px; height: 10px; border-radius: 2px; border: 1.5px solid #16a34a; align-items: center; justify-content: center; margin-right: 6px; vertical-align: 1px; flex: none; }
 .dot::after { content: ""; width: 4px; height: 4px; border-radius: 50%; background: #16a34a; }
 .dotNv { border-color: #b91c1c; }
@@ -73,6 +77,7 @@
 .nm { flex: 1; font-size: 13.5px; font-weight: 600; }
 .nm i { display: block; font-style: normal; font-weight: 400; color: #777; font-size: 12px; }
 .line .step button { width: 26px; height: 26px; }
+.line .qtyInput { width: 30px; height: 26px; }
 .tot { width: 66px; text-align: right; font-size: 13px; font-weight: 600; }
 .rm { border: 1px solid #eee; background: #fff; color: #9aa0a6; border-radius: 6px; padding: 4px; display: flex; cursor: pointer; }
 .rm:hover { color: #dc2626; border-color: #fecaca; background: #fef2f2; }

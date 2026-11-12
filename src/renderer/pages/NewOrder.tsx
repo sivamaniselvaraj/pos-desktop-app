@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Toast, type ToastMessage } from '../components/Toast';
 import { Icon } from '../components/Icon';
-import { applyDiscount, computeTotals, type NewOrderDiscount } from '../../shared/orderTotals';
+import { applyDiscount, computeTotals, type NewOrderDiscount } from '@shared/orderTotals';
 import { DiscountModal } from '../components/DiscountModal';
 import { useAuth } from '../context/AuthContext';
 import type {
@@ -14,7 +14,7 @@ import type {
 import {
   DINE_IN_ORDER_TYPE,
   PICK_UP_ORDER_TYPE,
-}from '../../shared/types';
+}from '@shared/types';
 
 import styles from '../styles/NewOrder.module.css';
 import { displayInvoiceNumber, formatMoney as money } from '../lib/format';
@@ -75,14 +75,73 @@ function Highlight({ text, q }: { text: string; q: string }) {
   );
 }
 
-function Stepper({ qty, onMinus, onPlus }: { qty: number; onMinus: () => void; onPlus: () => void }) {
+const MAX_QTY = 99;
+
+/**
+ * − [qty] + control. The number is a text box: type a quantity and press Enter or
+ * leave the box to apply it (0 removes the item, empty or invalid puts the old value back).
+ * Clicks and keys inside it never reach the menu card around it, so they do not add the item again.
+ */
+function Stepper({
+  qty,
+  name,
+  onSet,
+}: {
+  qty: number;
+  name: string;
+  onSet: (qty: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const n = Number.parseInt(draft, 10);
+    setDraft(null);
+    if (Number.isFinite(n) && n >= 0 && n !== qty) onSet(Math.min(MAX_QTY, n));
+  };
   return (
-    <div className={styles.step}>
-      <button type="button" onClick={onMinus} aria-label="Decrease quantity">
+    <div
+      className={styles.step}
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      <button type="button" onClick={() => onSet(qty - 1)} aria-label={`Decrease ${name}`}>
         −
       </button>
-      <b>{qty}</b>
-      <button type="button" onClick={onPlus} aria-label="Increase quantity">
+      <input
+        className={styles.qtyInput}
+        type="text"
+        inputMode="numeric"
+        maxLength={2}
+        aria-label={`Quantity of ${name}`}
+        value={draft ?? String(qty)}
+        onFocus={(e) => {
+          setDraft(String(qty));
+          e.currentTarget.select();
+        }}
+        onChange={(e) => setDraft(e.target.value.replace(/\D/g, '').slice(0, 2))}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            e.currentTarget.blur();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setDraft(null);
+            // blur after the reset so commit() sees no draft
+            const el = e.currentTarget;
+            setTimeout(() => el.blur(), 0);
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setDraft(null);
+            onSet(Math.min(MAX_QTY, qty + 1));
+          } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setDraft(null);
+            onSet(qty - 1);
+          }
+        }}
+      />
+      <button type="button" onClick={() => onSet(Math.min(MAX_QTY, qty + 1))} aria-label={`Increase ${name}`}>
         +
       </button>
     </div>
@@ -256,9 +315,13 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
     setCart((c) => {
       const next = { ...c };
       if (qty <= 0) delete next[id];
-      else next[id] = Math.min(99, qty);
+      else next[id] = Math.min(MAX_QTY, qty);
       return next;
     });
+
+  /** A tap on a menu card adds one (up to the limit). */
+  const addOne = (id: string) =>
+  setCart((c) => ({ ...c, [id]: Math.min(MAX_QTY, (c[id] ?? 0) + 1) }));
 
   const canPlace = cartLines.length > 0 && (orderType === 'pickup' || orderType === PICK_UP_ORDER_TYPE || !!selectedTable) && !placing;
 
@@ -306,7 +369,21 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
   const renderCard = (m: MenuEntry, kw = false) => {
     const qty = cart[m.id] ?? 0;
     return (
-      <div key={m.id} className={`${styles.card} ${qty ? styles.cardIn : ''}`}>
+      <div
+        key={m.id}
+        className={`${styles.card} ${qty ? styles.cardIn : ''}`}
+        role="button"
+        tabIndex={0}
+        aria-label={qty ? `${m.name}, ${qty} in order. Add one more` : `Add ${m.name}`}
+        onClick={() => addOne(m.id)}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (!e.repeat) addOne(m.id);
+          }
+        }}
+      >
         <div className={styles.cardName}>
           <span className={`${styles.dot} ${m.isVeg ? '' : styles.dotNv}`} title={m.isVeg ? 'Veg' : 'Non-veg'} />
           <Highlight text={m.name} q={q} />
@@ -315,11 +392,11 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
         <div className={styles.cardRow}>
           <span className={styles.price}>{money(m.price)}</span>
           {qty ? (
-            <Stepper qty={qty} onMinus={() => setQty(m.id, qty - 1)} onPlus={() => setQty(m.id, qty + 1)} />
+            <Stepper qty={qty} name={m.name} onSet={(n) => setQty(m.id, n)} />
           ) : (
-            <button type="button" className={styles.add} onClick={() => setQty(m.id, 1)} aria-label={`Add ${m.name}`}>
+            <span className={styles.add} aria-hidden="true">
               <Icon name="plus" size={18} />
-            </button>
+            </span>
           )}
         </div>
       </div>
@@ -484,14 +561,14 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
         )}
 
         <div className={styles.lines}>
-          {cartLines.length === 0 && <div className={styles.emptyCart}>No items yet. Tap + on a menu item to add it.</div>}
+          {cartLines.length === 0 && <div className={styles.emptyCart}>No items yet. Tap a menu item to add it.</div>}
           {cartLines.map(({ item, qty }) => (
             <div key={item.id} className={styles.line}>
               <div className={styles.nm}>
                 {item.name}
                 <i>{money(item.price)} each</i>
               </div>
-              <Stepper qty={qty} onMinus={() => setQty(item.id, qty - 1)} onPlus={() => setQty(item.id, qty + 1)} />
+              <Stepper qty={qty} name={item.name} onSet={(n) => setQty(item.id, n)} />
               <div className={styles.tot}>{money(item.price * qty)}</div>
               <button type="button" className={styles.rm} onClick={() => setQty(item.id, 0)} aria-label={`Remove ${item.name}`}>
                 <Icon name="cancel" size={14} />
@@ -554,21 +631,20 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
             </div>
           )}
           {shown.breakdown.length === 0 ? (
-          <div className={styles.sum}>
+            <div className={styles.sum}>
               <span>Tax</span>
               <span>{money(0)}</span>
             </div>
           ) : (
             shown.breakdown.map((b) => (
               <div className={styles.sum} key={`${b.name}|${b.rate}`}>
-            <span>
+                <span>
                   {b.name} {b.rate}%
-            </span>
+                </span>
                 <span>{money(b.tax)}</span>
-          </div>
-           ))
+              </div>
+            ))
           )}
-          
           <div className={`${styles.sum} ${styles.grand}`}>
             <span>{orderType === DINE_IN_ORDER_TYPE && selectedTable?.effectiveStatus === 'occupied' ? 'Total this round' : 'Total'}</span>
             <span>{money(shown.total)}</span>
