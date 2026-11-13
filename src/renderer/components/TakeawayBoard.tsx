@@ -131,14 +131,14 @@ export function TakeawayBoard({
   }
 
   async function fetchView(invoiceNumber: string) {
-    const [detail, log] = await Promise.all([
+    const [detail] = await Promise.all([
       window.api.getInvoiceOrderDetail(invoiceNumber),
-      window.api.getInvoiceActivityLog(invoiceNumber),
+      //window.api.getInvoiceActivityLog(invoiceNumber),
     ]);
     setViewOrders(detail.orders);
     setViewItems(detail.items);
     setViewDiscounts(detail.discounts ?? []);
-    setViewLog(log);
+    setViewLog(detail.log ?? []);
   }
 
   async function openView(o: ActiveTakeawayOrder) {

@@ -431,6 +431,7 @@ export interface TableOrderDetail {
   items: OrderDetailItem[];
   /** Discount / complimentary details of the orders that have one. */
   discounts?: OrderDiscountInfo[];
+  log?: OrderActivityLogEntry[];
 }
 
 export interface OrderActivityLogEntry {

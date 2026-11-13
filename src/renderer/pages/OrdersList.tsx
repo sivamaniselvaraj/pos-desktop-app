@@ -329,14 +329,14 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
   // order type. A dine-in invoice returns every round; a pickup/delivery
   // invoice returns its single order.
   async function fetchDetail(invoiceNumber: string) {
-    const [detail, log] = await Promise.all([
+    const [detail] = await Promise.all([
       window.api.getInvoiceOrderDetail(invoiceNumber),
-      window.api.getInvoiceActivityLog(invoiceNumber),
+     // window.api.getInvoiceActivityLog(invoiceNumber),
     ]);
     setDetailOrders(detail.orders);
     setDetailItems(detail.items);
     setDetailDiscounts(detail.discounts ?? []);
-    setDetailLog(log);
+    setDetailLog(detail.log ?? []);
   }
 
   async function openDetail(row: OrderListRow) {

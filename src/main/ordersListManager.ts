@@ -86,9 +86,10 @@ export async function getInvoiceOrderDetail(
   orders: { id: string; orderNumber: number; status: string }[]; 
   items: OrderDetailItem[];
   discounts: OrderDiscountInfo[];
+  log: OrderActivityLogEntry[];
 }> {
   const orders = await db.orderAdmin.listInvoiceOrders(invoiceNumber);
-  if (orders.length === 0) return { orders, items: [], discounts: [] };
+  if (orders.length === 0) return { orders, items: [], discounts: [], log:[] };
 
   const orderById = new Map(orders.map((o) => [o.id, o]));
   const records = await db.orderAdmin.listItemsForOrders(orders.map((o) => o.id));
@@ -98,7 +99,15 @@ export async function getInvoiceOrderDetail(
   }));
   // Best effort: the details screen still opens if the discount lookup fails.
   const discounts = await db.orderAdmin.getOrderDiscounts(orders.map((o) => o.id)).catch(() => []);
-  return { orders, items, discounts };
+
+  const perOrder = await Promise.all(
+    orders.map(async (o) =>
+      (await db.orderAdmin.getOrderActivityLog(o.id)).map((r) => ({ ...r, orderNumber: o.orderNumber })),
+    ),
+  );
+  const log = perOrder.flat();
+
+  return { orders, items, discounts, log };
 }
 
 /** Invoice-grouped counterpart to getTableActivityLog — see getInvoiceOrderDetail above. */

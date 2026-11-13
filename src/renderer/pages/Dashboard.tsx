@@ -261,14 +261,14 @@ export function Dashboard({
   // Detail is fetched by invoice number (shared by every round of the table's
   // current sitting), the same path the Orders List uses.
   async function fetchView(invoiceNumber: string) {
-    const [detail, log] = await Promise.all([
+    const [detail] = await Promise.all([
       window.api.getInvoiceOrderDetail(invoiceNumber),
-      window.api.getInvoiceActivityLog(invoiceNumber),
+      //window.api.getInvoiceActivityLog(invoiceNumber),
     ]);
     setViewOrders(detail.orders);
     setViewItems(detail.items);
     setViewDiscounts(detail.discounts ?? []);
-    setViewLog(log);
+    setViewLog(detail.log ?? []);
   }
 
   async function openView(table: TableCard) {
