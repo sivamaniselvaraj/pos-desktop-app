@@ -22,7 +22,7 @@ import { ConnectionSetupStatus } from '../shared/connectionTypes';
 // Pages opened rarely during service load on demand, so the app starts with a
 // smaller file. The Sales report pulls in Recharts (about half the old bundle);
 // Settings (with Tax rates), User management and Menu items are admin pages.
-const SalesReport = lazy(() =>
+const Reports = lazy(() =>
   import('./pages/Reports').then((m) => ({ default: m.Reports })),
 );
 const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })));
@@ -140,11 +140,20 @@ export default function App() {
                       }
                     : undefined
                 }
+                onNewTakeaway={
+                  allowed.has('new-order')
+                    ? () => {
+                        setPresetTable(null); // a fresh order opens on Pickup
+                        setOrderType(PICK_UP_ORDER_TYPE)
+                        setPage('new-order');
+                      }
+                    : undefined
+                }
               />
             )}
             {current === 'settings' && <Settings />}
             {current === 'history' && <History />}
-            {current === 'sales-report' && <SalesReport />}
+            {current === 'sales-report' && <Reports />}
             {current === 'users' && <UserManagement />}
             {current === 'orders-list' && (
               <OrdersList

@@ -76,6 +76,22 @@ export const orderAdmin: OrderAdminRepository = {
     }));
   },
 
+  // Plain read, same RLS as listInvoiceOrders (orders.view, caller's own outlet).
+  async listOrderCustomers(orderIds) {
+    if (orderIds.length === 0) return [];
+    const { data, error } = await getAuthedClient()
+      .from('orders')
+      .select('id, order_number, customer_name, customer_phone')
+      .in('id', orderIds);
+    if (error) throw new Error(error.message);
+    return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+      orderId: String(row.id ?? ''),
+      orderNumber: Number(row.order_number ?? 0),
+      customerName: row.customer_name ? String(row.customer_name) : null,
+      customerPhone: row.customer_phone ? String(row.customer_phone) : null,
+    }));
+  },
+
   // One read for every order's items and one for the item names (merged here
   // rather than an embedded join). RLS ("staff read own outlet order items").
   async listItemsForOrders(orderIds): Promise<InvoiceItemRecord[]> {

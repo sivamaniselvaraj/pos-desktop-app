@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IpcChannels } from './shared/types';
 import type {
+  ActiveTakeawayList,
   ReceiptText,
   AuthResult,
   AuthUser,
@@ -134,6 +135,7 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.SET_USER_GROUPS, userId, groupIds) as Promise<void>,
   getUserAccess: (userId) =>
     ipcRenderer.invoke(IpcChannels.GET_USER_ACCESS, userId) as Promise<UserAccessEntry[]>,
+  listActiveTakeaway: () => ipcRenderer.invoke(IpcChannels.LIST_ACTIVE_TAKEAWAY) as Promise<ActiveTakeawayList>,
   listOrders: (filter) =>
     ipcRenderer.invoke(IpcChannels.LIST_ORDERS, filter) as Promise<OrderListPage>,
   getInvoiceOrderDetail: (invoiceNumber) =>

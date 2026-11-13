@@ -162,9 +162,19 @@ export interface InvoiceOrderRef {
 export type InvoiceItemRecord = Omit<OrderDetailItem, 'orderNumber' | 'orderId'> & { orderId: string };
 export type ActivityLogRecord = Omit<OrderActivityLogEntry, 'orderNumber'>;
 
+/** Order number and customer of one order, for the Dashboard Takeaway tab. */
+export interface OrderCustomerRef {
+  orderId: string;
+  orderNumber: number;
+  customerName: string | null;
+  customerPhone: string | null;
+}
+
 export interface OrderAdminRepository {
   listOrders(outletId: string, filter: OrderListFilter): Promise<OrderListPage>;
   listInvoiceOrders(invoiceNumber: string): Promise<InvoiceOrderRef[]>;
+  /** Order number and customer of each order (Dashboard Takeaway tab). Unknown or foreign ids are left out. */
+    listOrderCustomers(orderIds: string[]): Promise<OrderCustomerRef[]>;
   listItemsForOrders(orderIds: string[]): Promise<InvoiceItemRecord[]>;
   getOrderActivityLog(orderId: string): Promise<ActivityLogRecord[]>;
   /** True when the item exists and its order is still open. */

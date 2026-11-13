@@ -4,15 +4,18 @@ import { Icon } from '../components/Icon';
 import { OrderDetailModal } from '../components/OrderDetailModal';
 import { useAuth } from '../context/AuthContext';
 import { TableFormModal } from '../components/TableFormModal';
-import type {
-  TableCard,
-  OrderDetailItem,
-  OrderActivityLogEntry,
-  PaymentMethod,
-  EditorApproval,
-  OrderDiscountMode,
-  OrderDiscountInfo,
-  SaveManagedTablePayload,
+import { TakeawayBoard } from '../components/TakeawayBoard';
+import { useActiveTakeaway } from '../hooks/useActiveTakeaway';
+import {
+  type TableCard,
+  type OrderDetailItem,
+  type OrderActivityLogEntry,
+  type PaymentMethod,
+  type EditorApproval,
+  type OrderDiscountMode,
+  type OrderDiscountInfo,
+  type SaveManagedTablePayload,
+  PICK_UP_ORDER_TYPE,
 } from '@shared/types';
 import styles from '../styles/TableDashboard.module.css';
 import { formatMoney as formatCurrency } from '../lib/format';
@@ -32,6 +35,17 @@ function startedAt(createdAt: string | undefined): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
+type DashboardView = 'tables' | 'takeaway';
+const VIEW_KEY = 'dashboard.view';
+
+function savedView(): DashboardView {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'takeaway' ? 'takeaway' : 'tables';
+  } catch {
+    return 'tables';
+  }
+}
+
 function elapsedMinutes(createdAt: string | undefined, now: number): number | null {
   if (!createdAt) return null;
   const started = new Date(createdAt).getTime();
@@ -39,8 +53,31 @@ function elapsedMinutes(createdAt: string | undefined, now: number): number | nu
   return Math.max(0, Math.round((now - started) / 60000));
 }
 
-export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => void } = {}) {
+/**
+ * `onAddItems` opens New order for a table; `onNewTakeaway` opens a fresh New order
+ * (Pickup). The caller passes them only when the user may place orders.
+ */
+export function Dashboard({
+  onAddItems,
+  onNewTakeaway,
+}: { onAddItems?: (tableId: string) => void; onNewTakeaway?: () => void } = {}) {
   const { can } = useAuth();
+  // Takeaway tab: open takeaway / pickup / delivery orders (docs/DASHBOARD_TAKEAWAY.md). Needs orders.view.
+  const canSeeTakeaway = can('orders.view');
+  const [view, setView] = useState<DashboardView>(() => (savedView() === PICK_UP_ORDER_TYPE && canSeeTakeaway ? PICK_UP_ORDER_TYPE : 'tables'));
+  const takeaway = useActiveTakeaway(canSeeTakeaway);
+  const showTakeaway = view === PICK_UP_ORDER_TYPE && canSeeTakeaway;
+
+  function chooseView(next: DashboardView) {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // remembering the tab is only a convenience
+    }
+    if (next === PICK_UP_ORDER_TYPE) void takeaway.reload();
+  }
+
   const [tables, setTables] = useState<TableCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -121,17 +158,18 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
       await Promise.all([
         window.api.reprintOrder(table.invoiceNumber!),
         window.api.completeInvoice(table.invoiceNumber!),
-      ]);
-  
-      flash('success', `Printed for Table ${table.tableNumber}`);
+      ]); 
+        flash('success', `Printed for Table ${table.tableNumber}`);
       }
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Print failed');
     } finally {
       setBusyTableId(null);
     }
-    // Reload the tables so the card shows the new state
-    await load()
+    // Reload the tables so the card shows the new state (Occupied, payment
+    // pending, after a settle). Also after a failure, in case the bill printed
+    // but marking the orders completed did not finish.
+    await load(true);
   }
 
   function openPaymentDialog(table: TableCard) {
@@ -352,21 +390,101 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
     <div className={styles.page}>
       <div className={styles.main}>
         <div className={styles.header}>
-          <h2>Dining</h2>
-        
-        <div className={styles.actionButtons}>
-          <button className={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing}>
-          <Icon name="refresh" size={16} />
-          {refreshing ? 'Refreshing…' : 'Refresh Tables'}
-        </button>
-          {can('tables.manage') && (
-            <button className={styles.addBtn} onClick={openAddTable}>
+          {canSeeTakeaway ? (
+            <div className={styles.viewTabs} role="tablist" aria-label="Dashboard view">
+              <button
+                role="tab"
+                aria-selected={!showTakeaway}
+                className={`${styles.viewTab} ${!showTakeaway ? styles.viewTabOn : ''}`}
+                onClick={() => chooseView('tables')}
+              >
+                <Icon name="table" size={16} />
+                Tables
+              </button>
+              <button
+                role="tab"
+                aria-selected={showTakeaway}
+                className={`${styles.viewTab} ${showTakeaway ? styles.viewTabOn : ''}`}
+                onClick={() => chooseView('takeaway')}
+              >
+                <Icon name="menu" size={16} />
+                Takeaway
+                {takeaway.orders.length > 0 && <span className={styles.viewCount}>{takeaway.orders.length}</span>}
+              </button>
+            </div>
+          ) : (
+            <div>
+              <h2>Dining</h2>
+                <div className={styles.actionButtons}>
+                  <button className={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing}>
+                    <Icon name="refresh" size={16} />
+                    {refreshing ? 'Refreshing…' : 'Refresh Tables'}
+                  </button>
+                  {can('tables.manage') && (
+                  <button className={styles.addBtn} onClick={openAddTable}>
+                    <Icon name="plus" size={16} />
+                    Add Table
+                  </button>
+                  )}
+                </div>
+            </div>
+          )}
+          {!showTakeaway && can('tables.manage') && (
+            <div className={styles.actionButtons}>
+              <button className={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing}>
+                <Icon name="refresh" size={16} />
+                {refreshing ? 'Refreshing…' : 'Refresh Tables'}
+              </button>
+              {can('tables.manage') && (
+              <button className={styles.addBtn} onClick={openAddTable}>
+                <Icon name="plus" size={16} />
+                Add Table
+              </button>
+              )}
+            </div>
+          )}
+          {showTakeaway && onNewTakeaway && (
+            <button className={styles.addBtn} onClick={onNewTakeaway}>
               <Icon name="plus" size={16} />
-              Add Table
+              New takeaway
             </button>
           )}
         </div>
-        </div>
+
+        {showTakeaway && (
+          <>
+            <Toast message={message} />
+            <TakeawayBoard
+              orders={takeaway.orders}
+              loading={takeaway.loading}
+              error={takeaway.error}
+              truncated={takeaway.truncated}
+              onReload={takeaway.reload}
+              onMessage={flash}
+            />
+            <div className={styles.footer}>
+              <span>
+                <b>{takeaway.orders.length}</b> open takeaway order{takeaway.orders.length === 1 ? '' : 's'}
+              </span>
+              <span>
+                <b>{formatCurrency(takeaway.orders.reduce((n:number, o:any) => n + o.totalAmount, 0))}</b> to collect
+              </span>
+              <span className={styles.footerSpacer} />
+              <button
+                className={styles.refreshBtn}
+                onClick={() => void takeaway.reload()}
+                title="Reload now (the list also refreshes every 15 seconds)"
+              >
+                <Icon name="refresh" size={14} />
+                Refresh
+              </button>
+              {takeaway.updatedAt && <span>Updated {takeaway.updatedAt.toLocaleTimeString()}</span>}
+            </div>
+          </>
+        )}
+
+        {!showTakeaway && (
+        <>
 
         <div className={styles.toolbar}>
           <div className={styles.floorTabs}>
@@ -393,6 +511,7 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
             <span><i className={`${styles.dot} ${styles.dotReserved}`} />Reserved</span>
           </div>
         </div>
+
         <Toast message={message} />
         {error && <p className={styles.error}>{error}</p>}
         {loading && <p className={styles.muted}>Loading tables…</p>}
@@ -480,8 +599,7 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
                           >
                             <Icon name="save" size={16} />
                           </button>
-                        )}
-                  
+                    )}
                   </div>
                 </div>
               );
@@ -503,6 +621,8 @@ export function Dashboard({ onAddItems }: { onAddItems?: (tableId: string) => vo
           </div>
           <span className={styles.pct}>{occupancyPct}%</span>
         </div>
+        </>
+        )}
       </div>
 
 

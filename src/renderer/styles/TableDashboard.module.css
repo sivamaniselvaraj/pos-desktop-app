@@ -67,6 +67,56 @@
   font-size: 13px;
 }
 
+/* Tables | Takeaway switch in the page header */
+.viewTabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.viewTab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--gray);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.viewTab:hover:not(.viewTabOn) {
+  background: var(--brand-soft);
+  color: var(--brand-text);
+}
+
+.viewTabOn {
+  background: var(--brand);
+  color: var(--on-brand);
+}
+
+.viewCount {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #e8696b;
+  color: white;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.footerSpacer {
+  flex: 1;
+}
+
+
 /* Toolbar: floor tabs + legend */
 .toolbar {
   display: flex;
@@ -506,12 +556,13 @@
   gap: 6px;
   padding: 8px 14px;
   background: white;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 13px;
   cursor: pointer;
-  color: #444;
+  color: var(--gray);
 }
+
 
 .refreshBtn:hover:not(:disabled) {
   background: #f5f5f5;

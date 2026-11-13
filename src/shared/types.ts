@@ -369,6 +369,20 @@ export interface OrderListPage {
   totalRows: number;
 }
 
+/** One open takeaway / pickup / delivery order on the Dashboard's Takeaway tab: an Orders list row plus who it is for. */
+export interface ActiveTakeawayOrder extends OrderListRow {
+  /** The order's own number (order_number); 0 when it could not be read. */
+  customerName: string | null;
+  customerPhone: string | null;
+}
+
+/** The Dashboard's Takeaway tab: every open non-dine-in order, oldest first. */
+export interface ActiveTakeawayList {
+  orders: ActiveTakeawayOrder[];
+  /** True when there were more open orders than one read covers; the Orders list shows them all. */
+  truncated: boolean;
+}
+
 export interface OrderListFilter {
   status: OrderListStatus | null;
   search?: string;
@@ -945,6 +959,7 @@ export const IpcChannels = {
   SET_USER_GROUPS: 'set-user-groups',
   GET_USER_ACCESS: 'get-user-access',
   LIST_ORDERS: 'list-orders',
+  LIST_ACTIVE_TAKEAWAY: 'list-active-takeaway',
   GET_INVOICE_ORDER_DETAIL: 'get-invoice-order-detail',
   GET_INVOICE_ACTIVITY_LOG: 'get-invoice-activity-log',
   EDIT_ORDER_ITEM: 'edit-order-item',
@@ -1122,6 +1137,9 @@ export interface ElectronApi {
   setUserGroups(userId: string, groupIds: string[]): Promise<void>;
   getUserAccess(userId: string): Promise<UserAccessEntry[]>;
   listOrders(filter: OrderListFilter): Promise<OrderListPage>;
+   /** Dashboard Takeaway tab: open takeaway / pickup / delivery orders of this outlet, oldest first; needs orders.view. */
+  listActiveTakeaway(): Promise<ActiveTakeawayList>;
+  
   /** Orders List's invoice-grouped row detail — every order sharing that invoice_number, via get_orders_by_invoice(). */
   getInvoiceOrderDetail(invoiceNumber: string): Promise<TableOrderDetail>;
   getInvoiceActivityLog(invoiceNumber: string): Promise<OrderActivityLogEntry[]>;

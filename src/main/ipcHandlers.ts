@@ -42,6 +42,7 @@ import {
 } from './updateManager.js';
 import {
   listOrders,
+  listActiveTakeaway,
   getInvoiceOrderDetail,
   getInvoiceActivityLog,
   editOrderItem,
@@ -263,6 +264,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.GET_USER_ACCESS, (_e, userId: string) => getUserAccess(userId));
 
   // Orders List (manager/owner/admin — enforced server-side by the RPCs)
+  ipcMain.handle(IpcChannels.LIST_ACTIVE_TAKEAWAY, () => listActiveTakeaway());
   ipcMain.handle(IpcChannels.LIST_ORDERS, (_e, filter: OrderListFilter) => listOrders(filter));
   ipcMain.handle(IpcChannels.GET_INVOICE_ORDER_DETAIL, (_e, invoiceNumber: string) =>
     getInvoiceOrderDetail(invoiceNumber),

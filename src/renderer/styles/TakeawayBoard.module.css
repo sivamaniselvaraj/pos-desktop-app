@@ -1,0 +1,176 @@
+.canvas {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  position: relative;
+  border-radius: 6px;
+  padding: 12px 12px 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid #efc4c4;
+  background: #fce8e8;
+  overflow: hidden;
+}
+
+.card:hover {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+
+.accent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: #e8696b;
+}
+
+/* Delivery orders get the blue accent, takeaway keeps the "Ordered" red of the table cards. */
+.delivery .accent { background: #2563eb; }
+.delivery { background: #eff6ff; border-color: #c7dcf7; }
+
+.topRow,
+.bottomRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--dark);
+}
+
+.badges {
+  display: flex;
+  gap: 4px;
+}
+
+.badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  color: #374151;
+}
+
+.badgeMobile {
+  background: var(--brand-soft);
+  color: var(--brand-text);
+  border-color: transparent;
+}
+
+.customer {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.phone {
+  font-weight: 400;
+  color: var(--gray);
+}
+
+.meta {
+  font-size: 11px;
+  color: var(--gray);
+}
+
+.amount {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--dark);
+  white-space: nowrap;
+}
+
+.discount {
+  font-size: 11px;
+  font-weight: 600;
+  color: #b45309;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.iconBtn {
+  min-width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  color: #333;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.iconBtn:hover:not(:disabled) {
+  background: white;
+}
+
+.iconBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.completeBtn {
+  margin-left: auto;
+  padding: 0 10px;
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--on-brand);
+}
+
+.completeBtn:hover:not(:disabled) {
+  background: var(--brand-dark);
+}
+
+.muted {
+  color: #888;
+  font-size: 13px;
+  margin: 12px 0 0;
+}
+
+.empty {
+  color: #888;
+  font-size: 13px;
+  margin: 0;
+}
+
+.error {
+  color: #b91c1c;
+  background: #fee2e2;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}

@@ -14,6 +14,7 @@ import type {
   DiscountSettings,
   DiscountPreset,
   OrderDiscountInfo,
+  ActiveTakeawayList,
 } from '../shared/types';
 
 /**
@@ -31,8 +32,46 @@ import type {
  */
 
 export async function listOrders(filter: OrderListFilter): Promise<OrderListPage> {
-  const outletId = requireOutletId();
-  return db.orderAdmin.listOrders(outletId, filter);
+  return db.orderAdmin.listOrders(requireOutletId(), filter);
+}
+
+// One read of open orders for the Dashboard Takeaway tab. A busy outlet has far
+// fewer open orders than this; past it the tab says so and points to the Orders list.
+const ACTIVE_TAKEAWAY_SCAN = 200;
+
+/**
+ * Dashboard Takeaway tab: every open takeaway / pickup / delivery order (anything
+ * that is not dine-in), oldest first, with its order number and customer.
+ * Uses list_orders (status 'active', the same rows and totals as the Orders list),
+ * so no new database function is needed. Takeaway drafts are not orders and are
+ * not listed. The customer read is best-effort: the cards still show without it.
+ */
+export async function listActiveTakeaway(): Promise<ActiveTakeawayList> {
+  const result = await db.orderAdmin.listOrders(requireOutletId(), {
+    status: 'active',
+    page: 1,
+    pageSize: ACTIVE_TAKEAWAY_SCAN,
+  });
+  const rows = result.rows.filter((r) => r.orderType !== 'dine-in');
+  let customers = new Map<string, { orderNumber: string; customerName: string | null; customerPhone: string | null }>();
+  try {
+    const refs = await db.orderAdmin.listOrderCustomers(rows.map((r) => r.orderId));
+    customers = new Map(refs.map((c:any) => [c.orderId, c]));
+  } catch (err) {
+    console.warn('[takeaway] could not read customer names:', err instanceof Error ? err.message : err);
+  }
+  const orders = rows
+    .map((r) => {
+      const c = customers.get(r.orderId);
+      return {
+        ...r,
+        orderNumber: String(c?.orderNumber) ?? null,
+        customerName: c?.customerName ?? null,
+        customerPhone: c?.customerPhone ?? null,
+      };
+    })
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  return { orders, truncated: result.rows.length >= ACTIVE_TAKEAWAY_SCAN && result.totalRows > ACTIVE_TAKEAWAY_SCAN };
 }
 
 /**
