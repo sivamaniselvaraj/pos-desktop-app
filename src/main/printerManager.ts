@@ -16,8 +16,6 @@ import {
   validatePrinterSetup,
 } from './printerSetups';
 
-const electron = typeof process !== 'undefined' && process.versions && !!process.versions.electron;
-
 const execFileAsync = promisify(execFile);
 const isWindows = process.platform === 'win32';
 
@@ -290,14 +288,6 @@ async function printOnAll(
   return outcome;
 }
 
-/** "Printed on A, but not on B (reason)." for a job that printed on only some printers. */
-export function describePartial(outcome: PrintOutcome): string | null {
-  if (outcome.failed.length === 0) return null;
-  return `Printed on ${outcome.printed.join(', ')}, but not on ${outcome.failed
-    .map((f) => `${f.printer} (${f.error})`)
-    .join('; ')}.`;
-}
-
 /**
  * Print a bill on every printer that prints bills. isDuplicate prints a
  * "DUPLICATE BILL" heading after the header. Callers set it when the order's
@@ -324,6 +314,11 @@ export async function printOrder(order: FoodOrder, isDuplicate = false): Promise
   );
 }
 
+/** The job a KOT for this order is: dine-in, or takeaway and delivery. */
+export function kotJobFor(order: Pick<FoodOrder, 'orderType'>): PrintJobKind {
+  return order.orderType === 'dine-in' ? 'kot-dine-in' : 'kot-takeaway';
+}
+
 /**
  * Print a KOT (Kitchen Order Ticket) on every printer that prints this kind
  * of KOT (dine-in, or takeaway and delivery).
@@ -334,7 +329,7 @@ export async function printOrder(order: FoodOrder, isDuplicate = false): Promise
  */
 
 export async function printKot(order: FoodOrder): Promise<PrintOutcome> {
-  const job = order.orderType === 'dine-in' ? 'kot-dine-in' : 'kot-takeaway';
+  const job = kotJobFor(order);
   const targets = printersFor(job);
   if (targets.length === 0) {
     throw new Error(`No printer prints ${JOB_LABELS[job]}s. In Settings > Printers, tick "${JOB_LABELS[job]}" on a printer.`);

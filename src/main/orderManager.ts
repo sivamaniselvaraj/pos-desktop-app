@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import { db } from './data';
-import { printOrderEscpos, printKot } from './printerManager';
-import { getPrinterFor } from './settingsManager';
+import { kotJobFor, printOrder, printKot } from './printerManager';
+import { JOB_LABELS, printersFor } from './printerSetups';
 import { config } from './config';
 import { mergeTaxBreakdowns } from '../shared/orderTotals';
 import { loadPendingPrintState, type PersistentIdSet } from './pendingPrintState';
@@ -132,14 +132,12 @@ class OrderManager extends EventEmitter {
    * print failure keeps the delta for a retry. No unprinted items => no-op.
    */
   private async handleKot(orderId: string, order: FoodOrder): Promise<PrintOrderResponse> {
-    const targetRole = order.orderType === DINE_IN_ORDER_TYPE ? 'waiter' : 'kitchen';
-    const targetPrinter = getPrinterFor(targetRole);
-        if (!targetPrinter) {
-          const roleLabel = targetRole === 'waiter' ? 'Waiter' : 'Kitchen';
-          const msg = `No ${roleLabel.toLowerCase()} printer configured. Add a "${roleLabel}" printer in Settings to print KOTs.`;
-          this.cacheForDisplay({ ...order, printStatus: 'failed', errorMessage: msg, retryCount: 0 });
-          return { success: false, orderId, message: msg, printStatus: 'failed', error: 'NO_PRINTER' };
-        }
+    const job = kotJobFor(order);
+    if (printersFor(job).length === 0) {
+      const msg = `No printer prints ${JOB_LABELS[job]}s. In Settings > Printers, tick "${JOB_LABELS[job]}" on a printer.`;
+      this.cacheForDisplay({ ...order, printStatus: 'failed', errorMessage: msg, retryCount: 0 });
+      return { success: false, orderId, message: msg, printStatus: 'failed', error: 'NO_PRINTER' };
+    }
 
     const deltaItems = await db.orders.fetchUnprintedItems(orderId);
     const orderCount = await db.orders.checkForRunningOrder(order.invoiceNumber!)
@@ -164,9 +162,8 @@ class OrderManager extends EventEmitter {
       printStatus: 'printing',
       retryCount: 0,
     };
-
     try {
-      await printKot(kotOrder, targetPrinter);
+      await printKot(kotOrder);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown print error';
       this.cacheForDisplay({ ...kotOrder, printStatus: 'failed', errorMessage: message });
@@ -304,7 +301,7 @@ class OrderManager extends EventEmitter {
     // round that never printed is a new bill.
     const isDuplicate = orders.every((o) => o.isPrinted === true);
     try {
-      await printOrderEscpos(billOrder, config.cashierPrinter, isDuplicate);
+      await printOrder(billOrder, isDuplicate);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown print error';
       this.cacheForDisplay({ ...billOrder, printStatus: 'failed', errorMessage: message });
@@ -366,7 +363,7 @@ class OrderManager extends EventEmitter {
       try {
         // await printOrder(order); // Plain-text fallback
         const printerName = config.cashierPrinter;
-        await printOrderEscpos(order, printerName); //ng thermal printer
+        await printOrder(order, order.isPrinted === true); //ng thermal printer
         order.printStatus = 'printed';
         order.printedAt = new Date().toISOString();
         if (!order.isPrinted) {
