@@ -206,7 +206,7 @@ export function TakeawayBoard({
 
       <div className={styles.canvas}>
         {!loading && orders.length === 0 && !error && (
-          <p className={styles.empty}>No open takeaway orders. Orders placed from New order &gt; Pickup (or a phone) show here until they are completed or cancelled.</p>
+          <p className={styles.empty}>No open takeaway orders. Orders placed from New order &gt; Pickup show here until they are completed or cancelled.</p>
         )}
         <div className={styles.grid}>
           {orders.map((o) => {
