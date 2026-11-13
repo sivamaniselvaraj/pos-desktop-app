@@ -866,6 +866,26 @@ export interface UpdateUserPayload {
   outletId?: string;
 }
 
+/** What a printer prints. Dine-in KOTs went to the old Waiter role, takeaway and delivery KOTs to Kitchen. */
+export type PrintJobKind = 'bill' | 'kot-dine-in' | 'kot-takeaway';
+
+/**
+ * One printer in Settings > Printers (per machine, settings.json `printerSetups`).
+ * A printer with an address prints as an image straight to that IP (any print
+ * method); otherwise it prints through the Windows printer `device` with the
+ * chosen print method. Every printer that has a job gets its own copy.
+ */
+export interface PrinterSetup {
+  id: string;
+  /** Shown in Settings and in error messages, e.g. "Kitchen 2". */
+  label: string;
+  /** Installed OS printer name; '' for a network-only printer. */
+  device: string;
+  /** host or host:port; '' = print through the OS printer. */
+  address: string;
+  jobs: PrintJobKind[];
+}
+
 export interface PrinterInfo {
   name: string;
   isDefault: boolean;
@@ -918,6 +938,9 @@ export const IpcChannels = {
   GET_PRINT_METHOD: 'get-print-method',
   SET_PRINT_METHOD: 'set-print-method',
   GET_PRINTER_ADDRESSES: 'get-printer-addresses',
+  GET_PRINTER_SETUPS: 'get-printer-setups',
+  SAVE_PRINTER_SETUPS: 'save-printer-setups',
+  TEST_PRINTER_SETUP: 'test-printer-setup',
   SET_PRINTER_ADDRESS: 'set-printer-address',
   GET_SALES_REPORT: 'get-sales-report',
   GET_SALES_BY_WAITER: 'get-sales-by-waiter',
@@ -1087,6 +1110,11 @@ export interface ElectronApi {
   setPrintMethod(method: PrintMethod): Promise<void>;
   /** Image method only: network address ("192.168.1.50" or "192.168.1.50:9100") per OS printer name. */
   getPrinterAddresses(): Promise<Record<string, string>>;
+  getPrinterSetups(): Promise<PrinterSetup[]>;
+  /** Replaces the whole list; returns it as saved (ids filled in). */
+  savePrinterSetups(setups: PrinterSetup[]): Promise<PrinterSetup[]>;
+  /** Test slip to one printer as entered (saved or not). */
+  testPrinterSetup(setup: PrinterSetup): Promise<string>;
   /** Empty address removes it (the job then goes through the Windows spooler). */
   setPrinterAddress(printerName: string, address: string): Promise<void>;
   getSalesReport(outletId: string, from: string, to: string, bucket: ReportBucket): Promise<SalesReportRow[]>;

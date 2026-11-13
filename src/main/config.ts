@@ -3,7 +3,7 @@ import { join, dirname } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 //import { embeddedConfig } from './embeddedConfig';
 import { connection } from './connectionSetup';
-import type { PrintMethod } from '../shared/types';
+import type { PrintMethod, PrinterSetup } from '../shared/types';
 
 // Loads config from three layers, in priority order:
 //   1. process.env (OS-level env vars, or .env.local loaded by index.ts's
@@ -49,6 +49,8 @@ interface PersistedSettings {
   printMethod?: PrintMethod;
   /** Image method: OS printer name -> network address (host or host:port) to send to directly. */
   printerAddresses?: Record<string, string>;
+  /** Printer list (Settings > Printers). Missing on PCs set up before 2026-11-12: built from the three roles above. */
+  printerSetups?: PrinterSetup[];
   retryCount?: number;
   /** App updates: 'beta' gets releases a few days early. Default 'stable'. */
   updateChannel?: 'stable' | 'beta';
@@ -217,6 +219,14 @@ export const config = {
   },
   set printerAddresses(value: Record<string, string>) {
     persist({ printerAddresses: value });
+  },
+  /** undefined until the printer list is first saved (printerSetups.ts then builds it from the old roles). */
+  get printerSetups(): PrinterSetup[] | undefined {
+    const list = loadFile().printerSetups;
+    return Array.isArray(list) ? list.map((p) => ({ ...p, jobs: [...(p.jobs ?? [])] })) : undefined;
+  },
+  set printerSetups(value: PrinterSetup[] | undefined) {
+    persist({ printerSetups: value });
   },
   // Where this PC looks for new versions (docs/APP_UPDATES.md). Empty = updates off.
   get updateBaseUrl(): string {

@@ -11,29 +11,14 @@ import type {
   InvoiceSequenceStatus,
   ApiDevice,
   ServerStatus,
-} from '../../shared/types';
+} from '@shared/types';
 import { formatDateTime } from '../lib/format';
 import { KotWorkflow } from '../components/KotWorkflowSettings';
 import { DiscountSettings } from '../components/DiscountSettings';
 import { TaxRates } from './TaxRates';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { ReceiptSettings } from '../components/ReceiptSettings';
-
-interface PrinterConfigs {
-  [key: string]: string; // e.g., { printer_kitchen: "USB001", printer_cashier: "COM1" }
-}
-
-
-// Fixed printer roles — no add/remove; each always exists as a row, the
-// operator just assigns which installed printer it maps to.
-//   Cashier -> bill printing (printOrder), bridged into config.cashierPrinter
-//   Waiter  -> KOT printing for dine-in orders
-//   Kitchen -> KOT printing for pickup/delivery orders (no waiter involved)
-const PRINTER_ROLES = ['Cashier', 'Waiter', 'Kitchen'] as const;
-
-function roleKey(role: string): string {
-  return `printer_${role.toLowerCase().trim().replace(/\s+/g, '_')}`;
-}
+import { PrinterList } from '../components/PrinterList';
 
 export function Settings() {
   const { can } = useAuth();
@@ -59,21 +44,8 @@ export function Settings() {
   const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
 
   const [printMethod, setPrintMethodState] = useState<PrintMethod>('direct');
-  // Image method: saved network address per OS printer name, and the text being edited.
-  const [addresses, setAddresses] = useState<Record<string, string>>({});
-  const [addressDraft, setAddressDraft] = useState<Record<string, string>>({});
-  const [configs, setConfigs] = useState<PrinterConfigs>({});
-  // Separate from `configs` (the SAVED mapping) — this is what the dropdowns
-  // actually display and what the user edits. Kept apart so a selection
-  // isn't persisted until the operator explicitly clicks Save (see the
-  // effect below for why this also needs a stale-printer fallback).
-  const [pending, setPending] = useState<PrinterConfigs>({});
-  const [staleNotices, setStaleNotices] = useState<Record<string, string>>({});
   const [osPrinters, setOsPrinters] = useState<PrinterInfo[]>([]);
-
   const [loading, setLoading] = useState(true);
-  const [savingRole, setSavingRole] = useState<string | null>(null);
-  const [testingRole, setTestingRole] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(
     null,
   );
@@ -88,54 +60,13 @@ export function Settings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canInvoicing, canDevices]);
 
-  // Runs whenever the saved mapping or the OS printer list changes (initial
-  // load, or after loadData() re-runs) — this is what makes "on app start,
-  // show the mapped printers" and "if the mapped printer isn't found, fall
-  // back to default" both actually work, rather than just trusting whatever
-  // string happens to be stored.
-  useEffect(() => {
-    if (osPrinters.length === 0) return; // don't resolve fallbacks against an empty/not-yet-loaded list
-
-    const nextPending: PrinterConfigs = {};
-    const notices: Record<string, string> = {};
-
-    for (const role of PRINTER_ROLES) {
-      const key = roleKey(role);
-      const saved = configs[key] ?? '';
-      const stillInstalled = saved !== '' && osPrinters.some((p) => p.name === saved);
-
-      if (saved && !stillInstalled) {
-        // The saved printer is gone (uninstalled, renamed, or this is a
-        // different machine than the one that originally configured it).
-        // Fall back to the OS's own default printer rather than silently
-        // showing a broken/blank selection.
-        const fallback = osPrinters.find((p) => p.isDefault)?.name ?? '';
-        nextPending[key] = fallback;
-        notices[role] = fallback
-          ? `Previously mapped to "${saved}", which is no longer installed — defaulted to "${fallback}". Click Save to confirm, or pick a different printer.`
-          : `Previously mapped to "${saved}", which is no longer installed, and no default printer was found — please pick one.`;
-      } else {
-        nextPending[key] = saved;
-      }
-    }
-
-    setPending(nextPending);
-    setStaleNotices(notices);
-  }, [configs, osPrinters]);
-
   async function loadData() {
     try {
       setLoading(true);
-      const currentSettings = await window.api.getSettings();
-      setConfigs(currentSettings ?? {});
-
       const list = await window.api.getPrinters(true); // fresh list, not the 60 s cache
       setOsPrinters(list ?? []);
       const method = await window.api.getPrintMethod();
       setPrintMethodState(method === 'html' || method === 'image' ? method : 'direct');
-      const addr = (await window.api.getPrinterAddresses()) ?? {};
-      setAddresses(addr);
-      setAddressDraft(addr);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to load settings';
       setMessage({ type: 'error', text: errorMsg });
@@ -275,35 +206,6 @@ export function Settings() {
     }
   }
 
-  function handleDropdownChange(role: string, device: string) {
-    setPending({ ...pending, [roleKey(role)]: device });
-  }
-
-  async function handleSave(role: string) {
-    const key = roleKey(role);
-    const device = pending[key] ?? '';
-    try {
-      setSavingRole(role);
-      await window.api.updateSettings(role, device);
-      // Repopulate from the save that just succeeded — `configs` becoming
-      // the new saved baseline is what makes the mapping correctly persist
-      // across a reload/app restart, and what clears the "unsaved" state
-      // for this row immediately rather than waiting on a full reload.
-      setConfigs((prev) => ({ ...prev, [key]: device }));
-      setStaleNotices((prev) => {
-        if (!(role in prev)) return prev;
-        const next = { ...prev };
-        delete next[role];
-        return next;
-      });
-      flash('success', device ? `${role} printer saved: ${device}` : `${role} printer mapping cleared`);
-    } catch (err) {
-      flash('error', err instanceof Error ? err.message : `Failed to save ${role} printer`);
-    } finally {
-      setSavingRole(null);
-    }
-  }
-
   async function handlePrintMethod(method: PrintMethod) {
     try {
       await window.api.setPrintMethod(method);
@@ -318,41 +220,6 @@ export function Settings() {
       );
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Could not save print method');
-    }
-  }
-
-  async function handleSaveAddress(printerName: string) {
-    const address = (addressDraft[printerName] ?? '').trim();
-    try {
-      await window.api.setPrinterAddress(printerName, address);
-      setAddresses((prev) => {
-        const next = { ...prev };
-        if (address) next[printerName] = address;
-        else delete next[printerName];
-        return next;
-      });
-      flash('success', address ? `"${printerName}" will print to ${address}` : `"${printerName}" will print through Windows`);
-    } catch (err) {
-      flash('error', err instanceof Error ? err.message : 'Could not save the address');
-    }
-  }
-
-  async function handleTestPrint(role: string) {
-    // Tests whatever's currently shown in the dropdown, even if not yet
-    // saved — lets the operator verify before committing to it.
-    const device = pending[roleKey(role)];
-    if (!device) {
-      flash('error', `Select a printer for ${role} first`);
-      return;
-    }
-    try {
-      setTestingRole(role);
-      const result = await window.api.testPrint(device);
-      flash('success', result);
-    } catch (err) {
-      flash('error', err instanceof Error ? err.message : 'Test print failed');
-    } finally {
-      setTestingRole(null);
     }
   }
 
@@ -461,7 +328,7 @@ export function Settings() {
             <small className={styles.hint}>
               No installed printers found. Install the printer in the OS first
               (Windows: Settings → Printers &amp; scanners; macOS: System Settings →
-              Printers &amp; Scanners), then reopen this page.
+              Printers &amp; Scanners) and reopen this page, or add a network printer by its IP address below.
             </small>
           )}
 
@@ -485,100 +352,7 @@ export function Settings() {
             </select>
           </div>
 
-          {printMethod === 'image' && (
-            <div className={styles.printerCard} style={{ marginBottom: 12, flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
-              <div>
-                <div className={styles.printerName}>Network address (optional)</div>
-                <small className={styles.hint}>
-                  For a network printer, enter its IP (for example 192.168.1.50, port 9100 by default) to send
-                  straight to it. Leave empty to print through the Windows printer.
-                </small>
-              </div>
-              {[...new Set(PRINTER_ROLES.map((r) => configs[roleKey(r)]).filter((n): n is string => !!n))].map(
-                (printerName) => (
-                  <div key={printerName} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span style={{ minWidth: 160, flex: '1 1 160px' }}>{printerName}</span>
-                    <input
-                      className={styles.roleSelect}
-                      style={{ flex: '1 1 180px' }}
-                      placeholder="192.168.1.50"
-                      value={addressDraft[printerName] ?? ''}
-                      onChange={(e) => setAddressDraft((d) => ({ ...d, [printerName]: e.target.value }))}
-                    />
-                    <button
-                      className={styles.saveBtn}
-                      disabled={(addressDraft[printerName] ?? '').trim() === (addresses[printerName] ?? '')}
-                      onClick={() => handleSaveAddress(printerName)}
-                    >
-                      Save
-                    </button>
-                  </div>
-                ),
-              )}
-              {PRINTER_ROLES.every((r) => !configs[roleKey(r)]) && (
-                <small className={styles.hint}>Save a printer for a role below first.</small>
-              )}
-            </div>
-          )}
-
-          <div className={styles.printersList}>
-            {PRINTER_ROLES.map((role) => {
-              const key = roleKey(role);
-              const savedDevice = configs[key] ?? '';
-              const device = pending[key] ?? '';
-              const dirty = device !== savedDevice;
-              const busy = savingRole === role || testingRole === role;
-              return (
-                <div key={role} className={styles.printerCardWrap}>
-                  <div className={styles.printerCard}>
-                    <div className={styles.printerInfo}>
-                      <div className={styles.printerName}>{role}</div>
-                    </div>
-
-                    <select
-                      className={styles.roleSelect}
-                      value={device}
-                      onChange={(e) => handleDropdownChange(role, e.target.value)}
-                      disabled={busy || osPrinters.length === 0}
-                    >
-                      <option value="">— Select a printer —</option>
-                      {osPrinters.map((p) => (
-                        <option key={p.name} value={p.name}>
-                          {p.name}
-                          {p.isDefault ? ' (default)' : ''}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      className={styles.saveBtn}
-                      onClick={() => handleSave(role)}
-                      disabled={busy || !dirty}
-                      title={dirty ? 'Save this printer mapping' : 'Already saved'}
-                    >
-                      <Icon name="check" size={16} />
-                      {savingRole === role ? 'Saving...' : 'Save'}
-                    </button>
-
-                    <button
-                      className={styles.testBtn}
-                      onClick={() => handleTestPrint(role)}
-                      disabled={busy || !device}
-                      title="Send a test slip to this printer"
-                    >
-                      <Icon name="print" size={16} />
-                      {testingRole === role ? 'Testing...' : 'Test'}
-                    </button>
-                  </div>
-                  {staleNotices[role] && (
-                    <div className={styles.staleNotice}>
-                      <Icon name="alert" size={14} />
-                      {staleNotices[role]}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <PrinterList osPrinters={osPrinters} printMethod={printMethod} flash={flash} />
         </div>
 
         {/* Invoicing — needs invoicing.manage; real enforcement is server-side by the

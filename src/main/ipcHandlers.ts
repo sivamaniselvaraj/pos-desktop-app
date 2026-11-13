@@ -1,7 +1,7 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { networkInterfaces } from 'os';
 import { orderManager } from './orderManager';
-import { getPrinters, testPrint } from './printerManager';
+import { getPrinters, testPrint, testPrinterSetup} from './printerManager';
 import { isServerRunning } from './api/httpServer';
 import { db } from './data';
 import { signIn, signOut, getCurrentUser } from './authManager';
@@ -72,7 +72,7 @@ import {
   setManagedTableStatus,
 } from './tablesManager';
 import { config, normalizePrintMethod } from './config';
-import { setPrinterAddress } from './imagePrintHelper';
+import { getPrinterSetups, savePrinterSetups, setAddressForDevice } from './printerSetups';
 import { IpcChannels } from '../shared/types';
 import type {
   ReceiptText,
@@ -162,8 +162,11 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   });
   ipcMain.handle(IpcChannels.GET_PRINTER_ADDRESSES, () => config.printerAddresses);
   ipcMain.handle(IpcChannels.SET_PRINTER_ADDRESS, (_e, printerName: unknown, address: unknown) =>
-    setPrinterAddress(String(printerName ?? ''), String(address ?? '')),
+    setAddressForDevice(String(printerName ?? ''), String(address ?? '')),
   );
+  ipcMain.handle(IpcChannels.GET_PRINTER_SETUPS, () => getPrinterSetups());
+  ipcMain.handle(IpcChannels.SAVE_PRINTER_SETUPS, (_e, setups: unknown) => savePrinterSetups(setups));
+  ipcMain.handle(IpcChannels.TEST_PRINTER_SETUP, (_e, setup: unknown) => testPrinterSetup(setup));
   ipcMain.handle(IpcChannels.TEST_PRINT, (_e, target?: string) => testPrint(target));
 
   // Printers & Settings (multi-printer support)

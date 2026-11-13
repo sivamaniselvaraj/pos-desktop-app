@@ -1,0 +1,80 @@
+/* Settings > Printers list. Buttons and inputs reuse Settings.module.css. */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: #f9f9f9;
+  border: 1px solid #eee;
+  border-radius: 6px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.name {
+  flex: 1 1 160px;
+  font-weight: 600;
+}
+
+.connection {
+  flex: 0 1 190px;
+}
+
+.target {
+  flex: 2 1 200px;
+}
+
+.jobs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  flex: 1 1 300px;
+}
+
+.job {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #333;
+  cursor: pointer;
+}
+
+.job input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.problem {
+  font-size: 12px;
+  color: #c62828;
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.spacer {
+  flex: 1;
+}

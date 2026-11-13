@@ -9,6 +9,7 @@ import type {
   ElectronApi,
   OrderWithStatus,
   PrinterInfo,
+  PrinterSetup,
   PrintMethod,
   PrintOrderResponse,
   ManagedUser,
@@ -85,6 +86,10 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.GET_PRINTER_ADDRESSES) as Promise<Record<string, string>>,
   setPrinterAddress: (printerName, address) =>
     ipcRenderer.invoke(IpcChannels.SET_PRINTER_ADDRESS, printerName, address) as Promise<void>,
+  getPrinterSetups: () => ipcRenderer.invoke(IpcChannels.GET_PRINTER_SETUPS) as Promise<PrinterSetup[]>,
+  savePrinterSetups: (setups) =>
+    ipcRenderer.invoke(IpcChannels.SAVE_PRINTER_SETUPS, setups) as Promise<PrinterSetup[]>,
+  testPrinterSetup: (setup) => ipcRenderer.invoke(IpcChannels.TEST_PRINTER_SETUP, setup) as Promise<string>,
   getPrinters: (refresh?: boolean) =>
     ipcRenderer.invoke(IpcChannels.GET_PRINTERS, refresh === true) as Promise<PrinterInfo[]>,
   getSalesReport: (outletId, from, to, bucket) =>

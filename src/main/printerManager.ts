@@ -2,11 +2,19 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { BrowserWindow } from 'electron';
 import { config } from './config';
-import type { FoodOrder, PrinterInfo, HeaderConfig } from '../shared/types';
+import type { FoodOrder, PrinterInfo, HeaderConfig,PrintJobKind, PrintMethod, PrinterSetup } from '../shared/types';
 import { printHtml, renderBillHtml, renderKotHtml, renderTestHtml } from './htmlPrintHelper';
 import { printImage } from './imagePrintHelper';
 import { printBillEscPos, printKotEscPos, testPrintEscPos } from './epsPrintHelper';
-import { journalPrint } from './logger';
+import { journalPrint, type PrintJournalEntry } from './logger';
+
+import {
+  describePrinter,
+  findPrinterSetup,
+  JOB_LABELS,
+  printersFor,
+  validatePrinterSetup,
+} from './printerSetups';
 
 const electron = typeof process !== 'undefined' && process.versions && !!process.versions.electron;
 
@@ -117,7 +125,7 @@ async function cachedPrinterNames(refresh: boolean): Promise<string[]> {
  */
 export async function getPrinters(refresh = false): Promise<PrinterInfo[]> {
   const names = await cachedPrinterNames(refresh);
-  const defaultName = config.cashierPrinter;
+  const defaultName = printersFor('bill')[0]?.device ?? '';
   return names
     .filter((name) => !isVirtualPrinter(name))
     .map((name) => ({
@@ -224,121 +232,167 @@ export function billFooterLines(order: FoodOrder): string[] {
 }
 
 // ---- Printing (method dispatch) --------------------------------------------
+//
+// Each job goes to every printer in Settings > Printers that has it
+// (printerSetups.ts). A printer with a network address prints as an image
+// straight to that IP; any other printer uses the chosen print method on its
+// OS printer. Printers are sent to at the same time and journalled one by one.
+
+/** What happened on each printer for one job. */
+export interface PrintOutcome {
+  printed: string[];
+  failed: { printer: string; error: string }[];
+}
+
+function methodFor(p: PrinterSetup): PrintMethod {
+  return p.address ? 'image' : config.printMethod;
+}
+
+/** Send one job to one printer with the right method. */
+async function printOn(p: PrinterSetup, html: () => string, escpos: (device: string) => Promise<void>): Promise<void> {
+  if (p.address) return printImage(html(), { label: p.label, device: p.device, address: p.address });
+  if (!p.device) throw new Error(`Printer "${p.label}" has no installed printer or network address. Check Settings > Printers.`);
+  const method = config.printMethod;
+  if (method === 'html') return printHtml(html(), p.device);
+  if (method === 'image') return printImage(html(), { label: p.label, device: p.device, address: '' });
+  return escpos(p.device);
+}
 
 /**
- * Print a bill. isDuplicate prints a "DUPLICATE BILL" heading after the
- * header. Callers set it when the order's bill has printed before
- * (orders.is_printed), and record the print afterwards with
- * recordBillPrinted (orderManager.ts).
+ * Print on every target. Resolves when at least one printer printed (the
+ * outcome lists any that failed); rejects when none did.
  */
-export async function printOrderEscpos(order: FoodOrder, printerName:string, isDuplicate = false): Promise<void> {
-  return journalPrint(
+async function printOnAll(
+  targets: PrinterSetup[],
+  details: Omit<PrintJournalEntry, 'ok' | 'ms' | 'error' | 'printer' | 'method'>,
+  html: () => string,
+  escpos: (device: string) => Promise<void>,
+): Promise<PrintOutcome> {
+  const results = await Promise.allSettled(
+    targets.map((p) =>
+      journalPrint({ ...details, printer: p.address || p.device || p.label, method: methodFor(p) }, () =>
+        printOn(p, html, escpos),
+      ),
+    ),
+  );
+  const outcome: PrintOutcome = { printed: [], failed: [] };
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled') outcome.printed.push(targets[i].label);
+    else outcome.failed.push({ printer: targets[i].label, error: r.reason instanceof Error ? r.reason.message : String(r.reason) });
+  });
+  if (outcome.printed.length === 0) {
+    const f = outcome.failed;
+    throw new Error(f.length === 1 ? f[0].error : f.map((x) => `${x.printer}: ${x.error}`).join(' | '));
+  }
+  if (outcome.failed.length > 0) {
+    console.warn(`[printerManager] ${details.job} printed on ${outcome.printed.join(', ')} but failed on`, outcome.failed);
+  }
+  return outcome;
+}
+
+/** "Printed on A, but not on B (reason)." for a job that printed on only some printers. */
+export function describePartial(outcome: PrintOutcome): string | null {
+  if (outcome.failed.length === 0) return null;
+  return `Printed on ${outcome.printed.join(', ')}, but not on ${outcome.failed
+    .map((f) => `${f.printer} (${f.error})`)
+    .join('; ')}.`;
+}
+
+/**
+ * Print a bill on every printer that prints bills. isDuplicate prints a
+ * "DUPLICATE BILL" heading after the header. Callers set it when the order's
+ * bill has printed before (orders.is_printed), and record the print afterwards
+ * with recordBillPrinted (orderManager.ts). Rejects only when no printer printed it.
+ */
+export async function printOrder(order: FoodOrder, isDuplicate = false): Promise<PrintOutcome> {
+  const targets = printersFor('bill');
+  if (targets.length === 0) {
+    throw new Error('No printer prints bills. In Settings > Printers, tick "Bill" on a printer.');
+  }
+  return printOnAll(
+    targets,
     {
       job: 'bill',
-      printer: config.cashierPrinter ?? '',
-      method: config.printMethod,
       orderId: order.id,
       orderNumber: order.orderNumber,
       orderNumbers: order.orderNumbers,
       items: order.items?.length,
       duplicate: isDuplicate,
     },
-    () => printOrderNow(order, printerName, isDuplicate),
+    () => renderBillHtml(order, isDuplicate),
+    (device) => printBillEscPos(order, device, isDuplicate),
   );
-}
-async function printOrderNow(order: FoodOrder, printerName:string, isDuplicate: boolean): Promise<void> {
-  // Validate printer is configured
-  if (!printerName || printerName.trim() === '') {
-    throw new Error(
-      'No printer configured. Please configure a printer in Settings → Add Printer, or set CASHIER_PRINTER in .env.local',
-    );
-  }
-
-  if (printerName.length === 0) {
-    throw new Error('Printer device name is empty. Please configure a printer in Settings.');
-  }
-
-  if (config.printMethod === 'html') {
-    await printHtml(renderBillHtml(order, isDuplicate), printerName);
-    return;
-  }
-  if (config.printMethod === 'image') {
-    await printImage(renderBillHtml(order, isDuplicate), printerName);
-    return;
-  }
-
-  await printBillEscPos(order, printerName, isDuplicate);
 }
 
 /**
- * Print a KOT (Kitchen Order Ticket) to a specific printer.
+ * Print a KOT (Kitchen Order Ticket) on every printer that prints this kind
+ * of KOT (dine-in, or takeaway and delivery).
  *
  * A KOT is intentionally minimal — no prices, no branding — just what the
  * kitchen/waiter needs to prepare and route the order: table number, items
- * with quantities, and the total quantity. `printerName` is the resolved
- * device (typically the waiter printer).
+ * with quantities, and the total quantity. Rejects only when no printer printed it.
  */
-export async function printKot(order: FoodOrder, printerName: string): Promise<void> {
-  return journalPrint(
-    {
-      job: 'kot',
-      printer: printerName ?? '',
-      method: config.printMethod,
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-      items: order.items?.length,
-    },
-    () => printKotNow(order, printerName),
+
+export async function printKot(order: FoodOrder): Promise<PrintOutcome> {
+  const job = order.orderType === 'dine-in' ? 'kot-dine-in' : 'kot-takeaway';
+  const targets = printersFor(job);
+  if (targets.length === 0) {
+    throw new Error(`No printer prints ${JOB_LABELS[job]}s. In Settings > Printers, tick "${JOB_LABELS[job]}" on a printer.`);
+  }
+  return printOnAll(
+    targets,
+    { job: 'kot', orderId: order.id, orderNumber: order.orderNumber, items: order.items?.length },
+    () => renderKotHtml(order),
+    (device) => printKotEscPos(order, device),
   );
 }
 
-async function printKotNow(order: FoodOrder, printerName: string): Promise<void> {
-  const name = (printerName ?? '').trim();
-  if (!name) {
-    throw new Error(
-      'No waiter printer configured. Add a "Waiter" printer in Settings to print KOTs.',
-    );
-  }
-
-  if (config.printMethod === 'html') {
-    await printHtml(renderKotHtml(order), name);
-    return;
-  }
-  if (config.printMethod === 'image') {
-    await printImage(renderKotHtml(order), name);
-    return;
-  }
-
-  await printKotEscPos(order, name);
-}
-
 /**
- * Send a short diagnostic slip to an OS-installed printer to verify it is
- * reachable through the spooler. `target` is the printer name; if omitted,
- * the configured kitchen printer is used.
+ * Send a short diagnostic slip to one printer. `target` is a printer's id or
+ * name in the list, or an OS printer name; if omitted, the first printer that
+ * prints bills is used.
  *
  * Returns a human-readable success line; throws with a friendly message on
  * failure so the UI can surface it directly.
  */
 export async function testPrint(target?: string): Promise<string> {
-  const name = (target ?? config.cashierPrinter ?? '').trim();
-  return journalPrint({ job: 'test', printer: name, method: config.printMethod }, () => testPrintNow(name));
+  const t = (target ?? '').trim();
+  const setup =
+    (t ? findPrinterSetup(t) : printersFor('bill')[0]) ??
+    (t ? { id: '', label: t, device: t, address: '', jobs: [] } : undefined);
+  if (!setup) throw new Error('No printer selected. Choose a printer first.');
+  return testOn(setup);
 }
 
-async function testPrintNow(name: string): Promise<string> {
-  if (!name) {
-    throw new Error('No printer selected. Choose a printer first.');
-  }
+/** Test slip to a printer as entered in Settings (saved or not). */
+export async function testPrinterSetup(input: unknown): Promise<string> {
+  const p = input as Partial<PrinterSetup>;
+  const setup: PrinterSetup = {
+    id: String(p?.id ?? ''),
+    label: String(p?.label ?? '').trim() || String(p?.address ?? p?.device ?? '').trim(),
+    device: String(p?.device ?? '').trim(),
+    address: String(p?.address ?? '').trim(),
+    jobs: [],
+  };
+  validatePrinterSetup(setup);
+  return testOn(setup);
+}
 
-  if (config.printMethod === 'html') {
-    await printHtml(renderTestHtml(name), name);
-    return `Test slip (HTML) sent to "${name}"`;
-  }
-  if (config.printMethod === 'image') {
-    const address = config.printerAddresses[name];
-    await printImage(renderTestHtml(name, address ? `Image (ESC/POS) to ${address}` : 'Image (ESC/POS) via Windows'), name);
-    return `Test slip (Image) sent to "${name}"${address ? ` at ${address}` : ''}`;
-  }
-
-  return testPrintEscPos(name);
+async function testOn(p: PrinterSetup): Promise<string> {
+  const method = methodFor(p);
+  const methodText = p.address
+    ? `Image (ESC/POS) to ${p.address}`
+    : method === 'image'
+      ? 'Image (ESC/POS) via Windows'
+      : method === 'html'
+        ? 'HTML (Electron)'
+        : 'Direct (ESC/POS)';
+  return journalPrint({ job: 'test', printer: p.address || p.device || p.label, method }, async () => {
+    if (method === 'direct' && !p.address) {
+      if (!p.device) throw new Error('No printer selected. Choose a printer first.');
+      return testPrintEscPos(p.device);
+    }
+    await printOn(p, () => renderTestHtml(p.label || p.device || p.address, methodText), async () => undefined);
+    return `Test slip sent to ${describePrinter(p)} (${methodText})`;
+  });
 }

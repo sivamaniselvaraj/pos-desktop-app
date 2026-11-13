@@ -55,23 +55,7 @@ const TCP_TIMEOUT_MS = 10_000;
 const DEFAULT_PORT = 9100;
 const GAP_MS = 500;
 
-// ---- Network addresses (per machine, settings.json) --------------------------
-
-const ADDRESS_RE = /^[A-Za-z0-9.-]+(:\d{1,5})?$/;
-
-/** Save or (with an empty address) remove the network address used for `printerName`. */
-export function setPrinterAddress(printerName: string, address: string): void {
-  const name = printerName.trim();
-  const addr = address.trim();
-  if (!name) throw new Error('Choose a printer first.');
-  if (addr && !ADDRESS_RE.test(addr)) {
-    throw new Error('Enter the printer address like 192.168.1.50 or 192.168.1.50:9100.');
-  }
-  const all = config.printerAddresses;
-  if (addr) all[name] = addr;
-  else delete all[name];
-  config.printerAddresses = all;
-}
+// ---- Network addresses (per printer, printerSetups.ts) ----------------------
 
 function parseAddress(addr: string): { host: string; port: number } {
   const [host, port] = addr.split(':');
@@ -85,9 +69,17 @@ function parseAddress(addr: string): { host: string; port: number } {
 
 let chain: Promise<void> = Promise.resolve();
 
+/** Where an image job goes: straight to `address` when set, else the OS printer `device`. */
+export interface ImageTarget {
+  /** Used in messages. */
+  label: string;
+  device: string;
+  address: string;
+}
+
 /** Print an HTML page as an ESC/POS bit image (queued, one job at a time). */
-export function printImage(html: string, printerName: string): Promise<void> {
-  const job = chain.then(() => printImageNow(html, printerName));
+export function printImage(html: string, target: ImageTarget): Promise<void> {
+  const job = chain.then(() => printImageNow(html, target));
   chain = job.then(
     () => new Promise<void>((r) => setTimeout(r, GAP_MS)),
     () => new Promise<void>((r) => setTimeout(r, GAP_MS)),
@@ -95,10 +87,11 @@ export function printImage(html: string, printerName: string): Promise<void> {
   return job;
 }
 
-async function printImageNow(html: string, printerName: string): Promise<void> {
-  const name = (printerName ?? '').trim();
-  if (!name) throw new Error('No printer selected.');
-  const address = config.printerAddresses[name];
+async function printImageNow(html: string, target: ImageTarget): Promise<void> {
+  const name = (target.device ?? '').trim();
+  const address = (target.address ?? '').trim();
+  const label = (target.label || name || address).trim();
+  if (!name && !address) throw new Error('No printer selected.');
   try {
     await withTimeout(
       (async () => {
@@ -107,12 +100,12 @@ async function printImageNow(html: string, printerName: string): Promise<void> {
         else await sendSpooler(name, bytes);
       })(),
       JOB_TIMEOUT_MS,
-      `Image print to "${name}"`,
+      `Image print to "${label}"`,
     );
   } catch (err) {
     if (err instanceof PrintTimeoutError) throw err;
     const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`Image print to "${name}"${address ? ` (${address})` : ''} failed: ${msg}`);
+    throw new Error(`Image print to "${label}"${address && address !== label ? ` (${address})` : ''} failed: ${msg}`);
   }
 }
 
@@ -252,6 +245,31 @@ export function toEscPos(d: Dots): Buffer {
 
 // ---- Sending -------------------------------------------------------------------
 
+/** Turn a socket error into a sentence that says what to check. Exported for tests. */
+export function describeTcpError(host: string, port: number, code: string | undefined, raw: string): string {
+  const check =
+    `Check the IP address (hold FEED while switching the printer on to print a self-test page with it), ` +
+    `that this PC is on the same network, and that no firewall or antivirus blocks outgoing connections to port ${port}. ` +
+    `Test from PowerShell: Test-NetConnection ${host} -Port ${port}`;
+  switch (code) {
+    case 'ECONNREFUSED':
+      return (
+        `the printer at ${host} refused the connection on port ${port}. ` +
+        `Check the port (most printers use 9100) and that no other program is holding the printer.`
+      );
+    case 'ETIMEDOUT':
+    case 'EHOSTUNREACH':
+    case 'ENETUNREACH':
+    case 'EHOSTDOWN':
+      return `nothing answered at ${host}:${port} (${code}). ${check}.`;
+    case 'ENOTFOUND':
+    case 'EAI_AGAIN':
+      return `the address "${host}" could not be found. Enter the printer's IP address, for example 192.168.1.50.`;
+    default:
+      return `could not reach ${host}:${port} (${raw}). ${check}.`;
+  }
+}
+
 function sendTcp(address: string, bytes: Buffer): Promise<void> {
   const { host, port } = parseAddress(address);
   return new Promise<void>((resolve, reject) => {
@@ -265,14 +283,10 @@ function sendTcp(address: string, bytes: Buffer): Promise<void> {
       else resolve();
     };
     socket.setTimeout(TCP_TIMEOUT_MS, () =>
-      finish(
-        new Error(
-          `no answer from ${host}:${port} within ${TCP_TIMEOUT_MS / 1000} s. Check the printer is on and the address is right.`,
-        ),
-      ),
+      finish(new Error(describeTcpError(host, port, 'ETIMEDOUT', `no answer within ${TCP_TIMEOUT_MS / 1000} s`))),
     );
-    socket.on('error', (err) =>
-      finish(new Error(`could not reach ${host}:${port} (${err.message}).`)),
+    socket.on('error', (err: NodeJS.ErrnoException) =>
+      finish(new Error(describeTcpError(host, port, err.code, err.message))),
     );
     socket.on('connect', () => {
       socket.end(bytes, () => finish());
@@ -281,10 +295,30 @@ function sendTcp(address: string, bytes: Buffer): Promise<void> {
 }
 
 // Fixed script: the printer name and data file arrive as environment variables.
+//
+// Windows can accept a RAW job (WritePrinter succeeds) and then fail it in the
+// queue, for example when the printer uses Windows' own network driver (IPP
+// class driver, WSD port, v4 driver) that does not take raw printer commands.
+// The queue then shows the job as "Deleted, Error" while the app used to report
+// success (seen on 2026-11-12 with an RP3200 plus(E)). So after sending, the
+// script watches the job for a few seconds and reports an error state, and every
+// failure names the printer's driver and port. Messages for the app start with
+// "VPOS:" (error, stderr) or "VPOS-WARN:" (stdout).
 const RAW_PRINT_PS = String.raw`
 $ErrorActionPreference = 'Stop'
+$name = $env:VPOS_PRINTER
+function Get-VposPrinterInfo {
+  try { $p = Get-Printer -Name $name; "driver '" + $p.DriverName + "', port '" + $p.PortName + "'" }
+  catch { 'driver and port unknown' }
+}
+function Fail([string]$msg) {
+  [Console]::Error.WriteLine('VPOS: ' + $msg + ' (' + (Get-VposPrinterInfo) + ')')
+  exit 1
+}
+try {
 Add-Type -TypeDefinition @"
 using System;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 public static class VposRawPrint {
   [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -299,27 +333,85 @@ public static class VposRawPrint {
   [DllImport("winspool.drv", SetLastError = true)] static extern bool EndPagePrinter(IntPtr h);
   [DllImport("winspool.drv", SetLastError = true)]
   static extern bool WritePrinter(IntPtr h, byte[] b, int count, out int written);
-  public static void Send(string name, byte[] data) {
+  static Exception Win(string step) {
+    int code = Marshal.GetLastWin32Error();
+    return new Exception(step + " failed: " + new Win32Exception(code).Message + " (Windows error " + code + ")");
+  }
+  public static int Send(string name, byte[] data) {
     IntPtr h;
-    if (!OpenPrinter(name, out h, IntPtr.Zero)) throw new Exception("OpenPrinter failed, Windows error " + Marshal.GetLastWin32Error());
+    if (!OpenPrinter(name, out h, IntPtr.Zero)) throw Win("Opening the printer");
     try {
       DOCINFO di = new DOCINFO();
       di.pDocName = "Virunthagam POS";
       di.pDataType = "RAW";
-      if (StartDocPrinter(h, 1, di) == 0) throw new Exception("StartDocPrinter failed, Windows error " + Marshal.GetLastWin32Error());
+      int job = StartDocPrinter(h, 1, di);
+      if (job == 0) throw Win("Starting a raw print job");
       try {
         StartPagePrinter(h);
         int written;
-        if (!WritePrinter(h, data, data.Length, out written) || written != data.Length)
-          throw new Exception("WritePrinter failed, Windows error " + Marshal.GetLastWin32Error());
+        if (!WritePrinter(h, data, data.Length, out written)) throw Win("Sending the data");
+        if (written != data.Length) throw new Exception("Windows took only " + written + " of " + data.Length + " bytes");
         EndPagePrinter(h);
       } finally { EndDocPrinter(h); }
+      return job;
     } finally { ClosePrinter(h); }
   }
 }
 "@
-[VposRawPrint]::Send($env:VPOS_PRINTER, [System.IO.File]::ReadAllBytes($env:VPOS_FILE))
+  $id = [VposRawPrint]::Send($name, [System.IO.File]::ReadAllBytes($env:VPOS_FILE))
+} catch {
+  $e = $_.Exception
+  while ($e.InnerException) { $e = $e.InnerException }
+  Fail $e.Message
+}
+
+# Watch the job: gone from the queue or "Printed" is success; an error state is a failure.
+$deadline = (Get-Date).AddSeconds(8)
+$status = ''
+while ((Get-Date) -lt $deadline) {
+  $j = $null
+  try { $j = Get-PrintJob -PrinterName $name -ID $id -ErrorAction Stop } catch { exit 0 }
+  if (-not $j) { exit 0 }
+  $status = [string]$j.JobStatus
+  if ($status -match 'Error|Offline|PaperOut|Blocked|UserIntervention') {
+    try { Remove-PrintJob -InputObject $j -ErrorAction SilentlyContinue } catch {}
+    Fail ("Windows accepted the job but marked it '" + $status + "' in the print queue, so the printer did not take it")
+  }
+  if ($status -match 'Printed|Complete') { exit 0 }
+  Start-Sleep -Milliseconds 300
+}
+Write-Output ('VPOS-WARN: job ' + $id + ' still in the Windows queue after 8 s (status ''' + $status + '''; ' + (Get-VposPrinterInfo) + ')')
 `;
+
+/** What to try when Windows will not print a raw job. */
+const SPOOLER_HINT =
+  'The printer\'s Windows driver or port does not accept raw printer commands. Usually Windows set the printer up ' +
+  'with its own network driver ("IPP Class Driver" or a "WSD" port). Fix: enter the printer\'s IP address in ' +
+  'Settings > Printers (Image method), so the app sends to the printer directly, or install the maker\'s driver ' +
+  'with a "Standard TCP/IP" port.';
+
+/** Build the user-facing message from a failed PowerShell run. Exported for tests. */
+export function describeSpoolerFailure(err: {
+  stdout?: string | Buffer;
+  stderr?: string | Buffer;
+  code?: number | string | null;
+  killed?: boolean;
+  signal?: string | null;
+}): string {
+  if (err.killed || err.signal) return 'Windows did not take the job within 25 s. Check the printer is on and not paused in Windows.';
+  const out = `${err.stdout ?? ''}\n${err.stderr ?? ''}`;
+  const vpos = /VPOS: ([^\r\n]+)/.exec(out)?.[1]?.trim();
+  if (vpos) return `Windows did not print it. ${vpos}. ${SPOOLER_HINT}`;
+  // Anything else: the first stderr line, never execFile's "Command failed: <whole command>".
+  const line = String(err.stderr ?? '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .find((l) => l && !l.startsWith('#< CLIXML'));
+  return `PowerShell could not send the job to Windows (${(line ?? `exit code ${err.code ?? '?'}`).slice(0, 200)}).`;
+}
+
+/** -EncodedCommand: base64 of UTF-16LE. Avoids quoting the script through the Windows command line. */
+const encodePowerShell = (script: string) => Buffer.from(script, 'utf16le').toString('base64');
 
 async function sendSpooler(name: string, bytes: Buffer): Promise<void> {
   const known =
@@ -334,25 +426,32 @@ async function sendSpooler(name: string, bytes: Buffer): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
   const file = path.join(dir, 'image-job.bin');
   await fs.writeFile(file, bytes);
-  try {
-    if (process.platform === 'win32') {
-      await execFileAsync(
-        'powershell.exe',
-        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', RAW_PRINT_PS],
-        {
-          env: { ...process.env, VPOS_PRINTER: name, VPOS_FILE: file },
-          windowsHide: true,
-          timeout: 25_000,
-        },
-      );
-    } else {
+
+  if (process.platform !== 'win32') {
+    try {
       await execFileAsync('lp', ['-d', name, '-o', 'raw', file], { timeout: 25_000 });
+    } catch (err) {
+      const e = err as { stderr?: string };
+      throw new Error(`lp refused the job (${String(e.stderr ?? err).trim().slice(0, 200)}).`);
     }
+    return;
+  }
+
+  try {
+    const { stdout } = await execFileAsync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodePowerShell(RAW_PRINT_PS)],
+      {
+        env: { ...process.env, VPOS_PRINTER: name, VPOS_FILE: file },
+        windowsHide: true,
+        timeout: 25_000,
+      },
+    );
+    const warn = /VPOS-WARN: ([^\r\n]+)/.exec(stdout)?.[1];
+    if (warn) console.warn(`[imagePrint] ${name}: ${warn}`);
   } catch (err) {
-    const e = err as { stderr?: string; message?: string };
-    const detail =
-      (e.stderr || e.message || String(err)).split(/\r?\n/).find((l) => l.trim()) ??
-      'unknown error';
-    throw new Error(`the Windows spooler refused the job (${detail.trim().slice(0, 200)}).`);
+    const msg = describeSpoolerFailure(err as Parameters<typeof describeSpoolerFailure>[0]);
+    console.warn(`[imagePrint] ${name}: ${msg}`);
+    throw new Error(msg);
   }
 }
