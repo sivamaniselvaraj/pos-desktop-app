@@ -819,7 +819,7 @@ security definer
 set search_path = public
 as $$
     insert into order_items (order_id, menu_item_id, unit_price, total_price, quantity, tax_rate_percent, tax_name, price_includes_tax,
-                           incentive_type, incentive_value)
+                           incentive_type, incentive_value, status)
   select p_order_id,
          x.menu_item_id,
          x.unit_price,
@@ -829,7 +829,9 @@ as $$
          case when mi.tax_rate_percent is not null then mi.tax_name else tr.tax_name end,
          case when mi.tax_rate_percent is not null then mi.price_includes_tax else false end,
          case when coalesce(mi.incentive_applicable, false) then mi.incentive_type end,
-         case when coalesce(mi.incentive_applicable, false) then mi.incentive_value end
+         case when coalesce(mi.incentive_applicable, false) then mi.incentive_value end,
+         coalesce((select ks.code from kot_statuses ks
+                    where ks.outlet_id = p_outlet_id and ks.is_initial), 'new')
     from (select nullif(it->>'menu_item_id', '')::uuid as menu_item_id,
                  (it->>'unit_price')::numeric as unit_price,
                  (it->>'quantity')::int as quantity
