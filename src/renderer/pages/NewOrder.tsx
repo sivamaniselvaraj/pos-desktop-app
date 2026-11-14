@@ -474,18 +474,6 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
           </div>
         ) : (
           <div className={styles.info}>
-            Pickup orders get their own invoice number and no table. Customer name and phone are optional.
-          </div>
-        )}
-
-        <div className={styles.browse}>
-          <nav className={`${styles.rail} ${q ? styles.railIdle : ''}`} aria-label="Menu categories">
-            {categories.slice(0, 1).map(([name, count]) => renderCategory(name, count))}
-            <div className={styles.railList}>
-              {categories.slice(1).map(([name, count]) => renderCategory(name, count))}
-            </div>
-          </nav>
-          <div className={styles.browseMain}>
             <div className={styles.searchRow}>
               <div className={`${styles.search} ${q ? styles.searchOn : ''}`}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -505,6 +493,25 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
                   </button>
                 )}
               </div>
+              
+              </div>
+              {q && (
+              <div className={styles.muted} style={{ marginBottom: 10 }}>
+                {total} result{total === 1 ? '' : 's'} · name matches first, then keywords
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className={styles.browse}>
+          <nav className={`${styles.rail} ${q ? styles.railIdle : ''}`} aria-label="Menu categories">
+            {categories.slice(0, 1).map(([name, count]) => renderCategory(name, count))}
+            <div className={styles.railList}>
+              {categories.slice(1).map(([name, count]) => renderCategory(name, count))}
+            </div>
+          </nav>
+          <div className={styles.browseMain}>
+            <div className={styles.searchRow}>
               <div className={styles.seg}>
                 {(['all', 'veg', 'nonveg'] as VegFilter[]).map((v) => (
                   <button key={v} type="button" className={veg === v ? styles.segOn : ''} onClick={() => setVeg(v)}>
@@ -514,12 +521,6 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
                 ))}
               </div>
             </div>
-
-            {q && (
-              <div className={styles.muted} style={{ marginBottom: 10 }}>
-                {total} result{total === 1 ? '' : 's'} · name matches first, then keywords
-              </div>
-            )}
 
             <div className={styles.scroll}>
               {loading && menu.length === 0 && <div className={styles.muted}>Loading menu…</div>}

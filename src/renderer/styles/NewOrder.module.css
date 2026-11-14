@@ -4,7 +4,7 @@
 .head h2 { margin: 0; font-size: 22px; }
 .refresh { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; border: 1px solid #d9dce1; background: #fff; border-radius: 8px; padding: 7px 12px; font-size: 13px; cursor: pointer; }
 .refresh:disabled { opacity: .5; cursor: default; }
-.seg { display: inline-flex; background: #e9ebef; border-radius: 10px; padding: 4px; gap: 2px; }
+.seg { margin-left: auto; display: inline-flex; background: #e9ebef; border-radius: 10px; padding: 4px; gap: 2px; }
 .seg button { border: 0; background: transparent; padding: 8px 16px; border-radius: 8px; font-size: 14px; font-weight: 600; color: #555; display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
 .seg .segOn { background: #fff; color: var(--brand-text); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
 .warn { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; border-radius: 8px; padding: 8px 12px; font-size: 13px; margin-bottom: 10px; }
