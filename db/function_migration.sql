@@ -3419,7 +3419,7 @@ as $$
 declare
   v_outlet uuid;
 begin
-  if p_actor is null then
+  if p_waiter_id is null then
     raise exception 'Not authenticated';
   end if;
   if not has_permission('orders.place') then
