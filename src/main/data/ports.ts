@@ -241,6 +241,8 @@ export interface TableValues {
   floorArea: string | null;
   capacity: number | null;
   status: ManagedTableStatus;
+  createdBy?: string;
+  updatedBy?: string;
 }
 
 export interface TableRepository {
@@ -250,7 +252,12 @@ export interface TableRepository {
   /** Tables of an outlet with live order counts (unsorted). */
   listManaged(outletId: string): Promise<ManagedTable[]>;
   listTableNumbers(outletId: string): Promise<{ id: string; tableNumber: string }[]>;
-  insert(outletId: string, values: TableValues): Promise<void>;
+  /**
+   * Adds a table and records who added it. actingUserId: a paired phone's user
+   * (POST /api/tables); the database checks that user's tables.manage and outlet.
+   * Omitted: the signed-in user adds it (Tables page). Returns the new id.
+   */
+  insert(outletId: string, values: TableValues, actingUserId?: string): Promise<string>;
   /** Throws 'Table not found in this outlet' when nothing was updated. */
   update(outletId: string, tableId: string, values: TableValues): Promise<void>;
   countOrdersForTable(tableId: string): Promise<number>;

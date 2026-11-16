@@ -102,6 +102,32 @@ export function MenuItemsPage() {
 /** Category filter value for items that have no category. */
 const NO_CATEGORY = '__none';
 
+/** Export columns (Menu Items page > Export), in order: [heading, value for one item]. */
+const EXPORT_COLUMNS: Array<[string, (item: MenuItemRecord, category: string) => string | number | null]> = [
+  ['Category', (_i, category) => category],
+  ['Name', (i) => (i.name == null ? null : String(i.name))],
+  ['Price', (i) => num(i.price)],
+  ['Veg', (i) => (i.is_veg == null ? null : i.is_veg ? 'Veg' : 'Non-veg')],
+  ['Status', (i) => (i.is_active === false ? 'Off' : 'Available')],
+  ['Off reason', (i) => (i.is_active === false && i.inactive_reason ? String(i.inactive_reason) : null)],
+  ['Off since', (i) => (i.is_active === false && i.inactive_since ? formatDateTime(String(i.inactive_since)) : null)],
+  ['Off by', (i) => (i.is_active === false && i.inactive_by_name ? String(i.inactive_by_name) : null)],
+  ['Container charge', (i) => num(i.container_charge)],
+  ['Tax', (i) => (i.tax_name ? String(i.tax_name) : null)],
+  ['Tax %', (i) => num(i.tax_rate_percent)],
+  ['Price includes tax', (i) => (i.price_includes_tax == null ? null : i.price_includes_tax ? 'Yes' : 'No')],
+  ['Incentive', (i) => (i.incentive_applicable ? 'Yes' : i.incentive_applicable == null ? null : 'No')],
+  ['Incentive type', (i) => (i.incentive_applicable && i.incentive_type ? String(i.incentive_type) : null)],
+  ['Incentive value', (i) => (i.incentive_applicable ? num(i.incentive_value) : null)],
+  ['Item id', (i) => (i.id == null ? null : String(i.id))],
+];
+
+function num(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
   const { can } = useAuth();
   // Only managers+ add/edit. The database enforces this too (RLS on menu_items).
@@ -125,6 +151,7 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
   // Ticked items (by id) for a bulk on/off.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
   // Turning something off asks for a reason first.
   const [offAsk, setOffAsk] = useState<
     | { kind: 'item'; item: MenuItemRecord }
@@ -359,6 +386,22 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
     if (headerBox.current) headerBox.current.indeterminate = someShownTicked && !allShownTicked;
   }, [someShownTicked, allShownTicked]);
 
+  // Export what the list shows (search, category and On/Off filters applied), in category order.
+  async function handleExport() {
+    const rows = groups.flatMap((g) => g.shown.map((item) => EXPORT_COLUMNS.map(([, value]) => value(item, g.name))));
+    if (rows.length === 0) return;
+    try {
+      setExporting(true);
+      const result = await window.api.exportMenuItems({ columns: EXPORT_COLUMNS.map(([h]) => h), rows });
+      if (result.success) flash('success', `Exported ${rows.length} item${rows.length === 1 ? '' : 's'} to ${result.path ?? 'file'}`);
+      else if (result.error) setMessage({ type: 'error', text: result.error });
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Export failed' });
+    } finally {
+      setExporting(false);
+    }
+  }
+
   function toggleIds(ids: string[], on: boolean) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -381,6 +424,15 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
               Add Item
             </button>
           )}
+          <button
+            className={styles.refreshBtn}
+            onClick={() => void handleExport()}
+            disabled={exporting || shownIds.length === 0}
+            title={`Save the ${shownIds.length} item${shownIds.length === 1 ? '' : 's'} shown as Excel or CSV`}
+          >
+            <Icon name="download" size={14} />
+            {exporting ? 'Exporting…' : 'Export'}
+          </button>
           <button className={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing}>
             <Icon name="refresh" size={14} />
             {refreshing ? 'Refreshing…' : 'Refresh from Database'}
@@ -554,23 +606,44 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
                     </td>
                   )}
                   {columns.map((col) => (
-                    <td key={col}>{formatCell(item[col])} {col === 'name' ? <span className={`${styles.dot} ${item['is_veg'] ? '' : styles.dotNv}`} /> : ''}</td>
+                    <td key={col}>{formatCell(item[col])}</td>
                   ))}
-                  <td>
-                    {!canManage ? (
-                      <span className={`${styles.statusToggle} ${isActive ? styles.statusOn : styles.statusOff}`}>
-                        {isActive ? 'On' : 'Off'}
-                      </span>
-                    ) : (
-                    <button
-                      className={`${styles.statusToggle} ${isActive ? styles.statusOn : styles.statusOff}`}
-                      onClick={() => handleToggleActive(item)}
-                      disabled={togglingId === id}
-                      title={isActive ? 'Turn off (out of stock)' : 'Turn on (back in stock)'}
+                  <td className={styles.statusCell}>
+                    <div
+                      className={`${styles.statusChoice} ${canManage ? '' : styles.statusChoiceReadOnly}`}
+                      role={canManage ? 'group' : undefined}
+                      aria-label={`${String(item.name ?? 'Item')} availability`}
                     >
-                      {togglingId === id ? '…' : isActive ? 'On' : 'Off'}
-                    </button>
-                    )}
+                      {canManage ? (
+                        <>
+                          <button
+                            type="button"
+                            className={isActive ? styles.choiceOn : undefined}
+                            aria-pressed={isActive}
+                            onClick={() => { if (!isActive) void handleToggleActive(item); }}
+                            disabled={togglingId === id}
+                            title={isActive ? 'Available on the menu' : 'Turn on (back in stock)'}
+                          >
+                            {togglingId === id && !isActive ? '…' : 'Available'}
+                          </button>
+                          <button
+                            type="button"
+                            className={isActive ? undefined : styles.choiceOff}
+                            aria-pressed={!isActive}
+                            onClick={() => { if (isActive) void handleToggleActive(item); }}
+                            disabled={togglingId === id}
+                            title={isActive ? 'Turn off (out of stock)' : 'Turned off'}
+                          >
+                            {togglingId === id && isActive ? '…' : 'Off'}
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span className={isActive ? styles.choiceOn : undefined}>Available</span>
+                          <span className={isActive ? undefined : styles.choiceOff}>Off</span>
+                        </>
+                      )}
+                    </div>
                     {!isActive && (
                       <div className={styles.offReason} title={item.inactive_since ? `Turned off ${formatDateTime(String(item.inactive_since))}${item.inactive_by_name ? ` by ${String(item.inactive_by_name)}` : ''}` : undefined}>
                         {item.inactive_reason ? String(item.inactive_reason) : 'No reason recorded'}

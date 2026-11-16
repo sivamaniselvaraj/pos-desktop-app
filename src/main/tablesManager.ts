@@ -1,8 +1,7 @@
-import { db } from './data';
+import { db, TableValues } from './data';
 import { config } from './config';
 import type { 
   TableCard, 
-  TableCardStatus, 
   SavePaymentPayload, 
   ManagedTable,
   ManagedTableStatus,
@@ -27,7 +26,7 @@ export function listTables(): Promise<TableCard[]> {
 }
 
 export function savePayment(payload: SavePaymentPayload): Promise<void> {
-    return db.tables.savePayment(payload);
+  return db.tables.savePayment(payload);
 }
 
 // ---------------------------------------------------------------------------
@@ -36,7 +35,7 @@ export function savePayment(payload: SavePaymentPayload): Promise<void> {
 // ---------------------------------------------------------------------------
 function requireOutletId(): string {
   if (!config.outletId) {
-    throw new Error('OUTLET_ID is not configured for this machine — set it in .env.local.');
+    throw new Error('No outlet is set for this machine. Enter the outlet id on the setup screen.');
   }
   return config.outletId;
 }
@@ -60,12 +59,17 @@ function compareTableNumbers(a: string, b: string): number {
 }
 
 export async function listManagedTables(): Promise<ManagedTable[]> {
-  const  outletId = requireOutletId();
-  const rows = await db.tables.listManaged(outletId);
+  const rows = await db.tables.listManaged(requireOutletId());
   return rows.sort((a, b) => compareTableNumbers(a.tableNumber, b.tableNumber));
 }
 
-export async function saveManagedTable(payload: SaveManagedTablePayload): Promise<void> {
+/**
+ * Adds (no tableId) or edits a table. actingUserId: the user who adds it when it
+ * is not the signed-in user (a paired phone, POST /api/tables); the database checks
+ * that user's permission and records them as the creator. Returns the new table's
+ * id when one was added, else null.
+ */
+export async function saveManagedTable(payload: SaveManagedTablePayload, actingUserId?: string): Promise<string | null> {
   const outletId = requireOutletId();
 
   const tableNumber = payload.tableNumber.trim();
@@ -80,8 +84,7 @@ export async function saveManagedTable(payload: SaveManagedTablePayload): Promis
   if (!state) throw new Error('Invalid status');
 
   // Case-insensitive uniqueness per outlet ('2a' and '2A' are the same table).
-    const existing = await db.tables.listTableNumbers(outletId);
-
+  const existing = await db.tables.listTableNumbers(outletId);
   const clash = existing.some(
     (t) =>
       String(t.tableNumber ?? '').toLowerCase() === tableNumber.toLowerCase() &&
@@ -89,18 +92,19 @@ export async function saveManagedTable(payload: SaveManagedTablePayload): Promis
   );
   if (clash) throw new Error(`Table "${tableNumber}" already exists in this outlet`);
 
-  const values = {
+  const values: TableValues = {
     tableNumber: tableNumber,
     floorArea: payload.floor.trim() || null,
     capacity: payload.capacity,
     status: payload.status,
+    createdBy: actingUserId,
+    updatedBy: actingUserId
   };
 
-  if (!payload.tableId) {
-    await db.tables.insert(outletId, values);
-    return;
-  }
- await db.tables.update(outletId, payload.tableId, values);
+  if (!payload.tableId) return db.tables.insert(outletId, values, actingUserId);
+  if (actingUserId) throw new Error('Only a new table can be saved for another user');
+  await db.tables.update(outletId, payload.tableId, values);
+  return null;
 }
 
 export async function deleteManagedTable(tableId: string): Promise<void> {

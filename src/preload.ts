@@ -108,6 +108,8 @@ const api: ElectronApi = {
     >,
   exportSalesReport: (payload) =>
     ipcRenderer.invoke(IpcChannels.EXPORT_SALES_REPORT, payload) as Promise<ExportResult>,
+  exportMenuItems: (payload) =>
+      ipcRenderer.invoke(IpcChannels.EXPORT_MENU_ITEMS, payload) as Promise<ExportResult>,
   getDailySummary: (outletId, from, to, shift) =>
     ipcRenderer.invoke(IpcChannels.GET_DAILY_SUMMARY, outletId, from, to, shift ?? null) as Promise<DailySummaryReport>,
   getSalesByHour: (outletId, from, to) =>

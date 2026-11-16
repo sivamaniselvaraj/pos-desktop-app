@@ -5,7 +5,7 @@ import { readFileSync } from 'fs';
 import type { Server } from 'http';
 import { config } from '../config';
 import { orderManager } from '../orderManager';
-import { printQueue } from '../printQueueManager';
+import { printQueue, PrintTimeoutError } from '../printQueueManager';
 import { db } from '../data';
 import { getCachedMenuItems } from '../menuCache';
 import { checkCode, consumeCode, describeCodeState, noteFailedSignIn } from './pairingCodes';
@@ -13,6 +13,7 @@ import { createHash } from 'crypto';
 import { getKotBoard, moveKot } from '../kotManager';
 import { openStream, since as notificationsSince, startNotificationHub } from '../notificationHub';
 import {
+  addTableForPhone,
   BadRemoteOrder,
   getPhoneConfig,
   getTablesForPhones,
@@ -20,6 +21,7 @@ import {
   markItemServed,
   getKotSettingsForPhones,
   placeRemoteOrder,
+  validateNewTable,
   validateRemoteOrder,
 } from '../remoteOrderManager';
 import {
@@ -200,7 +202,6 @@ export function startHttpServer(): Promise<void> {
 
   app.use('/api', authenticate);
   app.use('/api', express.json({ limit: '24kb' }));
-
 
     // ---- App PIN: the second check after the device token ----------------------
     // The token says which phone/user; the PIN (4 digits, set by the user) proves the
@@ -399,6 +400,11 @@ export function startHttpServer(): Promise<void> {
         const result = await printQueue.enqueue(task);
         res.status(result.success ? 200 : 502).json(result);
       } catch (err) {
+        if (err instanceof PrintTimeoutError) {
+                // The printer did not answer in time. The job may still finish; KOT items stay
+                // claimed, so the sweep will not print them again while that is possible.
+                return fail(res, 504, 'PRINT_FAILED', err.message);
+              }
       console.error('[api] queued print failed:', err);
       fail(res, 500, 'SERVER_ERROR', 'The server could not process the request.');
       }
@@ -548,6 +554,38 @@ export function startHttpServer(): Promise<void> {
       for (const t of all) summary[t.status] += 1;
       res.json({ summary, tables });
     } catch (err) {
+      tablesError(err, res);
+    }
+  });
+
+  // Add a table: { tableNumber, floor?, capacity? }. Saved by the Tables page's own
+  // logic (tablesManager.saveManagedTable) in this PC's outlet, for the phone's user:
+  // the database checks their tables.manage and records them as the creator.
+  // 201 with the new table, the same object as GET /api/tables/{tableId}.
+  app.post('/api/tables', async (req, res) => {
+    let body;
+    try {
+      body = validateNewTable(req.body);
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof BadRemoteOrder ? err.message : 'Invalid request.' });
+    }
+    const userId = deviceUserId(res);
+    if (!userId) return res.status(403).json({ error: 'This device is not tied to a user. Pair it again.' });
+    try {
+      const table = await addTableForPhone(body, userId);
+      // The database keeps the permanent record (table_activity_log); this line is for the desktop log.
+      console.log(`[api] table added: "${table.tableNumber}" by user ${userId} from device "${deviceName(res)}"`);
+      res.status(201).json(table);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      if (/^Not allowed/.test(msg)) return res.status(403).json({ error: msg });
+      if (/Only the desktop app/.test(msg)) {
+        console.error('[api] add table refused by the database:', msg);
+        return res.status(403).json({ error: "The desktop's signed-in user may not add tables for a phone." });
+      }
+      if (/already exists/i.test(msg)) return res.status(409).json({ error: msg });
+      if (/is required|Capacity must|^Invalid/i.test(msg)) return res.status(400).json({ error: msg });
+      if (/No outlet is set/i.test(msg)) return res.status(503).json({ error: msg });
       tablesError(err, res);
     }
   });

@@ -19,6 +19,7 @@ import type {
   ProductMixReport,
   ChannelSalesReport,
   SalesReportExportPayload,
+  MenuExportPayload,
   ExportResult,
 } from './reportTypes';
 
@@ -946,6 +947,7 @@ export const IpcChannels = {
   GET_PRODUCT_MIX: 'get-product-mix',
   GET_SALES_BY_CHANNEL: 'get-sales-by-channel',
   EXPORT_SALES_REPORT: 'export-sales-report',
+  EXPORT_MENU_ITEMS: 'export-menu-items',
   LIST_USERS: 'list-users',
   LIST_OUTLETS: 'list-outlets',
   CREATE_USER: 'create-user',
@@ -1119,6 +1121,8 @@ export interface ElectronApi {
     bucket: ReportBucket,
   ): Promise<SalesByTypeBucketRow[]>;
   exportSalesReport(payload: SalesReportExportPayload): Promise<ExportResult>;
+  /** Save the Menu Items list as Excel or CSV (the operator picks the file and type). */
+  exportMenuItems(payload: MenuExportPayload): Promise<ExportResult>;
   /** Daily summary / Z-report; shift = optional time-of-day window. */
   getDailySummary(outletId: string, from: string, to: string, shift?: ShiftWindow | null): Promise<DailySummaryReport>;
   getSalesByHour(outletId: string, from: string, to: string): Promise<HourlySalesReport>;

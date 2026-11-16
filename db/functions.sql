@@ -35,6 +35,8 @@ set search_path = public
 as $$
 select to_jsonb(o)
   || jsonb_build_object('table_number', tbls.table_number)
+  -- table_floor: picks the floor's printers (Settings > Printers, docs/PRINTERS.md).
+  || jsonb_build_object('table_floor', tbls.floor)
   || jsonb_build_object('placed_by_name', wp.full_name)
   -- is_running_order: a dine-in order that is not the first round of its table, i.e. an earlier,
   -- not cancelled order exists on the same invoice (or, for an old order with no invoice number,
@@ -2759,6 +2761,9 @@ revoke all on function assert_order_items_valid(jsonb, uuid) from public, anon, 
 -- Inserts the lines of a new order, each stamped with the tax rate in force
 -- now for its menu item's category. total_price is recomputed here from
 -- quantity * unit_price; the client's figure is ignored.
+-- status: the code of the outlet's initial KOT step (kot_statuses.is_initial,
+-- at most one per outlet), read once per call; 'new' when the outlet has no
+-- initial step.
 create or replace function insert_order_items(p_order_id uuid, p_outlet_id uuid, p_items jsonb)
 returns void
 language sql
@@ -2766,7 +2771,7 @@ security definer
 set search_path = public
 as $$
   insert into order_items (order_id, menu_item_id, unit_price, total_price, quantity, tax_rate_percent, tax_name, price_includes_tax,
-                           incentive_type, incentive_value)
+                           incentive_type, incentive_value, status)
   select p_order_id,
          x.menu_item_id,
          x.unit_price,
@@ -2776,7 +2781,9 @@ as $$
          case when mi.tax_rate_percent is not null then mi.tax_name else tr.tax_name end,
          case when mi.tax_rate_percent is not null then mi.price_includes_tax else false end,
          case when coalesce(mi.incentive_applicable, false) then mi.incentive_type end,
-         case when coalesce(mi.incentive_applicable, false) then mi.incentive_value end
+         case when coalesce(mi.incentive_applicable, false) then mi.incentive_value end,
+         coalesce((select ks.code from kot_statuses ks
+                    where ks.outlet_id = p_outlet_id and ks.is_initial), 'new')
     from (select nullif(it->>'menu_item_id', '')::uuid as menu_item_id,
                  (it->>'unit_price')::numeric as unit_price,
                  (it->>'quantity')::int as quantity
@@ -3271,8 +3278,8 @@ grant execute on function delete_tax_rate(uuid) to authenticated;
 -- KOT BOARD (see the KOT BOARD section of db/schema.sql)
 -- ============================================================================
 
--- (record_kot existed only in an unreleased draft: new items already start as
--- 'new', and printing keeps using mark_kot_printed.)
+-- (record_kot existed only in an unreleased draft: new items already start at
+-- the outlet's initial step, and printing keeps using mark_kot_printed.)
 drop function if exists record_kot(uuid, uuid[]);
 drop function if exists move_kot(uuid, date, integer, uuid, uuid);
 drop function if exists move_kot(uuid, uuid, uuid);
@@ -3511,6 +3518,171 @@ end;
 $$;
 grant execute on function move_kot_as(uuid, uuid, uuid, uuid) to authenticated;
 
+-- add_table(outlet, number, floor, capacity, state, p_user): adds a table and records
+-- who added it (tables.created_by). Used by the Tables page (p_user null: the
+-- signed-in user adds it, needs tables.manage) and by a paired phone through the
+-- desktop (POST /api/tables: p_user = the phone's user, who needs tables.manage;
+-- the caller must hold users.manage, as for the other _as calls). The outlet must be
+-- the acting user's own. Same rules as the Tables page: trimmed number of 1 to 32
+-- characters, unique per outlet ignoring case, capacity > 0. The log row comes from the
+-- trigger log_table_change() below (table_activity_log). Returns the new id.
+create or replace function add_table(
+  p_outlet_id uuid,
+  p_table_number text,
+  p_floor text default null,
+  p_capacity integer default null,
+  p_state text default 'open',
+  p_user uuid default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_actor  uuid := coalesce(p_user, auth.uid());
+  v_outlet uuid;
+  v_number text := btrim(coalesce(p_table_number, ''));
+  v_floor  text := nullif(btrim(coalesce(p_floor, '')), '');
+  v_state  text := coalesce(p_state, 'open');
+  v_id     uuid;
+begin
+  if p_user is null then
+    if not has_permission('tables.manage') then
+      raise exception 'Not allowed to add tables';
+    end if;
+  else
+    if not has_permission('users.manage') then
+      raise exception 'Only the desktop app of this outlet can add tables for a phone';
+    end if;
+    if not user_has_permission(p_user, 'tables.manage') then
+      raise exception 'Not allowed to add tables';
+    end if;
+    -- The desktop and the phone's user must be in the same outlet.
+    if not exists (select 1 from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true)
+                     and p.outlet_id = p_outlet_id) then
+      raise exception 'Not allowed to add tables in this outlet';
+    end if;
+  end if;
+  select p.outlet_id into v_outlet from profiles p where p.user_id = v_actor and coalesce(p.is_active, true);
+  if v_outlet is null or v_outlet is distinct from p_outlet_id then
+    raise exception 'Not allowed to add tables in this outlet';
+  end if;
+  if v_number = '' then
+    raise exception 'Table number is required';
+  end if;
+  if length(v_number) > 32 then
+    raise exception 'Invalid table number: keep it to 32 characters';
+  end if;
+  if v_floor is not null and length(v_floor) > 64 then
+    raise exception 'Invalid floor: keep it to 64 characters';
+  end if;
+  if p_capacity is not null and p_capacity <= 0 then
+    raise exception 'Capacity must be a whole number greater than 0';
+  end if;
+  if v_state not in ('open', 'occupied', 'reserved', 'cleaning') then
+    raise exception 'Invalid status';
+  end if;
+  if exists (select 1 from tables t where t.outlet_id = p_outlet_id and lower(t.table_number) = lower(v_number)) then
+    raise exception 'Table "%" already exists in this outlet', v_number;
+  end if;
+  -- The trigger log_table_change() writes the table_activity_log row; tell it who this is for.
+  if p_user is not null then
+    perform set_config('app.table_actor', v_actor::text, true);
+    perform set_config('app.table_via', 'phone', true);
+    perform set_config('app.table_desktop_user', auth.uid()::text, true);
+  end if;
+  insert into tables (outlet_id, table_number, floor, capacity, state, created_by)
+  values (p_outlet_id, v_number, v_floor, p_capacity, v_state, v_actor)
+  returning id into v_id;
+  perform set_config('app.table_actor', '', true);
+  perform set_config('app.table_via', '', true);
+  perform set_config('app.table_desktop_user', '', true);
+  return v_id;
+exception
+  when unique_violation then
+    raise exception 'Table "%" already exists in this outlet', v_number;
+end;
+$$;
+revoke all on function add_table(uuid, text, text, integer, text, uuid) from public, anon;
+grant execute on function add_table(uuid, text, text, integer, text, uuid) to authenticated;
+
+-- log_table_change(): AFTER INSERT / UPDATE / DELETE trigger on tables. Every change to a
+-- table, whichever app version or function makes it, is written to table_activity_log:
+--   table.created         (details: number, floor, capacity, state)
+--   table.updated         (details.changes: field -> {from, to} for number, floor, capacity, state)
+--   table.status.changed  (only the state changed: details {from, to}; includes the automatic
+--                          flips when an order is placed, settled or cancelled)
+--   table.deleted         (details: the values it had)
+-- changed_by is the signed-in user, or the phone's user when add_table() set app.table_actor
+-- for the transaction (then via = 'phone' and details.desktopUser is the desktop's user).
+-- via is 'app' for everything else. Updates that change none of those four fields (the
+-- legacy status column, created_by) are not logged.
+create or replace function log_table_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_actor   uuid := coalesce(nullif(current_setting('app.table_actor', true), '')::uuid, auth.uid());
+  v_via     text := coalesce(nullif(current_setting('app.table_via', true), ''), 'app');
+  v_desktop text := nullif(current_setting('app.table_desktop_user', true), '');
+  v_name    text;
+  v_activity text;
+  v_details jsonb;
+  v_changes jsonb := '{}'::jsonb;
+  v_row     tables;
+begin
+  if tg_op = 'DELETE' then v_row := old; else v_row := new; end if;
+  if tg_op = 'INSERT' then
+    v_activity := 'table.created';
+    v_details := jsonb_build_object('tableNumber', new.table_number, 'floor', new.floor,
+                                    'capacity', new.capacity, 'state', new.state);
+  elsif tg_op = 'DELETE' then
+    v_activity := 'table.deleted';
+    v_details := jsonb_build_object('tableNumber', old.table_number, 'floor', old.floor,
+                                    'capacity', old.capacity, 'state', old.state);
+  else
+    if new.table_number is distinct from old.table_number then
+      v_changes := v_changes || jsonb_build_object('tableNumber', jsonb_build_object('from', old.table_number, 'to', new.table_number));
+    end if;
+    if new.floor is distinct from old.floor then
+      v_changes := v_changes || jsonb_build_object('floor', jsonb_build_object('from', old.floor, 'to', new.floor));
+    end if;
+    if new.capacity is distinct from old.capacity then
+      v_changes := v_changes || jsonb_build_object('capacity', jsonb_build_object('from', old.capacity, 'to', new.capacity));
+    end if;
+    if new.state is distinct from old.state then
+      v_changes := v_changes || jsonb_build_object('state', jsonb_build_object('from', old.state, 'to', new.state));
+    end if;
+    if v_changes = '{}'::jsonb then
+      return null;
+    end if;
+    if v_changes ? 'state' and (select count(*) from jsonb_object_keys(v_changes)) = 1 then
+      v_activity := 'table.status.changed';
+      v_details := jsonb_build_object('tableNumber', new.table_number, 'from', old.state, 'to', new.state);
+    else
+      v_activity := 'table.updated';
+      v_details := jsonb_build_object('tableNumber', new.table_number, 'changes', v_changes);
+    end if;
+  end if;
+  if v_via = 'phone' and v_desktop is not null then
+    v_details := v_details || jsonb_build_object('desktopUser', v_desktop);
+  end if;
+  select coalesce(nullif(btrim(coalesce(p.full_name, '')), ''), p.email) into v_name from profiles p where p.user_id = v_actor;
+  insert into table_activity_log (outlet_id, table_id, activity, changed_by, changed_by_name, via, details)
+  values (v_row.outlet_id, v_row.id, v_activity, v_actor, v_name, v_via, jsonb_strip_nulls(v_details));
+  return null;
+end;
+$$;
+revoke all on function log_table_change() from public, anon, authenticated;
+
+drop trigger if exists trg_log_table_change on tables;
+create trigger trg_log_table_change
+  after insert or update or delete on tables
+  for each row execute function log_table_change();
+
 -- move_kot_with_reason(order, to, from, reason): move_kot with a reason, used by the
 -- desktop KOT board when a card goes to a step with code 'cancelled' (the board asks
 -- why). The reason (1 to 200 characters) is saved in app_activity_log.reason and shows
@@ -3706,8 +3878,11 @@ begin
     v_ids := v_ids || v_id;
   end loop;
 
-  if (select code from kot_statuses where id = v_ids[1]) <> 'new' then
-    raise exception 'The first step must stay the "New" step: every new item starts there';
+  -- The first step is the initial one: insert_order_items gives every new
+  -- item its code. Any status value may start the workflow except cancelled
+  -- (served is already the last step).
+  if (select code from kot_statuses where id = v_ids[1]) = 'cancelled' then
+    raise exception 'The first step cannot be a cancelled step: every new item starts there';
   end if;
   if (select code from kot_statuses where id = v_ids[n]) <> 'served' then
     raise exception 'The last step must stay the "Served" step: it takes the card off the board';

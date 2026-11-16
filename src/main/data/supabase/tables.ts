@@ -37,6 +37,7 @@ function toRow(values: TableValues) {
     floor_area: values.floorArea,
     capacity: values.capacity,
     status: DB_STATE[values.status],
+    updated_by: values.updatedBy,
   };
 }
 
@@ -76,6 +77,7 @@ export const tables: TableRepository = {
         orderStatus: row.order_status ? String(row.order_status) : undefined,
         orderCreatedAt: row.order_created_at ? String(row.order_created_at) : undefined,
         orderTotalAmount: row.order_total_amount != null ? Number(row.order_total_amount) : undefined,
+        orderDiscountAmount: row.order_discount_amount != null ? Number(row.order_discount_amount) : undefined,
         cardStatus: deriveCardStatus(row.order_status ? String(row.order_status) : undefined),
         paymentRecorded: row.payment_recorded === true,
       };
@@ -125,9 +127,18 @@ export const tables: TableRepository = {
     }));
   },
 
-  async insert(outletId, values) {
-    const { error } = await getAuthedClient().from('tables').insert({ ...toRow(values), outlet_id: outletId });
+  // add_table checks the permission and outlet, and records created_by.
+  async insert(outletId, values, actingUserId) {
+    const { data, error } = await getAuthedClient().rpc('add_table', {
+      p_outlet_id: outletId,
+      p_table_number: values.tableNumber,
+      p_floor: values.floorArea,
+      p_capacity: values.capacity,
+      p_state: DB_STATE[values.status],
+      p_user: actingUserId ?? null,
+    });
     if (error) throw friendlyDbError(error, 'Failed to add table');
+    return String(data);
   },
 
   // RLS filters a row you may not touch out silently, so ask for the row back

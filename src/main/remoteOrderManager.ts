@@ -3,11 +3,11 @@ import { config } from './config';
 import { getMyAccess } from './accessManager';
 import { orderManager } from './orderManager';
 import { printQueue } from './printQueueManager';
-import { listManagedTables } from './tablesManager';
+import { listManagedTables, saveManagedTable } from './tablesManager';
 import { ApiMyOrder, DINE_IN_ORDER_TYPE, PRINT_KOT_ONLY, type ApiTable, type PhoneKotSettings, type RemoteOrderRequest, type RemoteOrderResult } from '../shared/types';
-import { BadRemoteOrder } from './remoteOrderValidation';
+import { BadRemoteOrder, NewTableRequest } from './remoteOrderValidation';
 
-export { BadRemoteOrder, validateRemoteOrder } from './remoteOrderValidation';
+export { BadRemoteOrder, validateNewTable, validateRemoteOrder } from './remoteOrderValidation';
 
 /**
  * remoteOrderManager.ts: what phones may do through the desktop app.
@@ -60,6 +60,24 @@ export async function getTablesForPhones(): Promise<ApiTable[]> {
       });
   }
   return tablesInflight;
+}
+
+/**
+ * Adds a table for the phone's user (POST /api/tables) through the Tables page's
+ * own save (saveManagedTable), passing the phone's user id: the database checks
+ * that user's tables.manage and outlet, and records them as the creator. Returns
+ * the table as GET /api/tables/{tableId} would.
+ */
+export async function addTableForPhone(req: NewTableRequest, userId: string): Promise<ApiTable> {
+  if (!userId) throw new BadRemoteOrder('This device is not tied to a user. Pair it again.');
+  const tableId = await saveManagedTable(
+    { tableNumber: req.tableNumber, floor: req.floor ?? '', capacity: req.capacity, status: 'available' },
+    userId,
+  );
+  tablesCache = null; // a new table
+  const table = (await getTablesForPhones()).find((t) => t.tableId === tableId);
+  if (!table) throw new Error('The table was saved but could not be read back.');
+  return table;
 }
 
 /** The unsettled orders this waiter placed. Not cached: the phone wants them live. */

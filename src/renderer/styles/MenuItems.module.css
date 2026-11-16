@@ -98,42 +98,45 @@
   margin-bottom: 16px;
 }
 
-.inactiveRow {
+/* Off rows fade, except the status cell so the Available / Off choice stays readable. */
+.inactiveRow td:not(.statusCell) {
   opacity: 0.5;
 }
 
-.statusToggle {
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 700;
-  border: none;
-  cursor: pointer;
+/* Two-way Available / Off choice: both words always shown, the current one filled.
+   Available uses the brand colour; Off is a fixed red (status colour). */
+.statusCell { white-space: nowrap; }
+
+.statusChoice {
+  display: inline-flex;
+  border: 1px solid #d9dce1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.statusChoice > button,
+.statusChoice > span {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
   min-width: 44px;
+  border: none;
+  background: #fff;
+  color: #777;
+  cursor: pointer;
 }
 
-.statusToggle:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
+.statusChoice > * + * { border-left: 1px solid #d9dce1; }
 
-.statusOn {
-  background: #dcfce7;
-  color: #15803d;
-}
+.statusChoice > button:hover:not(:disabled):not(.choiceOn):not(.choiceOff) { background: #f3f4f6; color: #333; }
+.statusChoice > button:disabled { cursor: not-allowed; opacity: 0.7; }
 
-.statusOn:hover:not(:disabled) {
-  background: #bbf7d0;
-}
+.statusChoice .choiceOn { background: var(--brand); color: var(--on-brand, #fff); cursor: default; }
+.statusChoice .choiceOff { background: #dc2626; color: #fff; cursor: default; }
 
-.statusOff {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-.statusOff:hover:not(:disabled) {
-  background: #fecaca;
-}
+.statusChoiceReadOnly > span { cursor: default; }
 
 .groupRow td {
   background: #f6f7f9;

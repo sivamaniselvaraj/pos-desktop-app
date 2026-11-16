@@ -4753,3 +4753,150 @@ end;
 $$;
 revoke all on function get_voids_discounts(uuid, date, date) from public;
 grant execute on function get_voids_discounts(uuid, date, date) to authenticated;
+
+
+-- add_table(outlet, number, floor, capacity, state, p_user): adds a table and records
+-- who added it (tables.created_by). Used by the Tables page (p_user null: the
+-- signed-in user adds it, needs tables.manage) and by a paired phone through the
+-- desktop (POST /api/tables: p_user = the phone's user, who needs tables.manage;
+-- the caller must hold users.manage, as for the other _as calls). The outlet must be
+-- the acting user's own. Same rules as the Tables page: trimmed number of 1 to 32
+-- characters, unique per outlet ignoring case, capacity > 0. The log row comes from the
+-- trigger log_table_change() below (table_activity_log). Returns the new id.
+create or replace function add_table(
+  p_outlet_id uuid,
+  p_table_number text,
+  p_floor text default null,
+  p_capacity integer default null,
+  p_state text default 'open',
+  p_user uuid default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_actor  uuid := coalesce(p_user, auth.uid());
+  v_outlet uuid;
+  v_number text := btrim(coalesce(p_table_number, ''));
+  v_floor  text := nullif(btrim(coalesce(p_floor, '')), '');
+  v_state  text := coalesce(p_state, 'open');
+  v_id     uuid;
+begin
+  if p_user is null then
+    if not has_permission('tables.manage') then
+      raise exception 'Not allowed to add tables';
+    end if;
+  else
+    -- The desktop and the phone's user must be in the same outlet.
+    if not exists (select 1 from profiles p where p.user_id = p_user and coalesce(p.is_active, true)
+                     and p.outlet_id = p_outlet_id) then
+      raise exception 'Not allowed to add tables in this outlet';
+    end if;
+  end if;
+  select p.outlet_id into v_outlet from profiles p where p.user_id = v_actor and coalesce(p.is_active, true);
+  if v_outlet is null or v_outlet is distinct from p_outlet_id then
+    raise exception 'Not allowed to add tables in this outlet';
+  end if;
+  if v_number = '' then
+    raise exception 'Table number is required';
+  end if;
+  if length(v_number) > 32 then
+    raise exception 'Invalid table number: keep it to 32 characters';
+  end if;
+  if v_floor is not null and length(v_floor) > 64 then
+    raise exception 'Invalid floor: keep it to 64 characters';
+  end if;
+  if p_capacity is not null and p_capacity <= 0 then
+    raise exception 'Capacity must be a whole number greater than 0';
+  end if;
+  -- if v_state not in ('available', 'occupied', 'reserved', 'cleaning') then
+  --   raise exception 'Invalid status';
+  -- end if;
+  if exists (select 1 from tables t where t.outlet_id = p_outlet_id and lower(t.table_number) = lower(v_number)) then
+    raise exception 'Table "%" already exists in this outlet', v_number;
+  end if;
+
+  insert into tables (outlet_id, table_number, floor, capacity, status, created_by)
+  values (p_outlet_id, v_number, v_floor, p_capacity, v_state, v_actor)
+  returning id into v_id;
+  return v_id;
+exception
+  when unique_violation then
+    raise exception 'Table "%" already exists in this outlet', v_number;
+end;
+$$;
+revoke all on function add_table(uuid, text, text, integer, text, uuid) from public, anon;
+grant execute on function add_table(uuid, text, text, integer, text, uuid) to authenticated;
+
+-- -- log_table_change(): AFTER INSERT / UPDATE / DELETE trigger on tables. Every change to a
+-- -- table, whichever app version or function makes it, is written to table_activity_log:
+-- --   table.created         (details: number, floor, capacity, state)
+-- --   table.updated         (details.changes: field -> {from, to} for number, floor, capacity, state)
+-- --   table.status.changed  (only the state changed: details {from, to}; includes the automatic
+-- --                          flips when an order is placed, settled or cancelled)
+-- --   table.deleted         (details: the values it had)
+-- -- changed_by is the signed-in user, or the phone's user when add_table() set app.table_actor
+-- -- for the transaction (then via = 'phone' and details.desktopUser is the desktop's user).
+-- -- via is 'app' for everything else. Updates that change none of those four fields (the
+-- -- legacy status column, created_by) are not logged.
+-- create or replace function log_table_change()
+-- returns trigger
+-- language plpgsql
+-- security definer
+-- set search_path = public
+-- as $$
+-- declare
+--   v_actor   uuid := coalesce(nullif(current_setting('app.table_actor', true), '')::uuid, auth.uid());
+--   v_via     text := coalesce(nullif(current_setting('app.table_via', true), ''), 'app');
+--   v_desktop text := nullif(current_setting('app.table_desktop_user', true), '');
+--   v_name    text;
+--   v_activity text;
+--   v_details jsonb;
+--   v_changes jsonb := '{}'::jsonb;
+--   v_row     tables;
+-- begin
+--   if tg_op = 'DELETE' then v_row := old; else v_row := new; end if;
+--   if tg_op = 'INSERT' then
+--     v_activity := 'table.created';
+--     v_details := jsonb_build_object('tableNumber', new.table_number, 'floor', new.floor,
+--                                     'capacity', new.capacity, 'state', new.state);
+--   elsif tg_op = 'DELETE' then
+--     v_activity := 'table.deleted';
+--     v_details := jsonb_build_object('tableNumber', old.table_number, 'floor', old.floor,
+--                                     'capacity', old.capacity, 'state', old.state);
+--   else
+--     if new.table_number is distinct from old.table_number then
+--       v_changes := v_changes || jsonb_build_object('tableNumber', jsonb_build_object('from', old.table_number, 'to', new.table_number));
+--     end if;
+--     if new.floor is distinct from old.floor then
+--       v_changes := v_changes || jsonb_build_object('floor', jsonb_build_object('from', old.floor, 'to', new.floor));
+--     end if;
+--     if new.capacity is distinct from old.capacity then
+--       v_changes := v_changes || jsonb_build_object('capacity', jsonb_build_object('from', old.capacity, 'to', new.capacity));
+--     end if;
+--     if new.state is distinct from old.state then
+--       v_changes := v_changes || jsonb_build_object('state', jsonb_build_object('from', old.state, 'to', new.state));
+--     end if;
+--     if v_changes = '{}'::jsonb then
+--       return null;
+--     end if;
+--     if v_changes ? 'state' and (select count(*) from jsonb_object_keys(v_changes)) = 1 then
+--       v_activity := 'table.status.changed';
+--       v_details := jsonb_build_object('tableNumber', new.table_number, 'from', old.state, 'to', new.state);
+--     else
+--       v_activity := 'table.updated';
+--       v_details := jsonb_build_object('tableNumber', new.table_number, 'changes', v_changes);
+--     end if;
+--   end if;
+--   if v_via = 'phone' and v_desktop is not null then
+--     v_details := v_details || jsonb_build_object('desktopUser', v_desktop);
+--   end if;
+--   select coalesce(nullif(btrim(coalesce(p.full_name, '')), ''), p.email) into v_name from profiles p where p.user_id = v_actor;
+--   insert into table_activity_log (outlet_id, table_id, activity, changed_by, changed_by_name, via, details)
+--   values (v_row.outlet_id, v_row.id, v_activity, v_actor, v_name, v_via, jsonb_strip_nulls(v_details));
+--   return null;
+-- end;
+-- $$;
+-- revoke all on function log_table_change() from public, anon, authenticated;
