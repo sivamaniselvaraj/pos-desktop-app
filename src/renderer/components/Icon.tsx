@@ -32,6 +32,7 @@ type IconName =
   | 'table'
   | 'download'
   | 'taxIcon'
+  | 'kdsIcon'
   | 'kotIcon';
 
 interface IconProps {
@@ -361,6 +362,11 @@ const paths: Record<IconName, ReactElement> = {
   taxIcon: (
     <>
       <text x="0" y="15" stroke="currentColor" strokeWidth="1" fill="currentColor" fontSize="13">TAX</text>
+    </>
+  ),
+  kdsIcon:(
+    <>
+      <text x="0" y="15" stroke="currentColor" strokeWidth="1" fill="currentColor" fontSize="12">KDS</text>
     </>
   ),
   kotIcon:(
