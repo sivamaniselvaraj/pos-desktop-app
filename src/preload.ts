@@ -218,9 +218,11 @@ const api: ElectronApi = {
   getUnprintedKots: () => ipcRenderer.invoke(IpcChannels.GET_UNPRINTED_KOTS) as Promise<UnprintedKot[]>,
   printKotNow: (orderId: string) =>
     ipcRenderer.invoke(IpcChannels.PRINT_KOT_NOW, orderId) as Promise<string>,
-  getKotBoard: (user_id: string) => ipcRenderer.invoke(IpcChannels.GET_KOT_BOARD, user_id) as Promise<KotBoard>,
-  moveKot: (orderId: string, toStatusId: string, fromStatusId: string, user_id: string) =>
-    ipcRenderer.invoke(IpcChannels.MOVE_KOT, orderId, toStatusId, fromStatusId, user_id) as Promise<void>,
+  getKotBoard: (userId: string) => ipcRenderer.invoke(IpcChannels.GET_KOT_BOARD, userId) as Promise<KotBoard>,
+  moveKot: (orderId: string, toStatusId: string, fromStatusId: string, userId: string) =>
+    ipcRenderer.invoke(IpcChannels.MOVE_KOT, orderId, toStatusId, fromStatusId, userId) as Promise<void>,
+  moveKotItems: (orderId: string, itemIds: string[], toStatusId: string, fromStatusId: string, userId: string) =>
+      ipcRenderer.invoke(IpcChannels.MOVE_KOT_ITEMS, orderId, itemIds, toStatusId, fromStatusId, userId) as Promise<void>,
   getKotWorkflow: () => ipcRenderer.invoke(IpcChannels.GET_KOT_WORKFLOW) as Promise<KotWorkflow>,
   saveKotWorkflow: (workflow: KotWorkflow) =>
     ipcRenderer.invoke(IpcChannels.SAVE_KOT_WORKFLOW, workflow) as Promise<void>,

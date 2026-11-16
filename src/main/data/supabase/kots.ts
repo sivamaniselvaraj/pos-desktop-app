@@ -35,12 +35,18 @@ function mapBoard(data: unknown): KotBoard {
         tableNumber: strOrNull(k.table_number),
         customerName: strOrNull(k.customer_name),
         notes: strOrNull(k.notes),
+        floor: strOrNull(k.floor),
+        kotNo: Number(k.kot_no ?? 1) || 1,
+        kotCount: Number(k.kot_count ?? 1) || 1,
         items: list(k.items).map((i) => ({
           id: str(i.id),
           name: str(i.name),
           quantity: Number(i.quantity ?? 1),
           note: strOrNull(i.note),
           isDeleted: Boolean(i.is_deleted),
+          // An older database sends no per-dish step: the dish is in the card's step.
+          statusId: i.status_id === undefined ? str(k.status_id) : strOrNull(i.status_id),
+          statusCode: str(i.status_code),
         })),
       })),
     };
@@ -55,8 +61,19 @@ export const kots: KotRepository = {
 
   async move(orderId, toStatusId, fromStatusId, userId) {
     const { error } = await getAuthedClient().rpc('move_kot', {
-      p_actor: userId,
+      p_user: userId,
       p_order_id: orderId,
+      p_to_status: toStatusId,
+      p_from_status: fromStatusId,
+    });
+    if (error) throw new Error(error.message);
+  },
+
+   async moveItems(orderId, itemIds, toStatusId, fromStatusId, userId) {
+    const { error } = await getAuthedClient().rpc('move_kot_items', {
+      p_user: userId,
+      p_order_id: orderId,
+      p_item_ids: itemIds,
       p_to_status: toStatusId,
       p_from_status: fromStatusId,
     });

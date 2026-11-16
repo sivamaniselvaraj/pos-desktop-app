@@ -372,6 +372,9 @@ export interface KotRepository {
   getBoard(userId: string): Promise<KotBoard>;
   /** The board for a paired kitchen screen, acting as that device's user (get_kot_board_as). */
   move(orderId: string, toStatusId: string, fromStatusId: string, userId: string): Promise<void>;
+
+  /** Moves only these dishes of the order (move_kot_items). */
+  moveItems(orderId: string, itemIds: string[], toStatusId: string, fromStatusId: string, userId: string): Promise<void>;
   getWorkflow(): Promise<KotWorkflow>;
   saveWorkflow(workflow: KotWorkflow): Promise<void>;
 }

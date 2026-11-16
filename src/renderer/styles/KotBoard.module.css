@@ -36,3 +36,38 @@
 .next { height: 44px; flex: 1; border: none; background: #27ae60; color: #fff; border-radius: 2px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; }
 .next:disabled, .back:disabled { opacity: 0.6; cursor: wait; }
 .error { background: #fadbd8; color: #c0392b; padding: 10px 14px; font-size: 13px; }
+
+/* KDS board (2026-11-16): floor chips, per-dish controls, progress, back picker. */
+.floors { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.floorLbl { font-size: 12px; font-weight: 700; color: #5b6576; text-transform: uppercase; letter-spacing: 0.05em; margin-right: 4px; }
+.fchip, .fchipOn { height: 34px; padding: 0 14px; font-size: 13px; font-weight: 600; border: 1px solid #bdc3c7; background: #fff; color: #2c3e50; border-radius: 2px; cursor: pointer; font-family: inherit; }
+.fchipOn { background: #2c3e50; color: #fff; border-color: #2c3e50; }
+.colDot { width: 10px; height: 10px; display: inline-block; flex-shrink: 0; }
+.prog { display: flex; align-items: center; gap: 8px; padding: 0 14px 10px; font-size: 12px; font-weight: 700; }
+.segs { display: flex; gap: 3px; flex: 1; }
+.segs i { height: 6px; flex: 1; background: currentColor; opacity: 0.3; }
+.segs i.segDone { opacity: 1; }
+.item { align-items: center; min-height: 52px; }
+.itemText { flex: 1; min-width: 0; }
+.tap { cursor: pointer; user-select: none; touch-action: manipulation; }
+.tap:hover { background: #f7f9fb; }
+.tap:focus-visible { outline: 3px solid var(--brand); outline-offset: -3px; }
+.itemBusy { opacity: 0.55; pointer-events: none; }
+.ahead { background: #f3fbf7; }
+.go { font-size: 12px; font-weight: 700; padding: 0 12px; height: 36px; display: inline-flex; align-items: center; border: 2px solid currentColor; background: #fff; white-space: nowrap; border-radius: 2px; flex-shrink: 0; }
+.pill { font-size: 12px; font-weight: 700; padding: 0 10px; height: 30px; display: inline-flex; align-items: center; white-space: nowrap; border-radius: 2px; flex-shrink: 0; }
+.pillOff { font-size: 12px; font-weight: 700; padding: 0 10px; height: 30px; display: inline-flex; align-items: center; color: #7f8c8d; border: 1px dashed #95a5a6; border-radius: 2px; flex-shrink: 0; }
+.flash { background: #10b981; color: #fff; text-align: center; font-weight: 700; font-size: 15px; padding: 12px; }
+.moreWrap { position: relative; }
+.more { width: 48px; height: 44px; border: none; background: #bdc3c7; color: #2c3e50; border-radius: 2px; font-size: 20px; font-weight: 700; cursor: pointer; font-family: inherit; }
+.more:disabled { opacity: 0.6; cursor: wait; }
+.menu { position: absolute; bottom: 50px; left: 0; z-index: 5; background: #fff; border: 1px solid #bdc3c7; box-shadow: 0 6px 18px rgba(0,0,0,0.18); min-width: 220px; display: flex; flex-direction: column; }
+.menu button { height: 48px; border: none; border-bottom: 1px solid #eef1f5; background: #fff; text-align: left; padding: 0 14px; font-size: 14px; font-weight: 600; color: #2c3e50; display: flex; align-items: center; gap: 10px; cursor: pointer; font-family: inherit; }
+.menu button:last-child { border-bottom: none; }
+.picker { display: flex; flex-direction: column; }
+.pickHead { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #5b6576; padding: 10px 14px 6px; background: #fafbfc; border-bottom: 1px solid #eef1f5; }
+.pickRow { display: flex; align-items: center; gap: 10px; padding: 0 14px; min-height: 52px; border-bottom: 1px solid #eef1f5; cursor: pointer; }
+.pickRow input { width: 22px; height: 22px; accent-color: var(--brand); flex-shrink: 0; }
+.pickName { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; display: flex; flex-direction: column; }
+.pickName small { font-size: 12px; font-weight: 400; color: #5b6576; }
+.pickOff { opacity: 0.5; cursor: default; }

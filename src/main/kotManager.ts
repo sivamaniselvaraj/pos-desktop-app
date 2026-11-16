@@ -4,7 +4,7 @@ import { printQueue } from './printQueueManager';
 import { PRINT_KOT_ONLY, type KotBoard, type KotWorkflow, type UnprintedKot } from '../shared/types';
 
 /**
- * kotManager.ts: the KOT board and its workflow settings. Who may view / move /
+ * kotManager.ts: the KDS board (was the KOT board) and its workflow settings. Who may view / move /
  * configure is enforced in the database (kot.view, kot.move, kot.manage);
  * checks here only give friendlier messages.
  */
@@ -16,6 +16,20 @@ export function getKotBoard(userId:string): Promise<KotBoard> {
 export function moveKot(orderId: string, toStatusId: string, fromStatusId: string, userId:string): Promise<void> {
   if (!orderId || !toStatusId || !fromStatusId) throw new Error('Choose the order and the step to move it to.');
   return db.kots.move(orderId, toStatusId, fromStatusId, userId);
+}
+function checkItemMove(orderId: string, itemIds: string[], toStatusId: string, fromStatusId: string): string[] {
+  if (!orderId || !toStatusId || !fromStatusId) throw new Error('Choose the order and the step to move it to.');
+  const ids = [...new Set(Array.isArray(itemIds) ? itemIds : [])].filter((id) => typeof id === 'string' && id);
+  if (ids.length === 0) throw new Error('Choose the dishes to move.');
+  if (ids.length > 200) throw new Error('Too many dishes in one move.');
+  return ids;
+}
+
+
+/** KDS board: move only these dishes of the order. The order's card moves when all its live dishes have moved. */
+export function moveKotItems(orderId: string, itemIds: string[], toStatusId: string, fromStatusId: string, userId:string): Promise<void> {
+  const ids = checkItemMove(orderId, itemIds, toStatusId, fromStatusId);
+  return db.kots.moveItems(orderId, ids, toStatusId, fromStatusId, userId);
 }
 
 export function getKotWorkflow(): Promise<KotWorkflow> {

@@ -2297,25 +2297,15 @@ grant execute on function assert_can_create_user(uuid, text) to authenticated;
 -- A card = the items of one OPEN order that have the same order_items.status
 -- (hidden / final steps, and orders that are cancelled or already billed, are
 -- left out), with ALL its items. Needs kot.view.
-create or replace function get_kot_board(p_user_id uuid)
+
+create or replace function kot_board_for(v_outlet uuid)
 returns jsonb
 language plpgsql
 stable
 security definer
 set search_path = public
 as $$
-declare
-  v_outlet uuid;
 begin
-   if not user_has_permission(p_user_id, 'kot.view') then
-    raise exception 'Not allowed to see the KOT board';
-  end if;
-  select p.outlet_id into v_outlet
-    from profiles p where p.user_id = p_user_id and coalesce(p.is_active, true);
-  if v_outlet is null then
-    raise exception 'Your account has no outlet';
-  end if;
-
   return jsonb_build_object(
     'now', now(),
     'statuses', (
@@ -2337,31 +2327,85 @@ begin
     'kots', (
       select coalesce(jsonb_agg(g.card order by g.created_at), '[]'::jsonb)
         from (
-          select coalesce(min(oi.created_at), min(oi.kot_printed_at), now()) as created_at,
+          select c.created_at,
                  jsonb_build_object(
-                   'status_id', s.id,
-                   'created_at', coalesce(min(oi.created_at), min(oi.kot_printed_at), now()),
+                   'status_id', c.status_id,
+                   'created_at', c.created_at,
                    'order_id', o.id,
                    'order_number', o.order_number, 'order_type', o.order_type,
-                   'table_number', t.table_number, 'customer_name', o.customer_name,
+                   'table_number', t.table_number,
+                   'floor', nullif(btrim(coalesce(t.floor_area, '')), ''),
+                   'customer_name', o.customer_name,
                    'notes', o.notes,
-                   'items', jsonb_agg(jsonb_build_object(
+                   'kot_no', 1 + (select count(*) from orders e
+                                   where o.order_type = 'dine-in' and e.outlet_id = o.outlet_id
+                                     and e.id <> o.id and e.status <> 'cancelled'
+                                     and e.order_number < o.order_number
+                                     and ((o.invoice_number is not null and e.invoice_number = o.invoice_number)
+                                          or (o.invoice_number is null and o.table_id is not null
+                                              and e.table_id = o.table_id
+                                              and e.status not in ('cancelled', 'completed')))),
+                   'kot_count', 1 + (select count(*) from orders e
+                                      where o.order_type = 'dine-in' and e.outlet_id = o.outlet_id
+                                        and e.id <> o.id and e.status <> 'cancelled'
+                                        and ((o.invoice_number is not null and e.invoice_number = o.invoice_number)
+                                             or (o.invoice_number is null and o.table_id is not null
+                                                 and e.table_id = o.table_id
+                                                 and e.status not in ('cancelled', 'completed')))),
+                   'items', (
+                     select coalesce(jsonb_agg(jsonb_build_object(
                               'id', oi.id, 'name', coalesce(mi.name, 'Item'), 'quantity', oi.quantity,
-                              'note', oi.notes, 'is_deleted', oi.is_deleted)
-                              order by oi.created_at nulls last, oi.id)
+                              'note', oi.notes, 'is_deleted', coalesce(oi.is_deleted, false),
+                              'status_id', ks.id, 'status_code', oi.status)
+                              order by oi.created_at nulls last, oi.id), '[]'::jsonb)
+                       from order_items oi
+                       left join menu_items mi on mi.id = oi.menu_item_id
+                       left join kot_statuses ks on ks.outlet_id = v_outlet and ks.code = oi.status
+                      where oi.order_id = o.id)
                  ) as card
-            from order_items oi
-            join orders o on o.id = oi.order_id
-            join kot_statuses s on s.outlet_id = o.outlet_id and s.code = oi.status
-            left join menu_items mi on mi.id = oi.menu_item_id
+            from (
+              -- The card's step: the least advanced live dish among the steps on the board.
+              select oi.order_id,
+                     coalesce(min(oi.created_at), min(oi.kot_printed_at), now()) as created_at,
+                     (array_agg(s.id order by s.sort_order))[1] as status_id
+                from order_items oi
+                join orders o2 on o2.id = oi.order_id
+                join kot_statuses s on s.outlet_id = o2.outlet_id and s.code = oi.status
+               where o2.outlet_id = v_outlet
+                 and o2.status not in ('cancelled', 'completed')
+                 and not coalesce(oi.is_deleted, false)
+                 and oi.status <> 'cancelled'
+                 and s.show_on_board and not s.is_final
+               group by oi.order_id
+            ) c
+            join orders o on o.id = c.order_id
             left join tables t on t.id = o.table_id
-           where o.outlet_id = v_outlet
-             and s.show_on_board and not s.is_final
-             and o.status not in ('cancelled', 'completed')
-           group by o.id, o.order_number, o.order_type, t.table_number, o.customer_name,
-                    o.notes, s.id
         ) g)
   );
+end;
+$$;
+revoke all on function kot_board_for(uuid) from public, anon, authenticated;
+
+create or replace function get_kot_board(p_user_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+begin
+   if not user_has_permission(p_user_id, 'kot.view') then
+    raise exception 'Not allowed to see the KOT board';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = p_user_id and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+
+  return kot_board_for(v_outlet);
 end;
 $$;
 grant execute on function get_kot_board(uuid) to authenticated;
@@ -2373,23 +2417,21 @@ grant execute on function get_kot_board(uuid) to authenticated;
 -- changed_at = now(), order_details {status-from, status-to}. Needs kot.move;
 -- the order must belong to the caller's outlet. If nothing is in `from` any
 -- more (someone else just moved it) it fails with a clear message.
-create or replace function move_kot(p_order_id uuid, p_to_status uuid, p_from_status uuid, p_actor uuid)
+
+drop function if exists kot_move_for(uuid, uuid, uuid, uuid, uuid);
+create or replace function kot_move_for(p_actor uuid, v_outlet uuid, p_order_id uuid, p_to_status uuid, p_from_status uuid,
+                                        p_reason text default null)
 returns void
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  v_outlet uuid;
   v_from   text;
   v_to     text;
+  v_items  jsonb;
+  v_details jsonb;
 begin
-   if not user_has_permission(p_actor, 'kot.move') then
-    raise exception 'Not allowed to move KOTs';
-  end if;
-  select p.outlet_id into v_outlet
-    from profiles p where p.user_id = p_actor and coalesce(p.is_active, true);
-
   select code into v_from from kot_statuses where id = p_from_status and outlet_id = v_outlet;
   select code into v_to   from kot_statuses where id = p_to_status   and outlet_id = v_outlet;
   if v_from is null or v_to is null then
@@ -2408,16 +2450,150 @@ begin
     raise exception 'That move is not allowed';
   end if;
 
+  v_details := jsonb_build_object('status-from', v_from, 'status-to', v_to);
+  if v_to = 'cancelled' then
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'id', oi.id, 'name', coalesce(mi.name, 'Item'), 'quantity', oi.quantity,
+             'unit_price', oi.unit_price, 'total_price', oi.total_price) order by oi.created_at), '[]'::jsonb)
+      into v_items
+      from order_items oi left join menu_items mi on mi.id = oi.menu_item_id
+     where oi.order_id = p_order_id and oi.status = v_from and not coalesce(oi.is_deleted, false);
+    v_details := v_details || jsonb_build_object('items', v_items);
+  end if;
+
   update order_items set status = v_to where order_id = p_order_id and status = v_from;
 
   insert into app_activity_log
     (order_id, changed_by, changed_at, created_at, order_details, reason, activity)
-  values (p_order_id, p_actor, now(), now(),
-          jsonb_build_object('status-from', v_from, 'status-to', v_to)::json,
-          v_from || ' to ' || v_to, 'order.item.status.updated');
+  values (p_order_id, p_actor, now(), now(), v_details::json,
+          coalesce(nullif(btrim(coalesce(p_reason, '')), ''), v_from || ' to ' || v_to),
+          'order.item.status.updated');
+end;
+$$;
+revoke all on function kot_move_for(uuid, uuid, uuid, uuid, uuid, text) from public, anon, authenticated;
+
+create or replace function move_kot(p_user uuid, p_order_id uuid, p_to_status uuid, p_from_status uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_mine   uuid;
+begin
+  if not user_has_permission(p_user, 'kot.move') then
+    raise exception 'Not allowed to move KOTs';
+  end if;
+  select p.outlet_id into v_outlet from profiles p where p.user_id = p_user and coalesce(p.is_active, true);
+  select p.outlet_id into v_mine   from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null or v_outlet is distinct from v_mine then
+    raise exception 'Your account has no outlet';
+  end if;
+  perform kot_move_for(p_user, v_outlet, p_order_id, p_to_status, p_from_status);
 end;
 $$;
 grant execute on function move_kot(uuid, uuid, uuid, uuid) to authenticated;
+
+-- kot_move_items_for(actor, outlet, order, items, to, from): moves the chosen dishes
+-- of one order from step `from` to step `to` along ONE allowed transition. Every
+-- chosen dish must still be in `from` (else "just changed on another screen").
+-- Never to a 'cancelled' step: cancelling is done on the Orders list. Writes ONE
+-- app_activity_log row: activity 'order.item.status.updated', order_details
+-- {status-from, status-to, items: [{id, name, quantity}]}. Internal helper.
+create or replace function kot_move_items_for(p_actor uuid, v_outlet uuid, p_order_id uuid, p_item_ids uuid[],
+                                              p_to_status uuid, p_from_status uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_from  text;
+  v_to    text;
+  v_ids   uuid[];
+  v_found int;
+  v_items jsonb;
+begin
+  if not user_has_permission(p_actor, 'kot.move') then
+    raise exception 'Not allowed to move KOTs';
+  end if;
+  select code into v_from from kot_statuses where id = p_from_status and outlet_id = v_outlet;
+  select code into v_to   from kot_statuses where id = p_to_status   and outlet_id = v_outlet;
+  if v_from is null or v_to is null then
+    raise exception 'Unknown step';
+  end if;
+  if v_to = 'cancelled' then
+    raise exception 'Dishes are cancelled on the Orders list, not on the KDS board';
+  end if;
+  v_ids := array(select distinct x from unnest(coalesce(p_item_ids, '{}'::uuid[])) x where x is not null);
+  if cardinality(v_ids) = 0 then
+    raise exception 'Choose the dishes to move';
+  end if;
+  if not exists (select 1 from kot_transitions t where t.from_status = p_from_status and t.to_status = p_to_status) then
+    raise exception 'That move is not allowed';
+  end if;
+
+  -- Lock the order's dishes so two screens cannot move the same dish at once.
+  perform 1
+    from order_items oi join orders o on o.id = oi.order_id
+   where oi.order_id = p_order_id and o.outlet_id = v_outlet
+     and o.status not in ('cancelled', 'completed')
+     for update of oi;
+  if not found then
+    raise exception 'Order not found';
+  end if;
+
+  select count(*) into v_found
+    from order_items oi
+   where oi.id = any(v_ids) and oi.order_id = p_order_id
+     and oi.status = v_from and not coalesce(oi.is_deleted, false);
+  if v_found <> cardinality(v_ids) then
+    raise exception 'This dish was just changed on another screen. Refresh the board.';
+  end if;
+
+  select coalesce(jsonb_agg(jsonb_build_object('id', oi.id, 'name', coalesce(mi.name, 'Item'),
+                                               'quantity', oi.quantity) order by oi.created_at, oi.id), '[]'::jsonb)
+    into v_items
+    from order_items oi left join menu_items mi on mi.id = oi.menu_item_id
+   where oi.id = any(v_ids);
+
+  update order_items set status = v_to where id = any(v_ids);
+
+  insert into app_activity_log
+    (order_id, changed_by, changed_at, created_at, order_details, reason, activity)
+  values (p_order_id, p_actor, now(), now(),
+          jsonb_build_object('status-from', v_from, 'status-to', v_to, 'items', v_items)::json,
+          v_from || ' to ' || v_to, 'order.item.status.updated');
+end;
+$$;
+revoke all on function kot_move_items_for(uuid, uuid, uuid, uuid[], uuid, uuid) from public, anon, authenticated;
+
+-- move_kot_items_as(p_user, ...): the same move for a paired kitchen screen. The desktop
+-- app (users.manage) calls it; the DEVICE'S USER needs kot.move and is recorded in the
+-- activity log. Same-outlet only.
+create or replace function move_kot_items(p_user uuid, p_order_id uuid, p_item_ids uuid[], p_to_status uuid, p_from_status uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_mine   uuid;
+begin
+  if not user_has_permission(p_user, 'kot.move') then
+    raise exception 'Not allowed to move KOTs';
+  end if;
+  select p.outlet_id into v_outlet from profiles p where p.user_id = p_user and coalesce(p.is_active, true);
+  select p.outlet_id into v_mine   from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null or v_outlet is distinct from v_mine then
+    raise exception 'Your account has no outlet';
+  end if;
+  perform kot_move_items_for(p_user, v_outlet, p_order_id, p_item_ids, p_to_status, p_from_status);
+end;
+$$;
+grant execute on function move_kot_items(uuid, uuid, uuid[], uuid, uuid) to authenticated;
 
 -- get_kot_workflow(): the settings view. Steps in order with their button
 -- label, flags, how many KOTs sit in each, and "back_to" as the 1-based

@@ -116,7 +116,9 @@ export interface FoodOrder {
   specialNotes?: string;
   createdAt: string;
   tableNumber?: string | number;
-  /** 'open' | 'completed' | 'cancelled' — used e.g. to decide the DUPLICATE BILL banner on reprint. */
+  /** Floor of the order's table ('' or null = none). undefined = the database did not say (db/migrations/order_table_floor.sql not run yet). Picks the floor's printers. */
+  tableFloor?: string | null;
+  /** 'open' | 'completed' | 'cancelled'. */
   status?: string;
   /** orders.is_printed: the bill has printed at least once, so any further print carries the DUPLICATE BILL heading. */
   isPrinted?: boolean;
@@ -693,6 +695,10 @@ export interface KotCardItem {
   quantity: number;
   note: string | null;
   isDeleted: boolean;
+  /** The dish's own step (kot_statuses id). Null when the step is not in the workflow (e.g. cancelled) or on an older database. */
+  statusId: string | null;
+  /** order_items.status of the dish (new, preparing, ..., cancelled). */
+  statusCode: string;
 }
 export interface KotCard {
   /** Stable key for the UI (order:step). A card = the order's items sitting in one step. */
@@ -705,6 +711,13 @@ export interface KotCard {
   tableNumber: string | null;
   customerName: string | null;
   notes: string | null;
+  /** The table's floor (dine-in), or null. */
+  floor: string | null;
+  /** 1 = first round of the table session, 2 = the next, ... (always 1 for takeaway). */
+  kotNo: number;
+  /** Rounds of the table session that are not cancelled. */
+  kotCount: number;
+  /** statusId is the step of the least advanced live dish; each item carries its own step. */
   items: KotCardItem[];
 }
 export interface KotBoard {
@@ -987,6 +1000,7 @@ export const IpcChannels = {
   GET_UNPRINTED_KOTS: 'get-unprinted-kots',
   PRINT_KOT_NOW: 'print-kot-now',
   MOVE_KOT: 'move-kot',
+  MOVE_KOT_ITEMS: 'move-kot-items',
   GET_KOT_WORKFLOW: 'get-kot-workflow',
   SAVE_KOT_WORKFLOW: 'save-kot-workflow',
   GET_TAX_RATE: 'get-tax-rate',
@@ -1183,6 +1197,8 @@ export interface ElectronApi {
   /** Print the order's unprinted kitchen items now. Rejects with the printer's message on failure. */
   printKotNow(orderId: string): Promise<string>;
   moveKot(orderId: string, toStatusId: string, fromStatusId: string, userId: string): Promise<void>;
+  /** KDS board: move only these dishes of the order from one step to another (never to 'cancelled'). */
+  moveKotItems(orderId: string, itemIds: string[], toStatusId: string, fromStatusId: string, userId: string): Promise<void>;
   getKotWorkflow(): Promise<KotWorkflow>;
   saveKotWorkflow(workflow: KotWorkflow): Promise<void>;
   getTaxRate(): Promise<TaxRates>;

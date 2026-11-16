@@ -1575,10 +1575,14 @@ delete from app_menus where code = 'tax-rates';
 -- by waiting time come from kot_time_levels. Nothing here is hard-coded in the
 -- app. Tables are written only through the functions in db/functions.sql.
 insert into permissions (code, description) values
-  ('kot.view',   'See the KOT board'),
-  ('kot.move',   'Move KOTs between steps'),
-  ('kot.manage', 'Change KOT steps and waiting-time colours')
+  ('kot.view',   'See the KDS board'),
+  ('kot.move',   'Move orders and dishes on the KDS board'),
+  ('kot.manage', 'Change KDS steps and waiting-time colours')
 on conflict (code) do nothing;
+-- KDS board rename (2026-11-16): old default texts on existing databases.
+update permissions set description = 'See the KDS board' where code = 'kot.view' and description = 'See the KOT board';
+update permissions set description = 'Move orders and dishes on the KDS board' where code = 'kot.move' and description = 'Move KOTs between steps';
+update permissions set description = 'Change KDS steps and waiting-time colours' where code = 'kot.manage' and description = 'Change KOT steps and waiting-time colours';
 
 insert into role_permissions (role, permission_code)
 select r.role, p.code
@@ -1767,8 +1771,10 @@ begin
 end $$;
 
 insert into app_menus (code, label, icon, sort_order, required_permission) values
-  ('kot-board', 'KOT Board', 'menu', 45, 'kot.view')
+  ('kot-board', 'KDS Board', 'menu', 45, 'kot.view')
 on conflict (code) do nothing;
+-- KDS board rename (2026-11-16): only the old default label; a custom label is kept.
+update app_menus set label = 'KDS Board' where code = 'kot-board' and label = 'KOT Board';
 
 -- Unprinted KOTs: tickets that never reached the kitchen printer, with a manual print.
 insert into app_menus (code, label, icon, sort_order, required_permission) values

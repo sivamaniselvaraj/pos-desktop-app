@@ -13,6 +13,7 @@ import { cancelCode, createCode } from './api/pairingCodes';
 import { getAllPrinters, updatePrinter, removePrinter, getMaxPrinters } from './settingsManager';
 import { getInvoiceSequenceStatus, resetInvoiceSequence } from './invoiceManager';
 import { exportSalesReport } from './reportExport';
+import { exportMenuItems } from './menuExport';
 import {
   listUsers,
   listOutlets,
@@ -31,7 +32,7 @@ import {
 import { getMenuItem, listMenuCategories, listMenuCategoriesAdmin, reorderMenuCategories, saveMenuCategory, saveMenuItem, setMenuCategoryActive } from './menuManager';
 import { getMyAccess,getReceiptText, saveBrandColor, saveReceiptText } from './accessManager';
 import { getTaxRate, placeOrder } from './orderEntryManager';
-import { getKotBoard, getKotWorkflow, getUnprintedKots, moveKot, printKotNow, saveKotWorkflow } from './kotManager';
+import { getKotBoard, getKotWorkflow, getUnprintedKots, moveKot, moveKotItems, printKotNow, saveKotWorkflow } from './kotManager';
 import { addTaxRate, deleteTaxRate, listTaxRates } from './taxManager';
 import {
   checkForUpdates,
@@ -95,7 +96,7 @@ import type {
   KotWorkflow,
 } from '../shared/types';
 import type { ConnectionSetupInput } from '../shared/connectionTypes';
-import type { SalesReportExportPayload, ReportBucket, ShiftWindow } from '../shared/reportTypes';
+import type { SalesReportExportPayload, MenuExportPayload, ReportBucket, ShiftWindow } from '../shared/reportTypes';
 
 /**
  * This machine's LAN IPv4 address — what Android should actually point the
@@ -232,6 +233,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.EXPORT_SALES_REPORT, (_e, payload: SalesReportExportPayload) =>
     exportSalesReport(getWindow(), payload),
   );
+  ipcMain.handle(IpcChannels.EXPORT_MENU_ITEMS, (_e, payload: MenuExportPayload) =>
+    exportMenuItems(getWindow(), payload),
+  );
   // Sales and revenue reports (reports.view, checked by each RPC; docs/SALES_REPORTS.md)
   ipcMain.handle(IpcChannels.GET_DAILY_SUMMARY, (_e, outlet: string, from: string, to: string, shift: ShiftWindow | null) =>
     db.reports.dailySummary(outlet, from, to, shift ?? null),
@@ -331,6 +335,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.GET_UNPRINTED_KOTS, () => getUnprintedKots());
   ipcMain.handle(IpcChannels.PRINT_KOT_NOW, (_e, orderId: string) => printKotNow(orderId));
   ipcMain.handle(IpcChannels.MOVE_KOT, (_e, orderId: string, to: string, from: string, userId: string) => moveKot(orderId, to, from, userId));
+  ipcMain.handle(IpcChannels.MOVE_KOT_ITEMS, (_e, orderId: string, itemIds: string[], to: string, from: string, userId: string) =>
+      moveKotItems(orderId, itemIds, to, from, userId),
+    );
   ipcMain.handle(IpcChannels.GET_KOT_WORKFLOW, () => getKotWorkflow());
   ipcMain.handle(IpcChannels.SAVE_KOT_WORKFLOW, (_e, w: KotWorkflow) => saveKotWorkflow(w));
   ipcMain.handle(IpcChannels.GET_TAX_RATE, () => getTaxRate());
