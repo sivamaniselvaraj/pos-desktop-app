@@ -4,7 +4,7 @@ import { getMyAccess } from './accessManager';
 import { orderManager } from './orderManager';
 import { printQueue } from './printQueueManager';
 import { listManagedTables, saveManagedTable } from './tablesManager';
-import { ApiMyOrder, DINE_IN_ORDER_TYPE, PRINT_KOT_ONLY, type ApiTable, type PhoneKotSettings, type RemoteOrderRequest, type RemoteOrderResult } from '../shared/types';
+import { ApiMyOrder, DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE, PRINT_KOT_ONLY, type ApiTable, type PhoneKotSettings, type RemoteOrderRequest, type RemoteOrderResult } from '../shared/types';
 import { BadRemoteOrder, NewTableRequest } from './remoteOrderValidation';
 
 export { BadRemoteOrder, validateNewTable, validateRemoteOrder } from './remoteOrderValidation';
@@ -126,7 +126,7 @@ export async function placeRemoteOrder(
   if (!userId) throw new BadRemoteOrder('This device is not tied to a user. Pair it again.');
   const result = await db.remoteOrders.placeOrderAs({
     waiterId: userId,
-    orderType: req.orderType === DINE_IN_ORDER_TYPE ? DINE_IN_ORDER_TYPE : 'pickup',
+    orderType: req.orderType === DINE_IN_ORDER_TYPE ? DINE_IN_ORDER_TYPE : PICK_UP_ORDER_TYPE,
     tableId: req.orderType === DINE_IN_ORDER_TYPE ? (req.tableId ?? null) : null,
     outletId: config.outletId,
     items: req.items,

@@ -333,7 +333,7 @@ export interface RemoteOrderRepository {
   /** Places an order for the phone's user (place_order_as). Prices come from the menu in the database. */
   placeOrderAs(p: {
     waiterId: string;
-    orderType: 'dine_in' | 'pickup';
+    orderType: 'dine_in' | 'pickup' | 'takeaway';
     tableId: string | null;
     outletId: string;
     items: OrderItem[];
