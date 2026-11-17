@@ -131,11 +131,8 @@ export async function saveMenuItem(p: SaveMenuItemPayload): Promise<MenuCacheSna
     inactiveReason,
   };
 
-  if (p.id) {
-    await db.menu.updateItem(config.outletId, p.id, values);
-  } else {
-    await db.menu.insertItem(config.outletId, values);
-  }
+  // One database call (save_menu_item): saves the item and writes its menu_activity_logs row.
+  await db.menu.saveItem(config.outletId, p.id ?? null, values);
 
   // Refresh now so the New Order page and Android see the change immediately.
   return refreshMenuCache();

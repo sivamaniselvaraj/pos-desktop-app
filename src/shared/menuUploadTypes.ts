@@ -55,4 +55,15 @@ export interface MenuUploadSummary {
   skippedErrors: number;
 }
 
+/** One upload in the history (Recent uploads): only items that were created or updated are in the log. */
+export interface MenuUploadLogBatch {
+  batchId: string;
+  uploadedAt: string;
+  uploadedByName: string | null;
+  fileName: string | null;
+  created: number;
+  updated: number;
+  items: Array<{ name: string; category: string; action: 'created' | 'updated'; changes: MenuUploadChange[] }>;
+}
+
 export type MenuUploadFileResult = ExportResult;

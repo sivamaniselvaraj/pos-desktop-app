@@ -102,32 +102,6 @@ export function MenuItemsPage() {
 /** Category filter value for items that have no category. */
 const NO_CATEGORY = '__none';
 
-/** Export columns (Menu Items page > Export), in order: [heading, value for one item]. */
-const EXPORT_COLUMNS: Array<[string, (item: MenuItemRecord, category: string) => string | number | null]> = [
-  ['Category', (_i, category) => category],
-  ['Name', (i) => (i.name == null ? null : String(i.name))],
-  ['Price', (i) => num(i.price)],
-  ['Veg', (i) => (i.is_veg == null ? null : i.is_veg ? 'Veg' : 'Non-veg')],
-  ['Status', (i) => (i.is_active === false ? 'Off' : 'Available')],
-  ['Off reason', (i) => (i.is_active === false && i.inactive_reason ? String(i.inactive_reason) : null)],
-  ['Off since', (i) => (i.is_active === false && i.inactive_since ? formatDateTime(String(i.inactive_since)) : null)],
-  ['Off by', (i) => (i.is_active === false && i.inactive_by_name ? String(i.inactive_by_name) : null)],
-  ['Container charge', (i) => num(i.container_charge)],
-  ['Tax', (i) => (i.tax_name ? String(i.tax_name) : null)],
-  ['Tax %', (i) => num(i.tax_rate_percent)],
-  ['Price includes tax', (i) => (i.price_includes_tax == null ? null : i.price_includes_tax ? 'Yes' : 'No')],
-  ['Incentive', (i) => (i.incentive_applicable ? 'Yes' : i.incentive_applicable == null ? null : 'No')],
-  ['Incentive type', (i) => (i.incentive_applicable && i.incentive_type ? String(i.incentive_type) : null)],
-  ['Incentive value', (i) => (i.incentive_applicable ? num(i.incentive_value) : null)],
-  ['Item id', (i) => (i.id == null ? null : String(i.id))],
-];
-
-function num(v: unknown): number | null {
-  if (v === null || v === undefined || v === '') return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
 function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
   const { can } = useAuth();
   // Only managers+ add/edit. The database enforces this too (RLS on menu_items).
@@ -388,12 +362,12 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
 
   // Export what the list shows (search, category and On/Off filters applied), in category order.
   async function handleExport() {
-    const rows = groups.flatMap((g) => g.shown.map((item) => EXPORT_COLUMNS.map(([, value]) => value(item, g.name))));
-    if (rows.length === 0) return;
+    const ids = groups.flatMap((g) => g.shown.map((item) => String(item.id)));
+    if (ids.length === 0) return;
     try {
       setExporting(true);
-      const result = await window.api.exportMenuItems({ columns: EXPORT_COLUMNS.map(([h]) => h), rows });
-      if (result.success) flash('success', `Exported ${rows.length} item${rows.length === 1 ? '' : 's'} to ${result.path ?? 'file'}`);
+      const result = await window.api.exportMenuItems({ ids });
+      if (result.success) flash('success', `Exported ${ids.length} item${ids.length === 1 ? '' : 's'} to ${result.path ?? 'file'}`);
       else if (result.error) setMessage({ type: 'error', text: result.error });
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Export failed' });

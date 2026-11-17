@@ -20,7 +20,7 @@ import type {
   MenuExportPayload,
   ExportResult,
 } from './reportTypes';
-import type { MenuUploadPickResult, MenuUploadSummary } from './menuUploadTypes';
+import type {MenuUploadLogBatch, MenuUploadPickResult, MenuUploadSummary } from './menuUploadTypes';
 import type {
   ReceiptText,
   OrderWithStatus,
@@ -116,6 +116,7 @@ export const IpcChannels = {
   PICK_MENU_UPLOAD_FILE: 'pick-menu-upload-file',
   COMMIT_MENU_UPLOAD: 'commit-menu-upload',
   SAVE_MENU_UPLOAD_ERRORS: 'save-menu-upload-errors',
+  GET_MENU_UPLOAD_LOG: 'get-menu-upload-log',
   DOWNLOAD_MENU_TEMPLATE: 'download-menu-template',
   DOWNLOAD_CURRENT_MENU: 'download-current-menu',
   LIST_USERS: 'list-users',
@@ -262,6 +263,8 @@ export interface ElectronApi {
   commitMenuUpload(token: string): Promise<MenuUploadSummary>;
   /** Saves the preview's rows with errors as a file (Excel or CSV). */
   saveMenuUploadErrors(token: string): Promise<ExportResult>;
+  /** Recent menu uploads (items created or updated, never errors). Needs menu.upload. */
+  getMenuUploadLog(): Promise<MenuUploadLogBatch[]>;
   /** The empty menu file (column names, and a Help sheet in Excel). */
   downloadMenuTemplate(): Promise<ExportResult>;
   /** The whole menu of this outlet in the upload format. */

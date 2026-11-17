@@ -16,6 +16,7 @@ import {
 import type { ExportResult } from '../shared/reportTypes';
 import type {
   MenuUploadChange,
+  MenuUploadLogBatch,
   MenuUploadPickResult,
   MenuUploadResult,
   MenuUploadRow,
@@ -31,12 +32,14 @@ import type {
  *   2. commitMenuUpload: write the New and Update rows in one database call (all or nothing).
  * The checked rows stay here between the steps; the screen only sends back a token, never
  * item data. The database function re-checks the outlet, the permission and the names.
- * Counts shown after an upload are for the screen only; nothing about the upload is stored.
+ * Every item an upload creates or updates is written to menu_activity_logs by a database trigger
+ * (who, when, file name, what changed). Rows with errors and unchanged rows are never logged.
  * ---------------------------------------------------------------------------
  */
 
 interface Pending {
   token: string;
+  fileName: string;
   items: MenuImportItem[];
 }
 /** The rows with errors of the last preview; kept after the import so the "error rows" file can still be saved. */
@@ -411,7 +414,7 @@ export async function pickMenuUploadFile(win: BrowserWindow | null): Promise<Men
     const missingItems = existing.filter((e) => !named.has(key(e.name))).map((e) => ({ name: e.name, category: e.category || 'No category' }));
 
     const token = randomUUID();
-    pending = { token, items: items2 };
+    pending = { token, fileName: basename(path), items: items2 };
     lastErrors = { token, headers: file.headers, rows: errorRows };
     return {
       status: 'ok',
@@ -439,10 +442,16 @@ export async function commitMenuUpload(token: string): Promise<MenuUploadSummary
   if (!pending || pending.token !== token) throw new Error('This preview is no longer current. Choose the file again.');
   if (pending.items.length === 0) throw new Error('There is nothing to import.');
   const p = pending;
-  const r = await db.menu.importItems(p.items);
+  const r = await db.menu.importItems(p.items, p.fileName);
   pending = null;
   await refreshMenuCache(); // phones and New order read the menu from the cache
   return { created: r.created, updated: r.updated, categoriesCreated: r.categoriesCreated, skippedErrors: lastErrors && lastErrors.token === token ? lastErrors.rows.length : 0 };
+}
+
+/** Recent uploads (the upload log: only items that were created or updated). */
+export function listMenuUploadLog(): Promise<MenuUploadLogBatch[]> {
+  if (!config.outletId) throw new Error('OUTLET_ID is not configured for this machine.');
+  return db.menu.listUploadLog(config.outletId, 20);
 }
 
 /** The rows with errors as a file (the same columns as the upload, plus an Error column) to fix and upload again. */

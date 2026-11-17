@@ -69,6 +69,7 @@ import type {
   ChannelSalesReport,
   DailySummaryReport
 } from '../../shared/reportTypes';
+import { MenuUploadLogBatch } from '../../shared/menuUploadTypes';
 
 
 
@@ -346,13 +347,14 @@ export interface MenuRepository {
     items: Record<string, unknown>[];
     categories: Array<{ id: string; name: string; isActive: boolean; sortOrder: number | null }>;
   }>;
-  /** import_menu_items: all the items in one transaction (all or nothing). Needs menu.upload. */
-  importItems(items: MenuImportItem[]): Promise<{ created: number; updated: number; categoriesCreated: number }>;
+  /** import_menu_items: all the items in one transaction (all or nothing). Needs menu.upload. Every created or updated item is logged in menu_activity_logs (source 'upload') by a trigger. */
+  importItems(items: MenuImportItem[], fileName: string): Promise<{ created: number; updated: number; categoriesCreated: number }>;
+  /** The most recent uploads of this outlet (menu_activity_logs rows with source 'upload', grouped by upload), newest first. Needs menu.upload. */
+  listUploadLog(outletId: string, maxBatches: number): Promise<MenuUploadLogBatch[]>;
   /** Ids of items in this outlet whose name equals `name`, ignoring case. */
   findItemIdsByName(outletId: string, name: string): Promise<string[]>;
-  insertItem(outletId: string, values: MenuItemValues): Promise<void>;
-  /** Throws 'Not allowed, or the item no longer exists.' when nothing was updated. */
-  updateItem(outletId: string, id: string, values: MenuItemValues): Promise<void>;
+  /** Adds (id null) or edits one item in one database call (save_menu_item) and logs it in menu_activity_logs. Throws the database's message (duplicate name, not allowed, ...). */
+  saveItem(outletId: string, id: string | null, values: MenuItemValues): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------

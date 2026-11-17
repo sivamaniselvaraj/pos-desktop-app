@@ -1,31 +1,7 @@
 import { randomUUID } from 'crypto';
 import { getAuthedClient } from './sessionClient';
 import type {MenuImportItem, MenuItemValues, MenuRepository } from '../ports';
-
-function toRow(v: MenuItemValues) {
-  return {
-    name: v.name,
-    category_id: v.categoryId,
-    price: v.price,
-    description: v.description,
-    is_veg: v.isVeg,
-    container_charge: v.containerCharge,
-    cost_price: v.costPrice,
-    search_key: v.searchKey,
-    cooking_time: v.cookingTime,
-    sort_order: v.sortOrder,
-    image_url: v.imageUrl,
-    is_available: v.isAvailable,
-    is_active: v.isActive,
-    tax_name: v.taxName,
-    tax_rate_percent: v.taxPercent,
-    price_includes_tax: v.priceIncludesTax,
-    incentive_applicable: v.incentiveApplicable,
-    incentive_type: v.incentiveApplicable ? v.incentiveType : null,
-    incentive_value: v.incentiveApplicable ? v.incentiveValue : null,
-    ...(v.inactiveReason ? { inactive_reason: v.inactiveReason } : {}),
-  };
-}
+import type { MenuUploadChange, MenuUploadLogBatch } from '../../../shared/menuUploadTypes';
 
 /**
  * The columns the menu list needs (Menu Items page, New order, the phone API). The wide
@@ -188,8 +164,9 @@ export const menu: MenuRepository = {
     };
   },
 
-  async importItems(items: MenuImportItem[]) {
+  async importItems(items: MenuImportItem[], fileName: string) {
     const { data, error } = await getAuthedClient().rpc('import_menu_items', {
+      p_file_name: fileName,
       p_items: items.map((i) => ({
         id: i.id,
         name: i.name,
@@ -214,6 +191,47 @@ export const menu: MenuRepository = {
     return { created: Number(r.created ?? 0), updated: Number(r.updated ?? 0), categoriesCreated: Number(r.categories_created ?? 0) };
   },
 
+  // Uploads only (source 'upload'); the Menu Items page's own adds and edits are in the same table with source 'manual'.
+  // RLS ("read own outlet menu activity log") limits this to the caller's outlet.
+  async listUploadLog(outletId, maxBatches) {
+    const { data, error } = await getAuthedClient()
+      .from('menu_activity_logs')
+      .select('batch_id, changed_at, changed_by_name, file_name, item_name, category_name, action, changes')
+      .eq('outlet_id', outletId)
+      .eq('source', 'upload')
+      .order('changed_at', { ascending: false })
+      .range(0, 4999);
+    if (error) throw new Error(error.message);
+    const batches = new Map<string, MenuUploadLogBatch>();
+    for (const r of (data ?? []) as Record<string, unknown>[]) {
+      const id = String(r.batch_id);
+      let b = batches.get(id);
+      if (!b) {
+        if (batches.size >= maxBatches) continue;
+        b = {
+          batchId: id,
+          uploadedAt: String(r.changed_at),
+          uploadedByName: r.changed_by_name ? String(r.changed_by_name) : null,
+          fileName: r.file_name ? String(r.file_name) : null,
+          created: 0,
+          updated: 0,
+          items: [],
+        };
+        batches.set(id, b);
+      }
+      const action = r.action === 'created' ? 'created' : 'updated';
+      if (action === 'created') b.created++;
+      else b.updated++;
+      b.items.push({
+        name: String(r.item_name ?? ''),
+        category: String(r.category_name ?? ''),
+        action,
+        changes: Array.isArray(r.changes) ? (r.changes as MenuUploadChange[]) : [],
+      });
+    }
+    return [...batches.values()];
+  },
+
   async findItemIdsByName(outletId, name) {
     const { data, error } = await getAuthedClient()
       .from('menu_items')
@@ -224,19 +242,33 @@ export const menu: MenuRepository = {
     return (data ?? []).map((r) => String(r.id));
   },
 
-  async insertItem(outletId, values) {
-    const { error } = await getAuthedClient().from('menu_items').insert({ ...toRow(values), outlet_id: outletId });
+  async saveItem(outletId, id, v) {
+    const { error } = await getAuthedClient().rpc('save_menu_item', {
+      p_item: {
+        id,
+        outlet_id: outletId,
+        name: v.name,
+        category_id: v.categoryId,
+        price: v.price,
+        description: v.description,
+        is_veg: v.isVeg,
+        container_charge: v.containerCharge,
+        cost_price: v.costPrice,
+        search_key: v.searchKey,
+        cooking_time: v.cookingTime,
+        sort_order: v.sortOrder,
+        image_url: v.imageUrl,
+        is_available: v.isAvailable,
+        is_active: v.isActive,
+        inactive_reason: v.inactiveReason ?? null,
+        tax_name: v.taxName,
+        tax_rate_percent: v.taxPercent,
+        price_includes_tax: v.priceIncludesTax,
+        incentive_applicable: v.incentiveApplicable,
+        incentive_type: v.incentiveApplicable ? v.incentiveType : null,
+        incentive_value: v.incentiveApplicable ? v.incentiveValue : null,
+      },
+    });
     if (error) throw new Error(error.message);
-  },
-
-  async updateItem(outletId, id, values) {
-    const { data, error } = await getAuthedClient()
-      .from('menu_items')
-      .update({ ...toRow(values), updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .eq('outlet_id', outletId)
-      .select('id');
-    if (error) throw new Error(error.message);
-    if (!data || data.length === 0) throw new Error('Not allowed, or the item no longer exists.');
   },
 };
