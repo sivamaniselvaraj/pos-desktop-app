@@ -2,19 +2,20 @@ import { db } from './data';
 import { config } from './config';
 import { orderManager } from './orderManager';
 import { printQueue } from './printQueueManager';
-import type {
-  OrderListFilter,
-  OrderListPage,
-  OrderDetailItem,
-  OrderActivityLogEntry,
-  EditOrderItemPayload,
-  EditorApproval,
-  SetOrderDiscountPayload,
-  DiscountOptions,
-  DiscountSettings,
-  DiscountPreset,
-  OrderDiscountInfo,
-  ActiveTakeawayList,
+import {
+  type OrderListFilter,
+  type OrderListPage,
+  type OrderDetailItem,
+  type OrderActivityLogEntry,
+  type EditOrderItemPayload,
+  type EditorApproval,
+  type SetOrderDiscountPayload,
+  type DiscountOptions,
+  type DiscountSettings,
+  type DiscountPreset,
+  type OrderDiscountInfo,
+  type ActiveTakeawayList,
+  DINE_IN_ORDER_TYPE,
 } from '../shared/types';
 
 /**
@@ -52,7 +53,7 @@ export async function listActiveTakeaway(): Promise<ActiveTakeawayList> {
     page: 1,
     pageSize: ACTIVE_TAKEAWAY_SCAN,
   });
-  const rows = result.rows.filter((r) => r.orderType !== 'dine-in');
+  const rows = result.rows.filter((r) => r.orderType !== DINE_IN_ORDER_TYPE);
   let customers = new Map<string, { orderNumber: string; customerName: string | null; customerPhone: string | null }>();
   try {
     const refs = await db.orderAdmin.listOrderCustomers(rows.map((r) => r.orderId));
