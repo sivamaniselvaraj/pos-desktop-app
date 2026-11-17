@@ -8,7 +8,7 @@ import { startMenuCache, stopMenuCache } from './menuCache';
 import { initLogging } from './logger';
 import { startPrinterWatch, stopPrinterWatch } from './printerManager';
 import { destroyHtmlPrintWindow } from './htmlPrintHelper';
-import { IpcChannels } from '../shared/types';
+import { IpcChannels } from '../shared/ipc';
 
 // First thing: copy every console line into the log file (see logger.ts), so
 // problems at a restaurant can be read from %APPDATA%\Virunthagam POS\logs.

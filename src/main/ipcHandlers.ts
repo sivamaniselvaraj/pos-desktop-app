@@ -75,7 +75,7 @@ import {
 } from './tablesManager';
 import { config, normalizePrintMethod } from './config';
 import { setPrinterAddress } from './imagePrintHelper';
-import { IpcChannels } from '../shared/types';
+import { IpcChannels } from '../shared/ipc';
 import type {
   ReceiptText,
   ServerStatus,

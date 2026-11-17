@@ -1933,6 +1933,18 @@ select r.role, 'branding.manage'
 from (values ('owner'), ('admin')) as r(role)
 on conflict do nothing;
 
+-- Settings > Menu upload (docs/MENU_UPLOAD.md): add and update many menu items from an Excel or CSV
+-- file. A permission of its own, separate from menu.edit. Admins always pass; other roles and
+-- groups get it by ticking it in User groups.
+insert into permissions (code, description) values
+  ('menu.upload', 'Upload the menu from an Excel or CSV file (add and update many items)')
+on conflict (code) do nothing;
+
+insert into role_permissions (role, permission_code)
+select r.role, 'menu.upload'
+from (values ('admin')) as r(role)
+on conflict do nothing;
+
 -- Receipt header / footer lines (Settings > Receipt): one text per outlet, one line per row.
 alter table outlets add column if not exists receipt_header text;
 alter table outlets add column if not exists receipt_footer text;

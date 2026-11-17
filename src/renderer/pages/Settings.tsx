@@ -18,6 +18,7 @@ import { DiscountSettings } from '../components/DiscountSettings';
 import { TaxRates } from './TaxRates';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { ReceiptSettings } from '../components/ReceiptSettings';
+import { MenuUpload } from '../components/MenuUpload';
 
 interface PrinterConfigs {
   [key: string]: string; // e.g., { printer_kitchen: "USB001", printer_cashier: "COM1" }
@@ -45,7 +46,8 @@ export function Settings() {
   const canTax = can('tax.manage');
   const canBranding = can('branding.manage');
   const canReceipt = can('receipt.manage');
-  const [tab, setTab] = useState<'general' | 'kot' | 'discounts' | 'tax' | 'receipt' | 'appearance'>('general');
+  const canUpload = can('menu.upload');
+  const [tab, setTab] = useState<'general' | 'kot' | 'discounts' | 'tax' | 'receipt' | 'appearance' | 'upload'>('general');
 
   const [invoiceStatus, setInvoiceStatus] = useState<InvoiceSequenceStatus | null>(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
@@ -373,14 +375,14 @@ export function Settings() {
         <h1>Settings</h1>
       </div>
 
-      {(canKot || canDiscounts || canTax || canReceipt || canBranding) && (
+      {(canKot || canDiscounts || canTax || canReceipt || canBranding || canUpload) && (
         <div className={styles.tabs}>
           <button className={tab === 'general' ? styles.tabActive : styles.tab} onClick={() => setTab('general')}>
             General
           </button>
           {canKot && (
             <button className={tab === 'kot' ? styles.tabActive : styles.tab} onClick={() => setTab('kot')}>
-              KOT workflow
+              KDS workflow
             </button>
           )}
           {canDiscounts && (
@@ -401,6 +403,11 @@ export function Settings() {
           {canBranding && (
             <button className={tab === 'appearance' ? styles.tabActive : styles.tab} onClick={() => setTab('appearance')}>
               Appearance
+            </button>
+          )}
+          {canUpload && (
+            <button className={tab === 'upload' ? styles.tabActive : styles.tab} onClick={() => setTab('upload')}>
+              Menu upload
             </button>
           )}
         </div>
@@ -442,10 +449,16 @@ export function Settings() {
         </div>
       )}
 
+      {tab === 'upload' && canUpload && (
+        <div className={styles.container}>
+          <MenuUpload />
+        </div>
+      )}
+
       <div
         className={styles.container}
         style={
-          (tab === 'kot' && canKot) || (tab === 'discounts' && canDiscounts) || (tab === 'tax' && canTax) || (tab === 'receipt' && canReceipt) || (tab === 'appearance' && canBranding)
+          (tab === 'kot' && canKot) || (tab === 'discounts' && canDiscounts) || (tab === 'tax' && canTax) || (tab === 'receipt' && canReceipt) || (tab === 'appearance' && canBranding) || (tab === 'upload' && canUpload)
             ? { display: 'none' }
             : undefined
         }
@@ -461,7 +474,7 @@ export function Settings() {
             <small className={styles.hint}>
               No installed printers found. Install the printer in the OS first
               (Windows: Settings → Printers &amp; scanners; macOS: System Settings →
-              Printers &amp; Scanners), then reopen this page.
+              Printers &amp; Scanners) and reopen this page, or add a network printer by its IP address below.
             </small>
           )}
 

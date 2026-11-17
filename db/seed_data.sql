@@ -110,3 +110,11 @@ on conflict (code) do nothing;
 insert into permissions (code, description) values
   ('reports.voids', 'See the Voids and discounts report (every removed or cancelled item, cancelled order and discount, who did it and why)')
 on conflict (code) do nothing;
+
+
+-- Settings > Menu upload (docs/MENU_UPLOAD.md): add and update many menu items from an Excel or CSV
+-- file. A permission of its own, separate from menu.edit. Admins always pass; other roles and
+-- groups get it by ticking it in User groups.
+insert into permissions (code, description) values
+  ('menu.upload', 'Upload the menu from an Excel or CSV file (add and update many items)')
+on conflict (code) do nothing;

@@ -33,7 +33,8 @@ type IconName =
   | 'download'
   | 'taxIcon'
   | 'kdsIcon'
-  | 'kotIcon';
+  | 'kotIcon'
+  | 'upload';
 
 interface IconProps {
   name: IconName;
@@ -372,6 +373,13 @@ const paths: Record<IconName, ReactElement> = {
   kotIcon:(
     <>
       <text x="0" y="15" stroke="currentColor" strokeWidth="1" fill="currentColor" fontSize="12">KOT</text>
+    </>
+  ),// Arrow out of a tray (upload a file).
+  upload: (
+    <>
+      <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </>
   ),
 };

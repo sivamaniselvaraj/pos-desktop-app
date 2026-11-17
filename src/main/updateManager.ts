@@ -22,12 +22,13 @@ import { db } from './data';
 import { printQueue } from './printQueueManager';
 import { policyBlocks } from './updatePolicy';
 import {
-  IpcChannels,
   type InstallCheck,
   type ReleasePolicy,
   type UpdateChannel,
   type UpdateStatus,
 } from '../shared/types';
+
+import { IpcChannels } from '../shared/ipc';
 
 const FIRST_CHECK_DELAY_MS = 60_000; // let the app finish starting first
 const CHECK_EVERY_MS = 4 * 60 * 60_000; // 4 hours

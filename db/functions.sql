@@ -6011,3 +6011,174 @@ create or replace function get_sales_by_channel(p_from date, p_to date)
 returns jsonb language sql stable security definer set search_path = public
 as $$ select get_sales_by_channel(report_caller_outlet(), p_from, p_to); $$;
 grant execute on function get_sales_by_channel(date, date) to authenticated;
+
+-- ============================================================================
+-- MENU UPLOAD (Settings > Menu upload, docs/MENU_UPLOAD.md)
+-- ============================================================================
+-- import_menu_items(p_items): adds and updates many menu items of the caller's outlet in ONE
+-- transaction (all or nothing). Needs the menu.upload permission. The desktop app has already read
+-- the file, matched the rows to items by name and worked out each item's final values; this
+-- function re-checks what the database must guarantee and writes:
+--   * "id" set    -> update that item (it must belong to the caller's outlet)
+--   * "id" empty  -> create it (the name must not exist yet in the outlet, ignoring case)
+--   * a category name that does not exist yet is created (added to the end of the order)
+--   * nothing is ever deleted; the item's name, description, image, search key and sort order are
+--     not touched on update.
+-- Turning an item off or on goes through the usual trigger, so it needs a reason and is written to
+-- menu_availability_log (scope 'item', one batch id for the whole upload).
+-- Item keys: id, name, category, price, is_veg, is_active, inactive_reason, container_charge,
+-- cost_price, cooking_time, tax_name, tax_rate_percent, price_includes_tax, incentive_applicable,
+-- incentive_type, incentive_value. At most 1000 items. Returns {created, updated, categories_created}.
+create or replace function import_menu_items(p_items jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_org    uuid;
+  v_it     jsonb;
+  v_id     uuid;
+  v_name   text;
+  v_catn   text;
+  v_cat    uuid;
+  v_cats   jsonb := '{}'::jsonb;
+  v_batch  uuid := gen_random_uuid();
+  v_active boolean;
+  v_reason text;
+  v_inc    boolean;
+  v_incv   numeric;
+  v_price  numeric;
+  v_cc     numeric;
+  v_cost   numeric;
+  v_cook   integer;
+  v_taxp   numeric;
+  v_tax_given boolean;
+  v_n      integer;
+  v_created int := 0;
+  v_updated int := 0;
+  v_cats_created int := 0;
+begin
+  if not has_permission('menu.upload') then
+    raise exception 'Not allowed to upload the menu';
+  end if;
+  select p.outlet_id, p.org_id into v_outlet, v_org
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
+    raise exception 'Nothing to import';
+  end if;
+  if jsonb_array_length(p_items) > 1000 then
+    raise exception 'A file can have at most 1000 items';
+  end if;
+  -- one upload at a time per outlet, so two uploads cannot create the same item twice
+  perform pg_advisory_xact_lock(hashtext('import_menu_items:' || v_outlet::text));
+
+  for v_it in select * from jsonb_array_elements(p_items) loop
+    v_name := btrim(coalesce(v_it->>'name', ''));
+    if char_length(v_name) < 1 or char_length(v_name) > 200 then
+      raise exception 'Every item needs a name (200 characters at most)';
+    end if;
+    v_price := (v_it->>'price')::numeric;
+    if v_price is null or v_price < 0 or v_price > 1000000 then
+      raise exception 'Price of "%" must be 0 or more', v_name;
+    end if;
+    v_cc := nullif(v_it->>'container_charge', '')::numeric;
+    if v_cc is not null and (v_cc < 0 or v_cc > 100) then
+      raise exception 'Container charge of "%" must be between 0 and 100', v_name;
+    end if;
+    v_cost := nullif(v_it->>'cost_price', '')::numeric;
+    if v_cost is not null and (v_cost < 0 or v_cost > 1000000) then
+      raise exception 'Cost price of "%" must be 0 or more', v_name;
+    end if;
+    v_cook := coalesce(nullif(v_it->>'cooking_time', '')::integer, 0);
+    if v_cook < 0 or v_cook > 1000 then
+      raise exception 'Cooking time of "%" must be whole minutes (0 to 1000)', v_name;
+    end if;
+    -- the tax is needed for a new item; an update without one keeps the item's current tax
+    v_taxp := (v_it->>'tax_rate_percent')::numeric;
+    v_tax_given := nullif(btrim(coalesce(v_it->>'tax_name', '')), '') is not null;
+    if (v_tax_given or nullif(v_it->>'id', '') is null)
+       and (not v_tax_given or char_length(v_it->>'tax_name') > 30 or v_taxp is null or v_taxp < 0 or v_taxp > 100) then
+      raise exception 'Tax of "%" is missing or not valid', v_name;
+    end if;
+    v_inc := coalesce((v_it->>'incentive_applicable')::boolean, false);
+    v_incv := nullif(v_it->>'incentive_value', '')::numeric;
+    if v_inc and (coalesce(v_it->>'incentive_type', '') not in ('percent', 'fixed') or v_incv is null or v_incv < 0
+                  or (v_it->>'incentive_type' = 'percent' and v_incv > 100)) then
+      raise exception 'Incentive of "%" is not valid', v_name;
+    end if;
+    v_active := coalesce((v_it->>'is_active')::boolean, true);
+    v_reason := nullif(btrim(coalesce(v_it->>'inactive_reason', '')), '');
+    v_id := nullif(v_it->>'id', '')::uuid;
+
+    -- category: by name (ignoring case and spaces), created when new
+    v_catn := btrim(coalesce(v_it->>'category', ''));
+    v_cat := (v_cats->>lower(v_catn))::uuid;
+    if v_cat is null then
+      select c.id into v_cat from categories c
+       where c.outlet_id = v_outlet and lower(btrim(c.name)) = lower(v_catn);
+      if v_cat is null then
+        if char_length(v_catn) < 1 or char_length(v_catn) > 60 then
+          raise exception 'The category name must be 1 to 60 characters';
+        end if;
+        insert into categories (name, org_id, outlet_id, is_active, sort_order)
+        values (v_catn, v_org, v_outlet, true,
+                (select coalesce(max(c.sort_order), 0) + 10 from categories c where c.outlet_id = v_outlet))
+        returning id into v_cat;
+        v_cats_created := v_cats_created + 1;
+      end if;
+      v_cats := v_cats || jsonb_build_object(lower(v_catn), v_cat);
+    end if;
+
+    if v_id is not null then
+      update menu_items set
+             category_id = v_cat,
+             price = v_price,
+             is_veg = coalesce((v_it->>'is_veg')::boolean, true),
+             is_active = v_active,
+             inactive_reason = case when v_active then null else coalesce(v_reason, inactive_reason) end,
+             container_charge = v_cc,
+             cost_price = v_cost,
+             cooking_time = v_cook,
+             tax_name = case when v_tax_given then btrim(v_it->>'tax_name') else tax_name end,
+             tax_rate_percent = case when v_tax_given then v_taxp else tax_rate_percent end,
+             price_includes_tax = coalesce((v_it->>'price_includes_tax')::boolean, false),
+             incentive_applicable = v_inc,
+             incentive_type = case when v_inc then v_it->>'incentive_type' else null end,
+             incentive_value = case when v_inc then v_incv else null end,
+             change_scope = 'item',
+             change_batch = v_batch,
+             updated_at = now()
+       where id = v_id and outlet_id = v_outlet;
+      get diagnostics v_n = row_count;
+      if v_n = 0 then
+        raise exception '"%" is no longer on the menu. Choose the file again.', v_name;
+      end if;
+      v_updated := v_updated + 1;
+    else
+      if exists (select 1 from menu_items m
+                  where m.outlet_id = v_outlet and lower(btrim(m.name)) = lower(v_name)) then
+        raise exception 'A menu item named "%" already exists. Choose the file again.', v_name;
+      end if;
+      insert into menu_items (outlet_id, name, category_id, price, is_veg, is_active, inactive_reason,
+                              container_charge, cost_price, cooking_time, tax_name, tax_rate_percent,
+                              price_includes_tax, incentive_applicable, incentive_type, incentive_value,
+                              change_scope, change_batch)
+      values (v_outlet, v_name, v_cat, v_price, coalesce((v_it->>'is_veg')::boolean, true), v_active, v_reason,
+              v_cc, v_cost, v_cook, btrim(v_it->>'tax_name'), v_taxp,
+              coalesce((v_it->>'price_includes_tax')::boolean, false), v_inc,
+              case when v_inc then v_it->>'incentive_type' else null end,
+              case when v_inc then v_incv else null end,
+              'item', v_batch);
+      v_created := v_created + 1;
+    end if;
+  end loop;
+
+  return jsonb_build_object('created', v_created, 'updated', v_updated, 'categories_created', v_cats_created);
+end;
+$$;
+grant execute on function import_menu_items(jsonb) to authenticated;

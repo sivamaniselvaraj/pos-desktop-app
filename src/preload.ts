@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IpcChannels } from './shared/types';
+import { IpcChannels, type ElectronApi } from './shared/ipc';
 import type {
   ActiveTakeawayList,
   ReceiptText,
@@ -7,7 +7,6 @@ import type {
   AuthUser,
   DiscountOptions,
   DiscountSettings,
-  ElectronApi,
   OrderWithStatus,
   PrinterInfo,
   PrintMethod,
@@ -44,6 +43,7 @@ import type {
   InvoiceSequenceStatus,
 } from './shared/types';
 import type { ConnectionSetupInput, ConnectionSetupResult, ConnectionSetupStatus } from './shared/connectionTypes';
+import type { MenuUploadPickResult, MenuUploadSummary } from './shared/menuUploadTypes';
 import type {
   SalesReportRow,
   SalesByWaiterRow,
@@ -110,6 +110,11 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.EXPORT_SALES_REPORT, payload) as Promise<ExportResult>,
   exportMenuItems: (payload) =>
       ipcRenderer.invoke(IpcChannels.EXPORT_MENU_ITEMS, payload) as Promise<ExportResult>,
+  pickMenuUploadFile: () => ipcRenderer.invoke(IpcChannels.PICK_MENU_UPLOAD_FILE) as Promise<MenuUploadPickResult>,
+    commitMenuUpload: (token) => ipcRenderer.invoke(IpcChannels.COMMIT_MENU_UPLOAD, token) as Promise<MenuUploadSummary>,
+    saveMenuUploadErrors: (token) => ipcRenderer.invoke(IpcChannels.SAVE_MENU_UPLOAD_ERRORS, token) as Promise<ExportResult>,
+    downloadMenuTemplate: () => ipcRenderer.invoke(IpcChannels.DOWNLOAD_MENU_TEMPLATE) as Promise<ExportResult>,
+    downloadCurrentMenu: () => ipcRenderer.invoke(IpcChannels.DOWNLOAD_CURRENT_MENU) as Promise<ExportResult>,
   getDailySummary: (outletId, from, to, shift) =>
     ipcRenderer.invoke(IpcChannels.GET_DAILY_SUMMARY, outletId, from, to, shift ?? null) as Promise<DailySummaryReport>,
   getSalesByHour: (outletId, from, to) =>
