@@ -1,54 +1,82 @@
 import { dialog, type BrowserWindow } from 'electron';
 import { writeFile } from 'fs/promises';
 import * as XLSX from 'xlsx';
+import { db } from './data';
+import { config } from './config';
 import type { ExportResult, MenuExportPayload } from '../shared/reportTypes';
-
-/** Quote a CSV field only when it needs it (comma, quote, or newline present). */
-function csvField(value: string | number | null): string {
-  const s = value === null ? '' : String(value);
-  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
-function today(): string {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
+import { MENU_FILE_COLUMNS, MENU_FILE_HELP, recordToCells, saveTable, todayText, type Cell } from './menuFile';
 
 /**
- * Menu Items page export (docs/MENU_ITEMS_PAGE.md). The renderer sends the rows it shows
- * (filters applied, in category order); the operator picks the file and its type
- * (Excel or CSV) in the save dialog. Cancelling returns { success: false } with no error.
+ * Menu file downloads (docs/MENU_ITEMS_PAGE.md, docs/MENU_UPLOAD.md). One format everywhere: the
+ * same columns the menu upload reads. The items come from the database with the whole file
+ * column set (cost price and cooking time too), so a downloaded file can be edited and uploaded.
+ * Cancelling the save dialog returns { success: false } with no error.
  */
-export async function exportMenuItems(win: BrowserWindow | null, payload: MenuExportPayload): Promise<ExportResult> {
-  const { columns, rows } = payload;
-  const dialogOptions = {
-    title: 'Export menu',
-    defaultPath: `menu-items_${today()}.xlsx`,
-    filters: [
-      { name: 'Excel Workbook', extensions: ['xlsx'] },
-      { name: 'CSV', extensions: ['csv'] },
-    ],
-  };
-  const result = win ? await dialog.showSaveDialog(win, dialogOptions) : await dialog.showSaveDialog(dialogOptions);
-  if (result.canceled || !result.filePath) return { success: false };
 
-  try {
-    if (result.filePath.toLowerCase().endsWith('.csv')) {
-      const lines = [columns, ...rows].map((r) => r.map(csvField).join(','));
-      // BOM so Excel reads the file as UTF-8 (Tamil item names).
-      await writeFile(result.filePath, '﻿' + lines.join('\r\n'), 'utf8');
-    } else {
-      const sheet = XLSX.utils.aoa_to_sheet([columns, ...rows]);
-      sheet['!cols'] = columns.map((c, i) => ({
-        wch: Math.min(40, Math.max(c.length, ...rows.map((r) => String(r[i] ?? '').length)) + 2),
-      }));
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, sheet, 'Menu items');
-      await writeFile(result.filePath, XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer);
-    }
-    return { success: true, path: result.filePath };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'Failed to write file' };
+async function loadRows(onlyIds: string[] | null): Promise<Cell[][]> {
+  if (!config.outletId) throw new Error('OUTLET_ID is not configured for this machine.');
+  const { items, categories } = await db.menu.listForFile(config.outletId);
+  const catById = new Map(categories.map((c) => [c.id, c]));
+  const catName = (i: Record<string, unknown>) => (i.category_id ? (catById.get(String(i.category_id))?.name ?? '') : '');
+  if (onlyIds) {
+    const byId = new Map(items.map((i) => [String(i.id), i]));
+    // keep the order of the ids (the page's category order)
+    return onlyIds.flatMap((id) => {
+      const i = byId.get(id);
+      return i ? [recordToCells(i, catName(i))] : [];
+    });
   }
+  const order = (i: Record<string, unknown>) => {
+    const c = i.category_id ? catById.get(String(i.category_id)) : undefined;
+    return c?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+  };
+  const sorted = [...items].sort(
+    (a, b) =>
+      order(a) - order(b) ||
+      catName(a).localeCompare(catName(b)) ||
+      String(a.name ?? '').localeCompare(String(b.name ?? ''), undefined, { sensitivity: 'base' }),
+  );
+  return sorted.map((i) => recordToCells(i, catName(i)));
+}
+
+/** Menu Items page: the items it shows (ids in the page's order). */
+export async function exportMenuItems(win: BrowserWindow | null, payload: MenuExportPayload): Promise<ExportResult> {
+  try {
+    if (!Array.isArray(payload?.ids) || payload.ids.length === 0) return { success: false, error: 'There are no items to export.' };
+    const rows = await loadRows(payload.ids);
+    return saveTable(win, { title: 'Export menu', defaultName: `menu-items_${todayText()}`, columns: [...MENU_FILE_COLUMNS], rows });
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Export failed' };
+  }
+}
+
+/** Settings > Menu upload: the whole menu of this outlet. */
+export async function exportCurrentMenu(win: BrowserWindow | null): Promise<ExportResult> {
+  try {
+    const rows = await loadRows(null);
+    if (rows.length === 0) return { success: false, error: 'The menu has no items yet.' };
+    return saveTable(win, { title: 'Download current menu', defaultName: `menu-items_${todayText()}`, columns: [...MENU_FILE_COLUMNS], rows });
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Download failed' };
+  }
+}
+
+/** Settings > Menu upload: the column names, plus a Help sheet (Excel) saying what each takes. */
+export function exportMenuTemplate(win: BrowserWindow | null): Promise<ExportResult> {
+  return saveTable(win, {
+    title: 'Download menu template',
+    defaultName: 'menu-upload-template',
+    columns: [...MENU_FILE_COLUMNS],
+    rows: [],
+    extraSheet: {
+      name: 'Help',
+      rows: [
+        ['Column', 'Needed', 'What to enter'],
+        ...MENU_FILE_HELP,
+        [],
+        ['Example', '', 'Breakfast | Idli (2 pcs) | 40 | Veg | Available | | | | 0 | GST | 5 | No | No | | | 12 | 10'],
+        ['Notes', '', 'Leave a cell empty to keep the item’s current value. Nothing is deleted. Rows are matched by Name.'],
+      ],
+    },
+  });
 }

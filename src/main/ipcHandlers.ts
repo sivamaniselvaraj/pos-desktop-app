@@ -13,7 +13,8 @@ import { cancelCode, createCode } from './api/pairingCodes';
 import { getAllPrinters, updatePrinter, removePrinter, getMaxPrinters } from './settingsManager';
 import { getInvoiceSequenceStatus, resetInvoiceSequence } from './invoiceManager';
 import { exportSalesReport } from './reportExport';
-import { exportMenuItems } from './menuExport';
+import { exportCurrentMenu, exportMenuItems, exportMenuTemplate } from './menuExport';
+import { commitMenuUpload, pickMenuUploadFile, saveUploadErrorRows } from './menuImport';
 import {
   listUsers,
   listOutlets,
@@ -236,6 +237,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.EXPORT_MENU_ITEMS, (_e, payload: MenuExportPayload) =>
     exportMenuItems(getWindow(), payload),
   );
+  // Settings > Menu upload (menu.upload is checked by the database function; docs/MENU_UPLOAD.md)
+  ipcMain.handle(IpcChannels.PICK_MENU_UPLOAD_FILE, () => pickMenuUploadFile(getWindow()));
+  ipcMain.handle(IpcChannels.COMMIT_MENU_UPLOAD, (_e, token: string) => commitMenuUpload(token));
+  ipcMain.handle(IpcChannels.SAVE_MENU_UPLOAD_ERRORS, (_e, token: string) => saveUploadErrorRows(getWindow(), token));
+  ipcMain.handle(IpcChannels.DOWNLOAD_MENU_TEMPLATE, () => exportMenuTemplate(getWindow()));
+  ipcMain.handle(IpcChannels.DOWNLOAD_CURRENT_MENU, () => exportCurrentMenu(getWindow()));
   // Sales and revenue reports (reports.view, checked by each RPC; docs/SALES_REPORTS.md)
   ipcMain.handle(IpcChannels.GET_DAILY_SUMMARY, (_e, outlet: string, from: string, to: string, shift: ShiftWindow | null) =>
     db.reports.dailySummary(outlet, from, to, shift ?? null),

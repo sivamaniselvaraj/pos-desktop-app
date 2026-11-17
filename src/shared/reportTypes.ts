@@ -269,8 +269,9 @@ export interface SalesReportExportPayload {
 
 /** Menu Items page export: the rows as shown, already in column order. */
 export interface MenuExportPayload {
-  columns: string[];
-  rows: Array<Array<string | number | null>>;
+  ids: string[];
+  // columns: string[];
+  // rows: Array<Array<string | number | null>>;
 }
 
 export interface ExportResult {

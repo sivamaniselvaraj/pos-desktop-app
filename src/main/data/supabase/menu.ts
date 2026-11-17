@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { getAuthedClient } from './sessionClient';
-import type { MenuItemValues, MenuRepository } from '../ports';
+import type {MenuImportItem, MenuItemValues, MenuRepository } from '../ports';
 
 function toRow(v: MenuItemValues) {
   return {
@@ -32,7 +32,15 @@ function toRow(v: MenuItemValues) {
  * ones (description, image_url, cost_price, cooking_time, the item's sort_order) are left
  * out; the Edit form reads the full row with fetchItem.
  */
-const MENU_LIST_COLUMNS = 'id, name, category_id, price, is_veg, is_active, is_available, container_charge,  search_key, tax_name, tax_rate_percent, price_includes_tax, incentive_applicable, incentive_type, incentive_value, inactive_reason, inactive_since, inactive_by_name';
+const MENU_LIST_COLUMNS = [
+  'id', 'name', 'category_id', 'price', 'is_veg', 'is_active', 'is_available', 'container_charge',
+  'search_key', 'tax_name', 'tax_rate_percent', 'price_includes_tax',
+  'incentive_applicable', 'incentive_type', 'incentive_value',
+  'inactive_reason', 'inactive_since', 'inactive_by_name',
+].join(', ');
+
+/** The columns of the menu file (Settings > Menu upload and the Menu Items export): the list columns plus cost price and cooking time. */
+const FILE_COLUMNS = `${MENU_LIST_COLUMNS}, cost_price, cooking_time`;
 
 export const menu: MenuRepository = {
   // Two plain reads merged here (no dependence on a foreign-key name for an
@@ -50,7 +58,7 @@ export const menu: MenuRepository = {
     const cats = (catRes.data ?? []) as { id: string; name: string; sort_order: number | null }[];
     const categoryName = new Map(cats.map((c) => [String(c.id), c.name]));
     const categorySort = new Map(cats.map((c) => [String(c.id), c.sort_order == null ? null : Number(c.sort_order)]));
-    return ((menuRes.data ?? []) as Record<string, unknown>[]).map((row) => {
+    return ((menuRes.data ?? []) as unknown as Record<string, unknown>[]).map((row) => {
       const cid = row.category_id ? String(row.category_id) : null;
       return {
         ...row,
@@ -158,6 +166,52 @@ export const menu: MenuRepository = {
     const { data, error } = await getAuthedClient().rpc('set_menu_category_active', { p_id: id, p_active: isActive });
     if (error) throw new Error(error.message);
     return Number((data as Record<string, unknown> | null)?.items_turned_off ?? 0);
+  },
+
+  // Authed client: RLS limits both reads to the caller's outlet.
+  async listForFile(outletId) {
+    const supabase = getAuthedClient();
+    const [itemsRes, catRes] = await Promise.all([
+      supabase.from('menu_items').select(FILE_COLUMNS).eq('outlet_id', outletId).order('name').range(0, 4999),
+      supabase.from('categories').select('id, name, is_active, sort_order').eq('outlet_id', outletId).range(0, 999),
+    ]);
+    if (itemsRes.error) throw new Error(itemsRes.error.message);
+    if (catRes.error) throw new Error(catRes.error.message);
+    return {
+      items: (itemsRes.data ?? []) as unknown as Record<string, unknown>[],
+      categories: ((catRes.data ?? []) as Record<string, unknown>[]).map((c) => ({
+        id: String(c.id),
+        name: String(c.name ?? ''),
+        isActive: c.is_active !== false,
+        sortOrder: c.sort_order == null ? null : Number(c.sort_order),
+      })),
+    };
+  },
+
+  async importItems(items: MenuImportItem[]) {
+    const { data, error } = await getAuthedClient().rpc('import_menu_items', {
+      p_items: items.map((i) => ({
+        id: i.id,
+        name: i.name,
+        category: i.category,
+        price: i.price,
+        is_veg: i.isVeg,
+        is_active: i.isActive,
+        inactive_reason: i.inactiveReason,
+        container_charge: i.containerCharge,
+        cost_price: i.costPrice,
+        cooking_time: i.cookingTime,
+        tax_name: i.taxName,
+        tax_rate_percent: i.taxPercent,
+        price_includes_tax: i.priceIncludesTax,
+        incentive_applicable: i.incentiveApplicable,
+        incentive_type: i.incentiveType,
+        incentive_value: i.incentiveValue,
+      })),
+    });
+    if (error) throw new Error(error.message);
+    const r = (data ?? {}) as Record<string, unknown>;
+    return { created: Number(r.created ?? 0), updated: Number(r.updated ?? 0), categoriesCreated: Number(r.categories_created ?? 0) };
   },
 
   async findItemIdsByName(outletId, name) {

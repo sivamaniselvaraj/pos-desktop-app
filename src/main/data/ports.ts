@@ -298,6 +298,28 @@ export interface MenuItemValues {
   inactiveReason?: string | null;
 }
 
+/** One item of a menu upload with its final values (import_menu_items; docs/MENU_UPLOAD.md). */
+export interface MenuImportItem {
+  /** The item to update; null creates a new one. */
+  id: string | null;
+  name: string;
+  /** Category name; a name that does not exist yet creates the category. */
+  category: string;
+  price: number;
+  isVeg: boolean;
+  isActive: boolean;
+  inactiveReason: string | null;
+  containerCharge: number | null;
+  costPrice: number | null;
+  cookingTime: number;
+  taxName: string;
+  taxPercent: number;
+  priceIncludesTax: boolean;
+  incentiveApplicable: boolean;
+  incentiveType: 'percent' | 'fixed' | null;
+  incentiveValue: number | null;
+}
+
 export interface MenuRepository {
   /** The outlet's menu list (the columns the list needs, not the whole row) plus category_name / category_sort_order. Works without a signed-in user. */
   fetchMenu(outletId: string): Promise<Record<string, unknown>[]>;
@@ -319,6 +341,13 @@ export interface MenuRepository {
   reorderCategories(ids: string[]): Promise<void>;
   /** set_menu_category_active: deactivating turns the category's items off. Returns how many. */
   setCategoryRecordActive(id: string, isActive: boolean): Promise<number>;
+  /** Every item of the outlet with the columns the menu file needs (incl. cost price and cooking time) and every category (active or not). */
+  listForFile(outletId: string): Promise<{
+    items: Record<string, unknown>[];
+    categories: Array<{ id: string; name: string; isActive: boolean; sortOrder: number | null }>;
+  }>;
+  /** import_menu_items: all the items in one transaction (all or nothing). Needs menu.upload. */
+  importItems(items: MenuImportItem[]): Promise<{ created: number; updated: number; categoriesCreated: number }>;
   /** Ids of items in this outlet whose name equals `name`, ignoring case. */
   findItemIdsByName(outletId: string, name: string): Promise<string[]>;
   insertItem(outletId: string, values: MenuItemValues): Promise<void>;
