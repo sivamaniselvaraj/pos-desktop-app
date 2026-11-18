@@ -1095,3 +1095,40 @@ create policy "read own outlet table log" on table_activity_log
   using (exists (select 1 from profiles p
                   where p.user_id = auth.uid() and p.outlet_id = table_activity_log.outlet_id
                     and has_permission('tables.manage')));
+
+-- ============================================================================
+-- MENU UPLOAD (Settings > Menu upload, docs/MENU_UPLOAD.md)
+-- ============================================================================
+-- menu_activity_logs (named menu_upload_log until 2026-11-17): who created or changed a menu item
+-- and what changed. One row for every item that was CREATED or CHANGED, from two sources:
+--   source 'upload'  an item created or updated by Settings > Menu upload (import_menu_items sets
+--                    the upload's batch id and file name for the trigger below)
+--   source 'manual'  an item added or edited on the Menu Items page (or any other direct write)
+-- Written only by menu_log_item_change() (called from save_menu_item and import_menu_items); users have no write policy. Rows with
+-- errors never reach the database, unchanged saves write nothing, and switching items on or off
+-- (single, bulk or by category) is left to menu_availability_log. Users with menu.upload or
+-- menu.edit can read their own outlet's rows.
+create table if not exists menu_activity_logs (
+  id              uuid primary key default gen_random_uuid(),
+  outlet_id       uuid not null,
+  batch_id        uuid not null,          -- the same for every item of one upload; one per manual change
+  changed_at      timestamptz not null default now(),
+  changed_by      uuid,
+  changed_by_name text,
+  source          text not null default 'upload' check (source in ('upload', 'manual')),
+  file_name       text,                   -- uploads only
+  menu_item_id    uuid,                   -- no foreign key: the history outlives a deleted item
+  item_name       text not null,
+  category_name   text,
+  action          text not null check (action in ('created', 'updated')),
+  changes         jsonb not null default '[]'::jsonb   -- [{field, from, to}] for an update
+);
+
+create index if not exists idx_menu_activity_logs_outlet on menu_activity_logs (outlet_id, changed_at desc);
+alter table menu_activity_logs enable row level security;
+
+create policy "read own outlet menu activity log" on menu_activity_logs
+  for select to authenticated
+  using (exists (select 1 from profiles p
+                  where p.user_id = auth.uid() and p.outlet_id = menu_activity_logs.outlet_id
+                    and (has_permission('menu.upload') or has_permission('menu.edit'))));

@@ -6015,6 +6015,281 @@ grant execute on function get_sales_by_channel(date, date) to authenticated;
 -- ============================================================================
 -- MENU UPLOAD (Settings > Menu upload, docs/MENU_UPLOAD.md)
 -- ============================================================================
+-- menu_activity_logs (named menu_upload_log until 2026-11-17): who created or changed a menu item
+-- and what changed. One row for every item that was CREATED or CHANGED, from two sources:
+--   source 'upload'  an item created or updated by Settings > Menu upload (import_menu_items sets
+--                    the upload's batch id and file name for the trigger below)
+--   source 'manual'  an item added or edited on the Menu Items page (or any other direct write)
+-- Written only by menu_log_item_change() (called from save_menu_item and import_menu_items); users have no write policy. Rows with
+-- errors never reach the database, unchanged saves write nothing, and switching items on or off
+-- (single, bulk or by category) is left to menu_availability_log. Users with menu.upload or
+-- menu.edit can read their own outlet's rows.
+do $$
+begin
+  if to_regclass('public.menu_upload_log') is not null and to_regclass('public.menu_activity_logs') is null then
+    alter table menu_upload_log rename to menu_activity_logs;
+    alter table menu_activity_logs rename column uploaded_at to changed_at;
+    alter table menu_activity_logs rename column uploaded_by to changed_by;
+    alter table menu_activity_logs rename column uploaded_by_name to changed_by_name;
+    alter index if exists idx_menu_upload_log_outlet rename to idx_menu_activity_logs_outlet;
+  end if;
+end $$;
+create table if not exists menu_activity_logs (
+  id              uuid primary key default gen_random_uuid(),
+  outlet_id       uuid not null,
+  batch_id        uuid not null,          -- the same for every item of one upload; one per manual change
+  changed_at      timestamptz not null default now(),
+  changed_by      uuid,
+  changed_by_name text,
+  source          text not null default 'upload' check (source in ('upload', 'manual')),
+  file_name       text,                   -- uploads only
+  menu_item_id    uuid,                   -- no foreign key: the history outlives a deleted item
+  item_name       text not null,
+  category_name   text,
+  action          text not null check (action in ('created', 'updated')),
+  changes         jsonb not null default '[]'::jsonb   -- [{field, from, to}] for an update
+);
+alter table menu_activity_logs add column if not exists source text not null default 'upload' check (source in ('upload', 'manual'));
+create index if not exists idx_menu_activity_logs_outlet on menu_activity_logs (outlet_id, changed_at desc);
+alter table menu_activity_logs enable row level security;
+drop policy if exists "read own outlet upload log" on menu_activity_logs;
+drop policy if exists "read own outlet menu activity log" on menu_activity_logs;
+create policy "read own outlet menu activity log" on menu_activity_logs
+  for select to authenticated
+  using (exists (select 1 from profiles p
+                  where p.user_id = auth.uid() and p.outlet_id = menu_activity_logs.outlet_id
+                    and (has_permission('menu.upload') or has_permission('menu.edit'))));
+
+-- No trigger (changed 2026-11-17): the logging is plain function calls inside the two functions
+-- that write menu items, so it is visible in the code and cannot fire for writes that do not
+-- mean to log.
+--   save_menu_item(p_item)      the Menu Items page (add / edit form)   -> source 'manual'
+--   import_menu_items(p_items)  Settings > Menu upload                  -> source 'upload'
+-- Both call menu_log_item_change(). A direct write to menu_items is not logged.
+drop trigger if exists menu_items_log_activity on menu_items;
+drop function if exists menu_items_log_activity();
+
+-- menu_log_item_change(old, new, source, batch, file): writes one menu_activity_logs row for an item
+-- that was created (p_old null) or changed. Writes nothing when no tracked field differs.
+-- Switching on or off alone is left to menu_availability_log, except in an upload. Called only by
+-- the two functions below; not granted to users.
+create or replace function menu_log_item_change(p_old menu_items, p_new menu_items, p_source text, p_batch uuid, p_file text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid     uuid := auth.uid();
+  v_old     jsonb;
+  v_new     jsonb;
+  v_cols    text[][] := array[
+    ['name', 'Name'], ['price', 'Price'], ['is_veg', 'Veg'], ['is_active', 'Status'], ['inactive_reason', 'Off reason'],
+    ['is_available', 'Available'], ['container_charge', 'Container charge'], ['tax_name', 'Tax'],
+    ['tax_rate_percent', 'Tax %'], ['price_includes_tax', 'Price includes tax'], ['incentive_applicable', 'Incentive'],
+    ['incentive_type', 'Incentive type'], ['incentive_value', 'Incentive value'], ['cost_price', 'Cost price'],
+    ['cooking_time', 'Cooking time'], ['sort_order', 'Sort order'], ['search_key', 'Search key'],
+    ['description', 'Description'], ['image_url', 'Image']];
+  v_changes jsonb := '[]'::jsonb;
+  v_other   boolean := false;
+  v_created boolean := (p_old is null);
+  v_i       int;
+  v_col     text;
+  v_label   text;
+  v_o       text;
+  v_n       text;
+  v_uname   text;
+  v_cat     text;
+begin
+  if p_source not in ('upload', 'manual') then
+    raise exception 'Unknown log source';
+  end if;
+  if not v_created then
+    v_old := to_jsonb(p_old);
+    v_new := to_jsonb(p_new);
+    for v_i in 1 .. array_length(v_cols, 1) loop
+      v_col := v_cols[v_i][1];
+      v_label := v_cols[v_i][2];
+      -- jsonb compares numbers by value, so 80 and 80.00 are the same
+      if (v_old -> v_col) is distinct from (v_new -> v_col) then
+        v_o := v_old ->> v_col;
+        v_n := v_new ->> v_col;
+        if v_col in ('is_veg') then
+          v_o := case v_o when 'true' then 'Veg' when 'false' then 'Non-veg' end;
+          v_n := case v_n when 'true' then 'Veg' when 'false' then 'Non-veg' end;
+        elsif v_col = 'is_active' then
+          v_o := case v_o when 'false' then 'Off' else 'Available' end;
+          v_n := case v_n when 'false' then 'Off' else 'Available' end;
+        elsif v_col in ('is_available', 'price_includes_tax', 'incentive_applicable') then
+          v_o := case v_o when 'true' then 'Yes' when 'false' then 'No' end;
+          v_n := case v_n when 'true' then 'Yes' when 'false' then 'No' end;
+        elsif v_col in ('description', 'image_url') then
+          v_o := case when v_o is null then null else 'set' end;
+          v_n := case when v_n is null then null else 'set' end;
+          if v_o is not distinct from v_n then v_o := 'old'; v_n := 'new'; end if;
+        end if;
+        v_changes := v_changes || jsonb_build_array(jsonb_build_object(
+          'field', v_label, 'from', coalesce(v_o, 'blank'), 'to', coalesce(v_n, 'blank')));
+        if v_col not in ('is_active', 'inactive_reason') then v_other := true; end if;
+      end if;
+    end loop;
+    if p_old.category_id is distinct from p_new.category_id then
+      v_changes := v_changes || jsonb_build_array(jsonb_build_object(
+        'field', 'Category',
+        'from', coalesce((select c.name from categories c where c.id = p_old.category_id), 'blank'),
+        'to',   coalesce((select c.name from categories c where c.id = p_new.category_id), 'blank')));
+      v_other := true;
+    end if;
+    if jsonb_array_length(v_changes) = 0 then
+      return;                            -- nothing changed that is worth a log row
+    end if;
+    -- switching on or off alone belongs to menu_availability_log (an upload logs it too)
+    if p_source <> 'upload' and not v_other then
+      return;
+    end if;
+  end if;
+
+  if v_uid is not null then
+    select coalesce(nullif(btrim(p.first_name), ''), nullif(btrim(p.full_name), ''), p.email)
+      into v_uname from profiles p where p.user_id = v_uid;
+  end if;
+  select c.name into v_cat from categories c where c.id = p_new.category_id;
+  insert into menu_activity_logs (outlet_id, batch_id, changed_by, changed_by_name, source, file_name,
+                                  menu_item_id, item_name, category_name, action, changes)
+  values (p_new.outlet_id, coalesce(p_batch, gen_random_uuid()), v_uid, v_uname, p_source,
+          case when p_source = 'upload' then nullif(btrim(coalesce(p_file, '')), '') end,
+          p_new.id, p_new.name, v_cat, case when v_created then 'created' else 'updated' end, v_changes);
+end;
+$$;
+revoke all on function menu_log_item_change(menu_items, menu_items, text, uuid, text) from public, anon, authenticated;
+
+-- save_menu_item(p_item): the Menu Items page's add (no "id") and edit (with "id") in one call, and the
+-- manual entry in menu_activity_logs. Needs menu.edit; works only on the caller's outlet.
+-- Keys: id, name, category_id, price, description, is_veg, container_charge, cost_price, search_key,
+-- cooking_time, sort_order, image_url, is_available, is_active, inactive_reason (only used when the save
+-- turns the item off; an item that stays off keeps its reason), tax_name, tax_rate_percent,
+-- price_includes_tax, incentive_applicable, incentive_type, incentive_value.
+-- Returns the item's id. Turning the item off or on still goes through menu_items_track_active
+-- (reason needed, menu_availability_log).
+create or replace function save_menu_item(p_item jsonb)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outlet uuid;
+  v_id     uuid := nullif(p_item->>'id', '')::uuid;
+  v_name   text := btrim(coalesce(p_item->>'name', ''));
+  v_cat    uuid := nullif(p_item->>'category_id', '')::uuid;
+  v_price  numeric := (p_item->>'price')::numeric;
+  v_cc     numeric := nullif(p_item->>'container_charge', '')::numeric;
+  v_cost   numeric := nullif(p_item->>'cost_price', '')::numeric;
+  v_cook   integer := coalesce(nullif(p_item->>'cooking_time', '')::integer, 0);
+  v_sort   integer := coalesce(nullif(p_item->>'sort_order', '')::integer, 0);
+  v_taxn   text := btrim(coalesce(p_item->>'tax_name', ''));
+  v_taxp   numeric := (p_item->>'tax_rate_percent')::numeric;
+  v_inc    boolean := coalesce((p_item->>'incentive_applicable')::boolean, false);
+  v_incv   numeric := nullif(p_item->>'incentive_value', '')::numeric;
+  v_inct   text := p_item->>'incentive_type';
+  v_active boolean := coalesce((p_item->>'is_active')::boolean, true);
+  v_reason text := nullif(btrim(coalesce(p_item->>'inactive_reason', '')), '');
+  v_image  text := nullif(btrim(coalesce(p_item->>'image_url', '')), '');
+  v_old    menu_items;
+  v_new    menu_items;
+begin
+  if not has_permission('menu.edit') then
+    raise exception 'Not allowed to edit the menu';
+  end if;
+  select p.outlet_id into v_outlet
+    from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true);
+  if v_outlet is null then
+    raise exception 'Your account has no outlet';
+  end if;
+  if char_length(v_name) < 1 or char_length(v_name) > 200 then
+    raise exception 'Name is required (200 characters at most)';
+  end if;
+  if v_cat is null or not exists (select 1 from categories c where c.id = v_cat and c.outlet_id = v_outlet) then
+    raise exception 'Choose a category';
+  end if;
+  if v_price is null or v_price < 0 or v_price > 1000000 then
+    raise exception 'Price must be 0 or more';
+  end if;
+  if v_cc is not null and (v_cc < 0 or v_cc > 100) then
+    raise exception 'Container charge must be between 0 and 100';
+  end if;
+  if v_cost is not null and (v_cost < 0 or v_cost > 1000000) then
+    raise exception 'Cost price must be 0 or more';
+  end if;
+  if v_cook < 0 or v_cook > 1000 then
+    raise exception 'Cooking time must be whole minutes (0 to 1000)';
+  end if;
+  if v_sort < -100000 or v_sort > 100000 then
+    raise exception 'Sort order must be between -100000 and 100000';
+  end if;
+  if char_length(v_taxn) < 1 or char_length(v_taxn) > 30 or v_taxp is null or v_taxp < 0 or v_taxp > 100 then
+    raise exception 'Choose a tax for this item';
+  end if;
+  if v_inc and (coalesce(v_inct, '') not in ('percent', 'fixed') or v_incv is null or v_incv < 0
+                or (v_inct = 'percent' and v_incv > 100)) then
+    raise exception 'The incentive is not valid';
+  end if;
+  if v_image is not null and v_image !~* '^https?://' then
+    raise exception 'Image URL must start with http:// or https://';
+  end if;
+  if length(v_reason) > 200 then
+    raise exception 'The reason is too long (200 characters at most)';
+  end if;
+  -- one save at a time per outlet, so two saves cannot create the same name twice
+  perform pg_advisory_xact_lock(hashtext('save_menu_item:' || v_outlet::text));
+  if exists (select 1 from menu_items m
+             where m.outlet_id = v_outlet and lower(btrim(m.name)) = lower(v_name)
+               and m.id is distinct from v_id) then
+    raise exception 'A menu item named "%" already exists.', v_name;
+  end if;
+
+  if v_id is not null then
+    select * into v_old from menu_items m where m.id = v_id and m.outlet_id = v_outlet;
+    if not found then
+      raise exception 'Not allowed, or the item no longer exists.';
+    end if;
+    update menu_items set
+           name = v_name, category_id = v_cat, price = v_price,
+           description = nullif(btrim(coalesce(p_item->>'description', '')), ''),
+           is_veg = coalesce((p_item->>'is_veg')::boolean, true),
+           container_charge = v_cc, cost_price = v_cost,
+           search_key = nullif(btrim(coalesce(p_item->>'search_key', '')), ''),
+           cooking_time = v_cook, sort_order = v_sort, image_url = v_image,
+           is_available = coalesce((p_item->>'is_available')::boolean, true),
+           is_active = v_active,
+           inactive_reason = coalesce(v_reason, inactive_reason),
+           tax_name = v_taxn, tax_rate_percent = round(v_taxp, 2),
+           price_includes_tax = coalesce((p_item->>'price_includes_tax')::boolean, false),
+           incentive_applicable = v_inc,
+           incentive_type = case when v_inc then v_inct end,
+           incentive_value = case when v_inc then round(v_incv, 2) end,
+           updated_at = now()
+     where id = v_id and outlet_id = v_outlet
+     returning * into v_new;
+  else
+    insert into menu_items (outlet_id, name, category_id, price, description, is_veg, container_charge, cost_price,
+                            search_key, cooking_time, sort_order, image_url, is_available, is_active, inactive_reason,
+                            tax_name, tax_rate_percent, price_includes_tax, incentive_applicable, incentive_type,
+                            incentive_value)
+    values (v_outlet, v_name, v_cat, v_price, nullif(btrim(coalesce(p_item->>'description', '')), ''),
+            coalesce((p_item->>'is_veg')::boolean, true), v_cc, v_cost,
+            nullif(btrim(coalesce(p_item->>'search_key', '')), ''), v_cook, v_sort, v_image,
+            coalesce((p_item->>'is_available')::boolean, true), v_active, v_reason,
+            v_taxn, round(v_taxp, 2), coalesce((p_item->>'price_includes_tax')::boolean, false), v_inc,
+            case when v_inc then v_inct end, case when v_inc then round(v_incv, 2) end)
+    returning * into v_new;
+  end if;
+  perform menu_log_item_change(v_old, v_new, 'manual', null, null);
+  return v_new.id;
+end;
+$$;
+grant execute on function save_menu_item(jsonb) to authenticated;
+
 -- import_menu_items(p_items): adds and updates many menu items of the caller's outlet in ONE
 -- transaction (all or nothing). Needs the menu.upload permission. The desktop app has already read
 -- the file, matched the rows to items by name and worked out each item's final values; this
@@ -6026,10 +6301,14 @@ grant execute on function get_sales_by_channel(date, date) to authenticated;
 --     not touched on update.
 -- Turning an item off or on goes through the usual trigger, so it needs a reason and is written to
 -- menu_availability_log (scope 'item', one batch id for the whole upload).
+-- Every item created or updated is logged in menu_activity_logs by menu_log_item_change()
+-- (source 'upload', with this upload's batch id and p_file_name); rows with errors never reach this
+-- function, so they are not logged.
 -- Item keys: id, name, category, price, is_veg, is_active, inactive_reason, container_charge,
 -- cost_price, cooking_time, tax_name, tax_rate_percent, price_includes_tax, incentive_applicable,
 -- incentive_type, incentive_value. At most 1000 items. Returns {created, updated, categories_created}.
-create or replace function import_menu_items(p_items jsonb)
+drop function if exists import_menu_items(jsonb);
+create or replace function import_menu_items(p_items jsonb, p_file_name text default null)
 returns jsonb
 language plpgsql
 security definer
@@ -6059,6 +6338,8 @@ declare
   v_created int := 0;
   v_updated int := 0;
   v_cats_created int := 0;
+  v_old    menu_items;
+  v_new    menu_items;
 begin
   if not has_permission('menu.upload') then
     raise exception 'Not allowed to upload the menu';
@@ -6134,7 +6415,9 @@ begin
       v_cats := v_cats || jsonb_build_object(lower(v_catn), v_cat);
     end if;
 
+    v_old := null;
     if v_id is not null then
+      select * into v_old from menu_items m where m.id = v_id and m.outlet_id = v_outlet;
       update menu_items set
              category_id = v_cat,
              price = v_price,
@@ -6153,9 +6436,9 @@ begin
              change_scope = 'item',
              change_batch = v_batch,
              updated_at = now()
-       where id = v_id and outlet_id = v_outlet;
-      get diagnostics v_n = row_count;
-      if v_n = 0 then
+       where id = v_id and outlet_id = v_outlet
+       returning * into v_new;
+      if not found then
         raise exception '"%" is no longer on the menu. Choose the file again.', v_name;
       end if;
       v_updated := v_updated + 1;
@@ -6173,12 +6456,14 @@ begin
               coalesce((v_it->>'price_includes_tax')::boolean, false), v_inc,
               case when v_inc then v_it->>'incentive_type' else null end,
               case when v_inc then v_incv else null end,
-              'item', v_batch);
+              'item', v_batch)
+      returning * into v_new;
       v_created := v_created + 1;
     end if;
+    perform menu_log_item_change(v_old, v_new, 'upload', v_batch, p_file_name);
   end loop;
 
   return jsonb_build_object('created', v_created, 'updated', v_updated, 'categories_created', v_cats_created);
 end;
 $$;
-grant execute on function import_menu_items(jsonb) to authenticated;
+grant execute on function import_menu_items(jsonb, text) to authenticated;

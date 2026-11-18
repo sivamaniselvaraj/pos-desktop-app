@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { MenuCategory, MenuItemRecord, SaveMenuItemPayload } from '@shared/types';
 import styles from '../styles/MenuItemFormModal.module.css';
+import { ReasonField } from './MenuOffReason';
 import { currencySymbol } from '../lib/format';
 
 export interface MenuItemFormModalProps {
@@ -49,6 +50,10 @@ export function MenuItemFormModal({ item, categories, onSave, onClose }: MenuIte
   const [imageUrl, setImageUrl] = useState(str(item?.image_url));
   const [isAvailable, setIsAvailable] = useState(item ? item.is_available !== false : true);
   const [isActive, setIsActive] = useState(item ? item.is_active !== false : true);
+  // Needed when this save turns an active item off, or adds a new item as off.
+  const wasActive = item ? item.is_active !== false : true;
+  const needsReason = !isActive && wasActive;
+  const [inactiveReason, setInactiveReason] = useState('');
   const itemTaxPercent =
     item?.tax_rate_percent !== null && item?.tax_rate_percent !== undefined && item?.tax_rate_percent !== ''
       ? Number(item.tax_rate_percent)
@@ -129,6 +134,7 @@ export function MenuItemFormModal({ item, categories, onSave, onClose }: MenuIte
     const sort = numOrNull(sortOrder);
     if (sort !== null && !Number.isInteger(sort)) return setError('Sort order must be a whole number');
 
+    if (needsReason && !inactiveReason.trim()) return setError('Give a reason for turning this item off');
     let incValue: number | null = null;
     if (incentiveOn) {
       incValue = numOrNull(incentiveValue);
@@ -162,6 +168,7 @@ export function MenuItemFormModal({ item, categories, onSave, onClose }: MenuIte
         incentiveApplicable: incentiveOn,
         incentiveType: incentiveOn ? incentiveType : null,
         incentiveValue: incentiveOn ? incValue : null,
+        inactiveReason: needsReason ? inactiveReason.trim() : undefined,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
@@ -324,6 +331,13 @@ export function MenuItemFormModal({ item, categories, onSave, onClose }: MenuIte
             Available <small className={styles.hint}>(off = out of stock right now)</small>
           </label>
         </div>
+
+        {needsReason && (
+          <div className={styles.formLabel}>
+            Why is it off? *
+            <ReasonField value={inactiveReason} onChange={setInactiveReason} />
+          </div>
+        )}
 
         {error && <p className={styles.error} role="alert">{error}</p>}
 
