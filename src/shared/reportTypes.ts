@@ -267,13 +267,6 @@ export interface SalesReportExportPayload {
   range: { from: string; to: string };
 }
 
-/** Menu Items page export: the rows as shown, already in column order. */
-export interface MenuExportPayload {
-  ids: string[];
-  // columns: string[];
-  // rows: Array<Array<string | number | null>>;
-}
-
 export interface ExportResult {
   success: boolean;
   path?: string;

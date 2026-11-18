@@ -108,8 +108,6 @@ const api: ElectronApi = {
     >,
   exportSalesReport: (payload) =>
     ipcRenderer.invoke(IpcChannels.EXPORT_SALES_REPORT, payload) as Promise<ExportResult>,
-  exportMenuItems: (payload) =>
-    ipcRenderer.invoke(IpcChannels.EXPORT_MENU_ITEMS, payload) as Promise<ExportResult>,
   pickMenuUploadFile: () => ipcRenderer.invoke(IpcChannels.PICK_MENU_UPLOAD_FILE) as Promise<MenuUploadPickResult>,
   commitMenuUpload: (token) => ipcRenderer.invoke(IpcChannels.COMMIT_MENU_UPLOAD, token) as Promise<MenuUploadSummary>,
   saveMenuUploadErrors: (token) => ipcRenderer.invoke(IpcChannels.SAVE_MENU_UPLOAD_ERRORS, token) as Promise<ExportResult>,

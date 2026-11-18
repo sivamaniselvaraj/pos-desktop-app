@@ -17,7 +17,6 @@ import type {
   ProductMixReport,
   ChannelSalesReport,
   SalesReportExportPayload,
-  MenuExportPayload,
   ExportResult,
 } from './reportTypes';
 import type {MenuUploadLogBatch, MenuUploadPickResult, MenuUploadSummary } from './menuUploadTypes';
@@ -112,7 +111,6 @@ export const IpcChannels = {
   GET_PRODUCT_MIX: 'get-product-mix',
   GET_SALES_BY_CHANNEL: 'get-sales-by-channel',
   EXPORT_SALES_REPORT: 'export-sales-report',
-  EXPORT_MENU_ITEMS: 'export-menu-items',
   PICK_MENU_UPLOAD_FILE: 'pick-menu-upload-file',
   COMMIT_MENU_UPLOAD: 'commit-menu-upload',
   SAVE_MENU_UPLOAD_ERRORS: 'save-menu-upload-errors',
@@ -255,8 +253,6 @@ export interface ElectronApi {
     bucket: ReportBucket,
   ): Promise<SalesByTypeBucketRow[]>;
   exportSalesReport(payload: SalesReportExportPayload): Promise<ExportResult>;
-  /** Save the Menu Items list as Excel or CSV (the operator picks the file and type). */
-  exportMenuItems(payload: MenuExportPayload): Promise<ExportResult>;
   /** Settings > Menu upload (needs menu.upload; docs/MENU_UPLOAD.md). Opens a file dialog, reads the file and returns the preview. Nothing is saved. */
   pickMenuUploadFile(): Promise<MenuUploadPickResult>;
   /** Saves the New and Update rows of the preview in one go (all or nothing). The token comes from the preview. */

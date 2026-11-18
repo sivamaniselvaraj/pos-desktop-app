@@ -3,7 +3,7 @@ import { writeFile } from 'fs/promises';
 import * as XLSX from 'xlsx';
 import { db } from './data';
 import { config } from './config';
-import type { ExportResult, MenuExportPayload } from '../shared/reportTypes';
+import type { ExportResult } from '../shared/reportTypes';
 import { MENU_FILE_COLUMNS, MENU_FILE_HELP, recordToCells, saveTable, todayText, type Cell } from './menuFile';
 
 /**
@@ -13,19 +13,11 @@ import { MENU_FILE_COLUMNS, MENU_FILE_HELP, recordToCells, saveTable, todayText,
  * Cancelling the save dialog returns { success: false } with no error.
  */
 
-async function loadRows(onlyIds: string[] | null): Promise<Cell[][]> {
+async function loadRows(): Promise<Cell[][]> {
   if (!config.outletId) throw new Error('OUTLET_ID is not configured for this machine.');
   const { items, categories } = await db.menu.listForFile(config.outletId);
   const catById = new Map(categories.map((c) => [c.id, c]));
   const catName = (i: Record<string, unknown>) => (i.category_id ? (catById.get(String(i.category_id))?.name ?? '') : '');
-  if (onlyIds) {
-    const byId = new Map(items.map((i) => [String(i.id), i]));
-    // keep the order of the ids (the page's category order)
-    return onlyIds.flatMap((id) => {
-      const i = byId.get(id);
-      return i ? [recordToCells(i, catName(i))] : [];
-    });
-  }
   const order = (i: Record<string, unknown>) => {
     const c = i.category_id ? catById.get(String(i.category_id)) : undefined;
     return c?.sortOrder ?? Number.MAX_SAFE_INTEGER;
@@ -39,21 +31,10 @@ async function loadRows(onlyIds: string[] | null): Promise<Cell[][]> {
   return sorted.map((i) => recordToCells(i, catName(i)));
 }
 
-/** Menu Items page: the items it shows (ids in the page's order). */
-export async function exportMenuItems(win: BrowserWindow | null, payload: MenuExportPayload): Promise<ExportResult> {
-  try {
-    if (!Array.isArray(payload?.ids) || payload.ids.length === 0) return { success: false, error: 'There are no items to export.' };
-    const rows = await loadRows(payload.ids);
-    return saveTable(win, { title: 'Export menu', defaultName: `menu-items_${todayText()}`, columns: [...MENU_FILE_COLUMNS], rows });
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'Export failed' };
-  }
-}
-
 /** Settings > Menu upload: the whole menu of this outlet. */
 export async function exportCurrentMenu(win: BrowserWindow | null): Promise<ExportResult> {
   try {
-    const rows = await loadRows(null);
+    const rows = await loadRows();
     if (rows.length === 0) return { success: false, error: 'The menu has no items yet.' };
     return saveTable(win, { title: 'Download current menu', defaultName: `menu-items_${todayText()}`, columns: [...MENU_FILE_COLUMNS], rows });
   } catch (err) {

@@ -13,7 +13,7 @@ import { cancelCode, createCode } from './api/pairingCodes';
 import { getAllPrinters, updatePrinter, removePrinter, getMaxPrinters } from './settingsManager';
 import { getInvoiceSequenceStatus, resetInvoiceSequence } from './invoiceManager';
 import { exportSalesReport } from './reportExport';
-import { exportCurrentMenu, exportMenuItems, exportMenuTemplate } from './menuExport';
+import { exportCurrentMenu, exportMenuTemplate } from './menuExport';
 import { commitMenuUpload, pickMenuUploadFile, saveUploadErrorRows } from './menuImport';
 import {
   listUsers,
@@ -97,7 +97,7 @@ import type {
   KotWorkflow,
 } from '../shared/types';
 import type { ConnectionSetupInput } from '../shared/connectionTypes';
-import type { SalesReportExportPayload, MenuExportPayload, ReportBucket, ShiftWindow } from '../shared/reportTypes';
+import type { SalesReportExportPayload, ReportBucket, ShiftWindow } from '../shared/reportTypes';
 
 /**
  * This machine's LAN IPv4 address — what Android should actually point the
@@ -233,9 +233,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   );
   ipcMain.handle(IpcChannels.EXPORT_SALES_REPORT, (_e, payload: SalesReportExportPayload) =>
     exportSalesReport(getWindow(), payload),
-  );
-  ipcMain.handle(IpcChannels.EXPORT_MENU_ITEMS, (_e, payload: MenuExportPayload) =>
-    exportMenuItems(getWindow(), payload),
   );
   // Settings > Menu upload (menu.upload is checked by the database function; docs/MENU_UPLOAD.md)
   ipcMain.handle(IpcChannels.PICK_MENU_UPLOAD_FILE, () => pickMenuUploadFile(getWindow()));

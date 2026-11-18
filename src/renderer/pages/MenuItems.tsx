@@ -125,7 +125,6 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
   // Ticked items (by id) for a bulk on/off.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [exporting, setExporting] = useState(false);
   // Turning something off asks for a reason first.
   const [offAsk, setOffAsk] = useState<
     | { kind: 'item'; item: MenuItemRecord }
@@ -360,22 +359,6 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
     if (headerBox.current) headerBox.current.indeterminate = someShownTicked && !allShownTicked;
   }, [someShownTicked, allShownTicked]);
 
-  // Export what the list shows (search, category and On/Off filters applied), in category order.
-  async function handleExport() {
-    const ids = groups.flatMap((g) => g.shown.map((item) => String(item.id)));
-    if (ids.length === 0) return;
-    try {
-      setExporting(true);
-      const result = await window.api.exportMenuItems({ ids });
-      if (result.success) flash('success', `Exported ${ids.length} item${ids.length === 1 ? '' : 's'} to ${result.path ?? 'file'}`);
-      else if (result.error) setMessage({ type: 'error', text: result.error });
-    } catch (err) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Export failed' });
-    } finally {
-      setExporting(false);
-    }
-  }
-
   function toggleIds(ids: string[], on: boolean) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -398,15 +381,6 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
               Add Item
             </button>
           )}
-          <button
-            className={styles.refreshBtn}
-            onClick={() => void handleExport()}
-            disabled={exporting || shownIds.length === 0}
-            title={`Save the ${shownIds.length} item${shownIds.length === 1 ? '' : 's'} shown as Excel or CSV`}
-          >
-            <Icon name="download" size={14} />
-            {exporting ? 'Exporting…' : 'Export'}
-          </button>
           <button className={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing}>
             <Icon name="refresh" size={14} />
             {refreshing ? 'Refreshing…' : 'Refresh from Database'}

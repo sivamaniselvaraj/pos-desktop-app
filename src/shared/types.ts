@@ -1,28 +1,5 @@
 // Shared types: imported by both the Electron main process and the React renderer.
 
-import type { 
-  ConnectionSetupInput, 
-  ConnectionSetupResult, 
-  ConnectionSetupStatus } from './connectionTypes';
-import type {
-  ReportBucket,
-  SalesReportRow,
-  MenuAvailabilityReport,
-  SalesByWaiterRow,
-  VoidsDiscountsReport,
-  TopItemRow,
-  SalesByOrderTypeRow,
-  SalesByTypeBucketRow,
-  ShiftWindow,
-  DailySummaryReport,
-  HourlySalesReport,
-  ProductMixReport,
-  ChannelSalesReport,
-  SalesReportExportPayload,
-  MenuExportPayload,
-  ExportResult,
-} from './reportTypes';
-
 export interface OrderItem {
   id: string;
   menuItemId?: string;
