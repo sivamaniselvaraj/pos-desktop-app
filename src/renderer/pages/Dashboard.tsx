@@ -570,17 +570,16 @@ export function Dashboard({
                   <div className={styles.cardBottom}>
                     <div className={styles.cardStatus}>{st.label}</div>
                     {table.cardStatus !== 'available' && (
-                      <div className={styles.cardTime}>
-                        {(billCount.get(table.tableId) ?? 0) > 1 && table.invoiceNumber
-                          ? `Bill ${displayInvoiceNumber(table.invoiceNumber)} · `
-                          : ''}
-                         [{table.orderNumbers?.join(',')}] · 
-                        {startedAt(table.orderCreatedAt)}
-                        {mins !== null ? ` · ${mins} min` : ''}
+                      <div>
+                        <div className={styles.cardTime}>
+                          {(billCount.get(table.tableId) ?? 0) > 1 && table.invoiceNumber
+                            ? `Bill ${displayInvoiceNumber(table.invoiceNumber)} · `
+                            : ''}
+                          {startedAt(table.orderCreatedAt)}
+                          {mins !== null ? ` · ${mins} min` : ''}
+                        </div>
+                        <div className={styles.cardAmount}>{formatCurrency(table.orderTotalAmount ?? 0)}</div>
                       </div>
-                    )}
-                    {table.cardStatus !== 'available' && (
-                      <div className={styles.cardAmount}>{formatCurrency(table.orderTotalAmount ?? 0)}</div>
                     )}
                   </div>
                   <div className={styles.cardActions}>
