@@ -99,7 +99,7 @@ export const orderAdmin: OrderAdminRepository = {
     const supabase = getAuthedClient();
     const { data, error } = await supabase
       .from('order_items')
-      .select('id, order_id, menu_item_id, quantity, unit_price, total_price, is_deleted, edited_at')
+      .select('id, order_id, menu_item_id, quantity, unit_price, total_price, is_deleted, edited_at, notes')
       .in('order_id', orderIds)
       .order('id');
     if (error) throw new Error(error.message);
@@ -123,6 +123,7 @@ export const orderAdmin: OrderAdminRepository = {
       isDeleted: row.is_deleted === true,
       editedAt: row.edited_at ? String(row.edited_at) : undefined,
       orderId: String(row.order_id),
+      note: row.notes ? String(row.notes) : undefined,
     }));
   },
 

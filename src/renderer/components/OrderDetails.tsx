@@ -26,7 +26,7 @@ export function OrderDetails({ order }: OrderDetailsProps) {
         Order Details
       </div>
       <div className={styles.panelBody}>
-        <Row label="Order ID" value={order.orderId} />
+        <Row label="Order ID" value={order.id} />
         <Row label="Customer" value={order.customerName} />
         {order.customerPhone && <Row label="Phone" value={order.customerPhone} />}
         <Row label="Type" value={order.orderType} />

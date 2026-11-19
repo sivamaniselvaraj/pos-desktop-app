@@ -1,12 +1,12 @@
 import { Fragment, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import type { OrderDetailItem, OrderActivityLogEntry, EditorApproval, OrderDiscountMode, OrderDiscountInfo} from '@shared/types';
+import type { OrderDetailItem, OrderActivityLogEntry, EditorApproval, OrderDiscountMode, OrderDiscountInfo } from '@shared/types';
 import { DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE } from '../../shared/types';
 import { DiscountModal } from './DiscountModal';
 import { ApprovalModal } from './ApprovalModal';
 import styles from '../styles/OrderDetailModal.module.css';
-
 import { displayInvoiceNumber, formatMoney as formatCurrency, formatDateTime, taxLabel } from '../lib/format';
+
 
 function statusLabel(status: string): string {
   if (status === 'open') return 'Active';
@@ -316,7 +316,10 @@ export function OrderDetailModal({
                     <tr className={item.isDeleted ? styles.deletedRow : undefined}>
                       {isEditing && editing && editing.mode === 'remove' ? (
                         <>
-                          <td>{item.name}</td>
+                          <td>
+                            {item.name}
+                            {item.note && <div className={styles.itemNote}>* {item.note}</div>}
+                          </td>
                           <td>{item.quantity}</td>
                           <td>{formatCurrency(item.unitPrice)}</td>
                           <td>{formatCurrency(item.totalPrice)}</td>
@@ -331,7 +334,10 @@ export function OrderDetailModal({
                         </>
                       ) : isEditing && editing ? (
                         <>
-                          <td>{item.name}</td>
+                          <td>
+                            {item.name}
+                            {item.note && <div className={styles.itemNote}>* {item.note}</div>}
+                          </td>
                           <td>
                             <input
                               type="number"
@@ -359,6 +365,7 @@ export function OrderDetailModal({
                             {!item.isDeleted && item.editedAt && (
                               <span className={styles.tag}>edited</span>
                             )}
+                            {item.note && <div className={styles.itemNote}>* {item.note}</div>}
                           </td>
                           <td>{item.quantity}</td>
                           <td>{formatCurrency(item.unitPrice)}</td>

@@ -90,6 +90,15 @@
   text-decoration: line-through;
 }
 
+.itemNote {
+  margin-top: 2px;
+  font-size: 12px;
+  font-style: italic;
+  color: #5b6576;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .groupHeaderRow td {
   background: #f4f4f4;
   font-weight: 600;

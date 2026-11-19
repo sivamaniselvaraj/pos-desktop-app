@@ -381,6 +381,8 @@ export interface OrderDetailItem {
   totalPrice: number;
   isDeleted: boolean;
   editedAt?: string;
+  /** Kitchen note for this dish (order_items.special_instructions), shown under the line in the order detail modal. */
+  note?: string;
   /** Set only when fetched via getTableOrderDetail — which order (round) this item belongs to, for grouping in a multi-order table view. Absent for a single-order fetch. */
   orderId?: string;
   orderNumber?: number;
