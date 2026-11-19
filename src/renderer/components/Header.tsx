@@ -1,6 +1,7 @@
+import { useEffect, useRef, useState } from 'react';
 import { Icon } from './Icon';
 import { useAuth } from '../context/AuthContext';
-import type { ServerStatus, UpdateStatus } from '@shared/types';
+import type { ServerStatus } from '@shared/types';
 import styles from '../styles/Header.module.css';
 
 interface HeaderProps {
@@ -13,13 +14,46 @@ interface HeaderProps {
 /**
  * One slim row: title + version badge + outlet on the left; Server and DB
  * status dots, an info icon (IP, port and status details on hover/focus),
- * a Refresh icon button and the user's name + sign out on the right.
+ * a Refresh icon button and the user's avatar (initials) on the right.
+ * Clicking the avatar opens a menu with name, email, role, outlet and Sign out.
  * A dot is green with no text when all is well, red with a word when down.
  */
+/** Up to two initials from the name (or the email's first letter). */
+function initials(name: string): string {
+  const parts = name
+    .replace(/@.*/, '')
+    .split(/[\s._-]+/)
+    .filter(Boolean);
+  const letters =
+    parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : (parts[0] ?? '?').slice(0, 2);
+  return letters.toUpperCase();
+}
+
 export function Header({ server, version, onRefresh }: HeaderProps) {
   const { user, signOut } = useAuth();
   const online = server?.running ?? false;
   const dbConnected = server?.database === 'connected';
+  const [menuOpen, setMenuOpen] = useState(false);
+  const personaRef = useRef<HTMLDivElement>(null);
+
+  // Close the account menu on a click outside it or on Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (personaRef.current && !personaRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
+
+  const displayName = user ? user.fullName || user.email : '';
 
   return (
     <header className={styles.header}>
@@ -64,33 +98,79 @@ export function Header({ server, version, onRefresh }: HeaderProps) {
               <span>Database</span>
               <strong>{dbConnected ? 'Connected' : 'Disconnected'}</strong>
             </div>
-            {user?.role && (
-              <div className={styles.tipRow}>
-                <span>Signed in as</span>
-                <strong className={styles.role}>{user.role}</strong>
-              </div>
-            )}
             {version && (
               <div className={styles.tipRow}>
                 <span>Version</span>
-                <strong>Beta v{version}</strong>
+                <strong>Beta {version}</strong>
               </div>
             )}
           </div>
         </div>
 
-        <button className={styles.iconBtn} onClick={onRefresh} title="Refresh app" aria-label="Refresh app">
+        <button
+          className={styles.iconBtn}
+          onClick={onRefresh}
+          title="Refresh app"
+          aria-label="Refresh app"
+        >
           <Icon name="retry" size={16} />
         </button>
 
         {user && (
-          <div className={styles.user}>
-            <span className={styles.userInfo}>
-              <span className={styles.userName}>{user.fullName || user.email}</span>
-            </span>
-            <button className={styles.iconBtn} onClick={signOut} title="Sign out" aria-label="Sign out">
-              <Icon name="logout" size={16} />
+          <div className={styles.persona} ref={personaRef}>
+            <button
+              className={`${styles.personaBtn} ${menuOpen ? styles.personaOpen : ''}`}
+              onClick={() => setMenuOpen((o) => !o)}
+              title={displayName}
+              aria-label="Account menu"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+            >
+              <span className={styles.avatar}>{initials(displayName)}</span>
+              <svg
+                className={styles.chevron}
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
             </button>
+            {menuOpen && (
+              <div className={styles.menu} role="menu">
+                <div className={styles.menuHead}>
+                  <span className={`${styles.avatar} ${styles.avatarLg}`}>
+                    {initials(displayName)}
+                  </span>
+                  <div className={styles.menuWho}>
+                    <strong>{displayName}</strong>
+                    {user.fullName && <span className={styles.menuEmail}>{user.email}</span>}
+                    {user.role && <span className={styles.rolePill}>{user.role}</span>}
+                  </div>
+                </div>
+                {user.outletName && (
+                  <div className={styles.menuRow}>
+                    <span>Outlet</span>
+                    <strong>{user.outletName}</strong>
+                  </div>
+                )}
+                <button
+                  className={styles.signOut}
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void signOut();
+                  }}
+                >
+                  <Icon name="logout" size={16} />
+                  Sign out
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -139,10 +139,6 @@
   opacity: 0.7;
 }
 
-.role {
-  text-transform: capitalize;
-}
-
 .iconBtn {
   display: flex;
   align-items: center;
@@ -161,23 +157,138 @@
   color: var(--brand);
 }
 
-.user {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* Account: initials avatar; click opens the menu (name, email, role, outlet, Sign out). */
+.persona {
+  position: relative;
   padding-left: 10px;
   border-left: 1px solid var(--border);
 }
 
-.userName {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--dark);
-  white-space: nowrap;
+.personaBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px 3px 3px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: #fff;
+  cursor: pointer;
+  color: var(--gray);
 }
 
-.user .iconBtn:hover {
-  border-color: var(--danger);
+.personaBtn:hover,
+.personaOpen {
+  background: var(--light);
+  border-color: var(--border);
+}
+
+.chevron {
+  transition: transform 0.15s;
+}
+
+.personaOpen .chevron {
+  transform: rotate(180deg);
+}
+
+.avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: var(--on-brand);
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.avatarLg {
+  width: 40px;
+  height: 40px;
+  font-size: 15px;
+}
+
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 60;
+  width: 260px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+.menuHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+}
+
+.menuWho {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.menuWho strong {
+  font-size: 14px;
+  color: var(--dark);
+}
+
+.menuEmail {
+  font-size: 12px;
+  color: var(--gray);
+  overflow-wrap: anywhere;
+}
+
+.rolePill {
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand-text);
+  text-transform: capitalize;
+}
+
+.menuRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.menuRow span {
+  color: var(--gray);
+}
+
+.signOut {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: #fff;
   color: var(--danger);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.signOut:hover,
+.signOut:focus-visible {
   background: #fef2f2;
 }
