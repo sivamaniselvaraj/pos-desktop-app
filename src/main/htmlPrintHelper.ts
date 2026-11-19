@@ -58,6 +58,7 @@ const CSS = `
   td { vertical-align: top; padding: 1px 0; }
   th.n, td.n { text-align: right; white-space: nowrap; padding-left: 4px; }
   .note { padding-left: 8px; font-style: italic; }
+  .kotnote { padding-left: 0; font-size: 13px; font-weight: 700; word-break: break-word; }
   .kotq { width: 11mm; font-weight: 800; font-size: 15px; }
   .kotn { font-size: 14px; font-weight: 700; }
   .gTotal { font-size: 16px; font-weight: 700; }
@@ -184,9 +185,9 @@ export function renderKotHtml(order: FoodOrder): string {
     .map((item) => {
       totalQty += item.quantity;
       const note = item.specialInstructions
-        ? `<div class="note">* ${esc(item.specialInstructions)}</div>`
+        ? `<div class="kotnote">* ${esc(item.specialInstructions)}</div>`
         : '';
-      return `<tr><td class="kotn">${item.name}</td><td class="kotq">${esc(item.quantity)}${note}</td></tr>`;
+      return `<tr><td class="kotn">${esc(item.name)}${note}</td><td class="kotq">${item.quantity}</td></tr>`;
     })
     .join('');
   out.push(`<table><thead><tr><th>Item</th><th>Qty</th></tr></thead><tbody>${rows}</tbody></table>`);
@@ -378,6 +379,9 @@ async function renderAndPrint(win: BrowserWindow, html: string, name: string): P
         deviceName: name,
         printBackground: true,
         color: false, // thermal printers are black and white
+        // Always portrait: some drivers default to landscape, which turns the
+        // 72 mm page sideways (2026-11-12).
+        landscape: false,
         margins: { marginType: 'none' },
         pageSize: { width: PAPER_MM * 1000, height: heightMicrons },
       },

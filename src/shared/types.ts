@@ -572,6 +572,8 @@ export interface SaveMenuItemPayload {
 export interface PlaceOrderLine {
   menuItemId: string;
   quantity: number;
+  /** Kitchen note for this line ("no onion"); printed under the dish on the KOT. */
+  note?: string;
   /** Re-read from the menu cache in the main process; the renderer's value is not trusted. */
   containerPercent?: number;
 }

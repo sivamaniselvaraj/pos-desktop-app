@@ -19,11 +19,9 @@ function mapItem(row: Record<string, unknown>): OrderItem {
     name: menuItemRaw ? String(mapMenuItem(menuItemRaw).name) : 'Item',
     quantity: Number(row.quantity ?? row.qty ?? 1),
     unitPrice: Number(row.price ?? row.unit_price ?? 0),
-    specialInstructions: row.special_instructions
-      ? String(row.special_instructions)
-      : row.notes
+    specialInstructions: row.notes
         ? String(row.notes)
-        : undefined,
+        : '',
     kotPrinted: row.kot_printed === true,
     kotPrintedAt: row.kot_printed_at != null ? String(row.kot_printed_at) : undefined,
   };
@@ -99,7 +97,7 @@ function mapRow(row: Record<string, unknown>): FoodOrder {
     status: row.status != null ? String(row.status) : undefined,
     isPrinted: row.is_printed === true,
     billPrintedAt: row.printed_at != null ? String(row.printed_at) : undefined,
-    placedBy: row.placed_by_name ? String(row.placed_by_name) : undefined,
+    placedBy: row.placed_by_name ? String(row.placed_by_name) : '',
     invoiceNumber: row.invoice_number ? String(row.invoice_number) : undefined,
     isRunningOrder: row.is_running_order === true,
   };

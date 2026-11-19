@@ -36,8 +36,8 @@ as $$
 select to_jsonb(o)
   || jsonb_build_object('table_number', tbls.table_number)
   -- table_floor: picks the floor's printers (Settings > Printers, docs/PRINTERS.md).
-  || jsonb_build_object('table_floor', tbls.floor)
-  || jsonb_build_object('placed_by_name', wp.full_name)
+  || jsonb_build_object('table_floor', tbls.floor_area)
+  || jsonb_build_object('placed_by_name', wp.first_name)
   -- is_running_order: a dine-in order that is not the first round of its table, i.e. an earlier,
   -- not cancelled order exists on the same invoice (or, for an old order with no invoice number,
   -- an earlier open order on the same table). The KOT prints "RUNNING ORDER" for it.
@@ -66,7 +66,7 @@ select to_jsonb(o)
       (
         select jsonb_agg(
           (select to_jsonb(item_cols) from
-            (select oi.id, oi.status, oi.quantity, oi.unit_price, oi.total_price, mi.name)
+            (select oi.id, oi.status, oi.quantity, oi.unit_price, oi.total_price, mi.name, oi.notes)
             item_cols
           )
         )
@@ -2282,7 +2282,7 @@ begin
         and status <> 'cancelled'
         and (status <> 'completed' or payment_details is null)
     ) then
-      update tables set state = 'open' where id = v_table_id;
+      update tables set status = 'available' where id = v_table_id;
     end if;
   else
     update orders set payment_details = v_payment where id = p_order_id;
@@ -2495,7 +2495,7 @@ as $$
     group by u.table_id, coalesce(u.invoice_number, '')
   )
   select
-    t.id, t.table_number::text, t.state,
+    t.id, t.table_number::text, t.status,
     b.order_ids, b.order_numbers, b.invoice_number, b.order_status,
     b.order_created_at, b.order_total_amount, b.payment_recorded, b.order_discount_amount
   from tables t
@@ -2844,6 +2844,10 @@ revoke all on function assert_order_items_valid(jsonb, uuid) from public, anon, 
 -- status: the code of the outlet's initial KOT step (kot_statuses.is_initial,
 -- at most one per outlet), read once per call; 'new' when the outlet has no
 -- initial step.
+-- special_instructions: the line's optional kitchen note (item key "note",
+-- e.g. "no onion"), line breaks turned into spaces, trimmed and cut to 200
+-- characters; printed under the dish
+-- on the KOT. Older apps send no "note", so the column stays null.
 create or replace function insert_order_items(p_order_id uuid, p_outlet_id uuid, p_items jsonb)
 returns void
 language sql
@@ -2851,7 +2855,7 @@ security definer
 set search_path = public
 as $$
   insert into order_items (order_id, menu_item_id, unit_price, total_price, quantity, tax_rate_percent, tax_name, price_includes_tax,
-                           incentive_type, incentive_value, status)
+                           incentive_type, incentive_value, status, special_instructions)
   select p_order_id,
          x.menu_item_id,
          x.unit_price,
@@ -2863,10 +2867,12 @@ as $$
          case when coalesce(mi.incentive_applicable, false) then mi.incentive_type end,
          case when coalesce(mi.incentive_applicable, false) then mi.incentive_value end,
          coalesce((select ks.code from kot_statuses ks
-                    where ks.outlet_id = p_outlet_id and ks.is_initial), 'new')
+                    where ks.outlet_id = p_outlet_id and ks.is_initial), 'new'),
+         x.note
     from (select nullif(it->>'menu_item_id', '')::uuid as menu_item_id,
                  (it->>'unit_price')::numeric as unit_price,
-                 (it->>'quantity')::int as quantity
+                 (it->>'quantity')::int as quantity,
+                 nullif(left(btrim(regexp_replace(coalesce(it->>'note', ''), '[[:cntrl:]]+', ' ', 'g')), 200), '') as note
             from jsonb_array_elements(p_items) it) x
     left join menu_items mi on mi.id = x.menu_item_id
     cross join lateral tax_rate_for(p_outlet_id, mi.category_id, now()) tr;
@@ -4241,7 +4247,8 @@ grant execute on function device_owner_status(uuid[]) to authenticated;
 -- items that are switched off are refused. p_client_request_id makes a retry of
 -- the same request safe: it returns the order already created instead of a
 -- second one.
--- p_items: [{ "menu_item_id": uuid, "quantity": 1..99 }]
+-- p_items: [{ "menu_item_id": uuid, "quantity": 1..99, "note": optional text }]
+-- ("note" is the line's kitchen note, printed under the dish on the KOT)
 -- p_order_type: 'dine-in' (needs p_table_id) or 'pickup'.
 -- Returns { order_id, order_number, duplicate }.
 drop function if exists place_order_as(uuid, text, uuid, jsonb, text, text, text, text, text);
@@ -4307,7 +4314,8 @@ begin
 
   -- Prices from the menu; refuse items that are off or not on this menu.
   select jsonb_agg(jsonb_build_object(
-           'menu_item_id', mi.id, 'quantity', (it->>'quantity')::int, 'unit_price', mi.price))
+           'menu_item_id', mi.id, 'quantity', (it->>'quantity')::int, 'unit_price', mi.price,
+           'note', it->>'note'))
     into v_priced
     from jsonb_array_elements(p_items) it
     join menu_items mi on mi.id = (it->>'menu_item_id')::uuid and mi.outlet_id = v_outlet

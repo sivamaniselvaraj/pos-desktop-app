@@ -3,6 +3,7 @@ import { getCachedMenuItems } from './menuCache';
 import { config } from './config';
 import { setOrderDiscount } from './ordersListManager';
 import { applyDiscount, computeTotals, type PricedLine } from '../shared/orderTotals';
+import { cleanItemNote } from '../shared/itemNote';
 import type { PlaceOrderPayload, PlaceOrderResult, TaxRates } from '../shared/types';
 import {
   DINE_IN_ORDER_TYPE,
@@ -65,6 +66,7 @@ export async function placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrder
       unitPrice: unit,
       totalPrice: Math.round(unit * qty * 100) / 100,
       quantity: qty,
+      note: cleanItemNote(l.note),
     });
   }
 

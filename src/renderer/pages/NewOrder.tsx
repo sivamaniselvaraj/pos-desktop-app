@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Toast, type ToastMessage } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import { applyDiscount, computeTotals, type NewOrderDiscount } from '@shared/orderTotals';
+import { ITEM_NOTE_MAX } from '@shared/itemNote';
 import { DiscountModal } from '../components/DiscountModal';
 import { useAuth } from '../context/AuthContext';
 import type {
@@ -166,6 +167,9 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
   const [veg, setVeg] = useState<VegFilter>('all');
   const [category, setCategory] = useState('All');
   const [cart, setCart] = useState<Record<string, number>>({});
+  // Kitchen note per cart line (menu item id -> text), printed under the dish on the KOT.
+  // A key with '' means the note box is open but empty.
+  const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [notes, setNotes] = useState('');
@@ -277,9 +281,9 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
   const cartLines = useMemo(
     () =>
       Object.entries(cart)
-        .map(([id, qty]) => ({ item: byId.get(id), qty }))
-        .filter((l): l is { item: MenuEntry; qty: number } => !!l.item && l.qty > 0),
-    [cart, byId],
+        .map(([id, qty]) => ({ item: byId.get(id), qty , note: (itemNotes[id] ?? '').trim()}))
+        .filter((l): l is { item: MenuEntry; qty: number; note: string } => !!l.item && l.qty > 0),
+    [cart, byId, itemNotes],
   );
 
   const totals = useMemo(
@@ -298,6 +302,18 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
     [cartLines, tax, orderType],
   );
 
+    // Customer and discount share one row of icon buttons in the cart (docs/NEW_ORDER_DISCOUNT.md).
+  const showCustomerBtn = orderType === PICK_UP_ORDER_TYPE || orderType === DINE_IN_ORDER_TYPE;
+  const showDiscountBtn = canDiscount && cartLines.length > 0;
+  const customerSummary = customerName.trim() || customerPhone.trim() || (notes.trim() ? 'Note' : '');
+  const discountSummary = !discount
+    ? ''
+    : discount.mode === 'complimentary'
+      ? 'Complimentary'
+      : discount.mode === 'percent'
+        ? `${discount.value}% off`
+        : `${money(Number(discount.value))} off`;
+        
   // With the chosen discount: the figures the database will save (estimate on screen).
   const shown = useMemo(() => applyDiscount(totals, discount), [totals, discount]);
 
@@ -311,22 +327,33 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
     return [...m.entries()];
   }, [tables]);
 
-  const setQty = (id: string, qty: number) =>
+  /** Sets a line's kitchen note; undefined closes the note box. */
+  const setNote = (id: string, text: string | undefined) =>
+    setItemNotes((n) => {
+      const next = { ...n };
+      if (text === undefined) delete next[id];
+      else next[id] = text.slice(0, ITEM_NOTE_MAX);
+      return next;
+    });
+  const setQty = (id: string, qty: number) => {
     setCart((c) => {
       const next = { ...c };
       if (qty <= 0) delete next[id];
       else next[id] = Math.min(MAX_QTY, qty);
       return next;
     });
+    if (qty <= 0) setNote(id, undefined);
+  };
 
   /** A tap on a menu card adds one (up to the limit). */
   const addOne = (id: string) =>
-  setCart((c) => ({ ...c, [id]: Math.min(MAX_QTY, (c[id] ?? 0) + 1) }));
+    setCart((c) => ({ ...c, [id]: Math.min(MAX_QTY, (c[id] ?? 0) + 1) }));
 
   const canPlace = cartLines.length > 0 && (orderType === 'pickup' || orderType === PICK_UP_ORDER_TYPE || !!selectedTable) && !placing;
 
   function resetForm() {
     setCart({});
+    setItemNotes({});
     setCustomerName('');
     setCustomerPhone('');
     setNotes('');
@@ -344,7 +371,7 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
         placedBy: String(user?.id),
         orderType: orderType,
         tableId: orderType === DINE_IN_ORDER_TYPE ? (tableId ?? undefined) : undefined,
-        items: cartLines.map((l) => ({ menuItemId: l.item.id, quantity: l.qty })),
+        items: cartLines.map((l) => ({ menuItemId: l.item.id, quantity: l.qty, ...(l.note ? { note: l.note } : {}) })),
         customerName,
         customerPhone,
         notes,
@@ -450,7 +477,7 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
                         : running
                           ? 'Running'
                           : t.capacity
-                            ? `Free · ${t.capacity}`
+                            ? `Free · ${t.capacity} seats`
                             : 'Free';
                       return (
                         <button
@@ -553,7 +580,7 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
                 : 'Takeaway · new invoice'}
             </div>
           </div>
-          <button type="button" className={styles.clear} onClick={() => setCart({})} disabled={cartLines.length === 0}>
+          <button type="button" className={styles.clear} onClick={() => {setCart({}); setItemNotes({});}} disabled={cartLines.length === 0}>
             <Icon name="trash" size={14} /> Clear
           </button>
         </div>
@@ -564,56 +591,84 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
         <div className={styles.lines}>
           {cartLines.length === 0 && <div className={styles.emptyCart}>No items yet. Tap a menu item to add it.</div>}
           {cartLines.map(({ item, qty }) => (
-            <div key={item.id} className={styles.line}>
-              <div className={styles.nm}>
-                {item.name}
-                <i>{money(item.price)} each</i>
+            <div key={item.id} className={styles.lineWrap}>
+              <div className={styles.line}>
+                <div className={styles.nm}>
+                  {item.name}
+                  <i>{money(item.price)} each</i>
+                </div>
+                <Stepper qty={qty} name={item.name} onSet={(n) => setQty(item.id, n)} />
+                <div className={styles.tot}>{money(item.price * qty)}</div>
+                <button type="button" className={styles.rm} onClick={() => setQty(item.id, 0)} aria-label={`Remove ${item.name}`}>
+                  <Icon name="cancel" size={14} />
+                </button>
               </div>
-              <Stepper qty={qty} name={item.name} onSet={(n) => setQty(item.id, n)} />
-              <div className={styles.tot}>{money(item.price * qty)}</div>
-              <button type="button" className={styles.rm} onClick={() => setQty(item.id, 0)} aria-label={`Remove ${item.name}`}>
-                <Icon name="cancel" size={14} />
-              </button>
+              {itemNotes[item.id] === undefined ? (
+                <button type="button" className={styles.addNote} onClick={() => setNote(item.id, '')}>
+                  + Kitchen note
+                </button>
+              ) : (
+                <input
+                  className={styles.lineNote}
+                  value={itemNotes[item.id]}
+                  maxLength={ITEM_NOTE_MAX}
+                  autoFocus={itemNotes[item.id] === ''}
+                  placeholder="Kitchen note, e.g. no onion"
+                  aria-label={`Kitchen note for ${item.name}`}
+                  onChange={(e) => setNote(item.id, e.target.value)}
+                  onBlur={(e) => {
+                    if (!e.target.value.trim()) setNote(item.id, undefined);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur();
+                  }}
+                />
+              )}
             </div>
           ))}
         </div>
 
         <div className={styles.foot}>
-          {(orderType === DINE_IN_ORDER_TYPE  || orderType === PICK_UP_ORDER_TYPE) && (
+          {(showCustomerBtn || showDiscountBtn) && (
             <div className={styles.details}>
-              <button
-                type="button"
-                className={styles.detailsToggle}
-                onClick={() => setShowDetails((v) => !v)}
-                aria-expanded={showDetails}
-              >
-                <span className={`${styles.chev} ${showDetails ? styles.chevOpen : ''}`}>▸</span>
-                <span>Customer details</span>
-                <span className={styles.optional}>
-                  {!showDetails && (customerName || customerPhone || notes)
-                    ? [customerName, customerPhone, notes && 'note'].filter(Boolean).join(' · ')
-                    : 'optional'}
-                </span>
-              </button>
-              {showDetails && (
+              <div className={styles.iconRow}>
+                {showCustomerBtn && (
+                  <button
+                    type="button"
+                    className={`${styles.iconBtn} ${showDetails ? styles.iconBtnOpen : ''} ${customerSummary ? styles.iconBtnSet : ''}`}
+                    onClick={() => setShowDetails((v) => !v)}
+                    aria-expanded={showDetails}
+                    aria-label={customerSummary ? `Customer details (optional): ${customerSummary}` : 'Customer details (optional)'}
+                    title={customerSummary ? `Customer details (optional): ${customerSummary}` : 'Customer details (optional)'}
+                  >
+                    <Icon name="user" size={18} />
+                    {customerSummary && <span className={styles.iconBtnValue}>{customerSummary}</span>}
+                    <span className={`${styles.caret} ${showDetails ? styles.caretOpen : ''}`} aria-hidden="true">▾</span>
+                  </button>
+                )}
+                {showDiscountBtn && (
+                  <button
+                    type="button"
+                    className={`${styles.iconBtn} ${discount ? styles.iconBtnSet : ''}`}
+                    onClick={() => setDiscountOpen(true)}
+                    aria-haspopup="dialog"
+                    aria-label={discountSummary ? `Discount / Complimentary: ${discountSummary} · ${discount?.reason}` : 'Discount / Complimentary'}
+                    title={discountSummary ? `Discount / Complimentary: ${discountSummary} · ${discount?.reason}` : 'Discount / Complimentary'}
+                  >
+                    <span className={styles.pct} aria-hidden="true">%</span>
+                    {discountSummary && <span className={styles.iconBtnValue}>{discountSummary}</span>}
+                    <span className={styles.caret} aria-hidden="true">▾</span>
+                  </button>
+                )}
+              </div>
+              {showCustomerBtn && showDetails && (
                 <div className={styles.cust}>
                   <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Customer name" />
                   <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="Phone" inputMode="tel" />
                   <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Note" />
                 </div>
               )}
-              </div>
-          )}
-          {canDiscount && cartLines.length > 0 && (
-            <button type="button" className={styles.discountBtn} onClick={() => setDiscountOpen(true)}>
-              <span>{discount ? 'Change discount' : 'Discount / Complimentary'}</span>
-              {discount && (
-                <span className={styles.optional}>
-                  {discount.mode === 'complimentary' ? 'Complimentary' : discount.mode === 'percent' ? `${discount.value}% off` : `${money(Number(discount.value))} off`}
-                  {` · ${discount.reason}`}
-                </span>
-              )}
-            </button>
+            </div>
           )}
           <div className={styles.sum}>
             <span>Subtotal</span>

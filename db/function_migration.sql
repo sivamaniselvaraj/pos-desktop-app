@@ -761,7 +761,7 @@ security definer
 set search_path = public
 as $$
     insert into order_items (order_id, menu_item_id, unit_price, total_price, quantity, tax_rate_percent, tax_name, price_includes_tax,
-                           incentive_type, incentive_value, status)
+                           incentive_type, incentive_value, status, notes)
   select p_order_id,
          x.menu_item_id,
          x.unit_price,
@@ -773,10 +773,12 @@ as $$
          case when coalesce(mi.incentive_applicable, false) then mi.incentive_type end,
          case when coalesce(mi.incentive_applicable, false) then mi.incentive_value end,
          coalesce((select ks.code from kot_statuses ks
-                    where ks.outlet_id = p_outlet_id and ks.is_initial), 'new')
+                    where ks.outlet_id = p_outlet_id and ks.is_initial), 'new'),
+         x.notes
     from (select nullif(it->>'menu_item_id', '')::uuid as menu_item_id,
                  (it->>'unit_price')::numeric as unit_price,
-                 (it->>'quantity')::int as quantity
+                 (it->>'quantity')::int as quantity,
+                 nullif(left(btrim(coalesce(it->>'note', '')), 200), '') as notes
             from jsonb_array_elements(p_items) it) x
     left join menu_items mi on mi.id = x.menu_item_id
     cross join lateral tax_rate_for(p_outlet_id, mi.category_id, now()) tr;
@@ -4031,6 +4033,8 @@ set search_path = public
 as $$
 select to_jsonb(o)
   || jsonb_build_object('table_number', tbls.table_number)
+  -- table_floor: picks the floor's printers (Settings > Printers, docs/PRINTERS.md).
+  || jsonb_build_object('table_floor', tbls.floor_area)
   || jsonb_build_object('placed_by_name', wp.first_name)
   || jsonb_build_object(
     'outlet',
@@ -4042,7 +4046,7 @@ select to_jsonb(o)
       (
         select jsonb_agg(
           (select to_jsonb(item_cols) from
-            (select oi.id, oi.status, oi.quantity, oi.unit_price, oi.total_price, mi.name)
+            (select oi.id, oi.status, oi.quantity, oi.unit_price, oi.total_price, mi.name, oi.notes)
             item_cols
           )
         )

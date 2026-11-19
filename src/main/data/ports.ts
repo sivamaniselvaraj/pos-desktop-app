@@ -214,6 +214,8 @@ export interface NewOrderLine {
   unitPrice: number;
   totalPrice: number;
   quantity: number;
+  /** Kitchen note for the line (order_items.special_instructions), printed on the KOT. */
+  note?: string;
 }
 
 export interface OrderEntryRepository {
