@@ -60,8 +60,7 @@ begin
     select o.invoice_number into v_existing
     from orders o
     where o.table_id = new.table_id
-      and o.status <> 'cancelled'
-      and not (o.status = 'completed' and o.payment_details is not null)
+      and o.status not in ('cancelled', 'completed')
       and o.invoice_number is not null
     order by o.created_at asc
     limit 1;
@@ -259,63 +258,6 @@ end;
 $$;
 
 grant execute on function get_my_access() to authenticated;
-
--- ============================================================================
--- list_tables_for_outlet() / create_table(): backs the Dashboard table-cards
--- view (src/renderer/pages/Dashboard.tsx)
--- ============================================================================
-
-create or replace function list_tables_for_outlet()
-returns table (
-  table_id uuid,
-  table_number text,
-  table_state text,
-  order_ids uuid[],
-  order_numbers text[],
-  invoice_number text,
-  order_status text,
-  order_created_at timestamptz,
-  order_total_amount numeric,
-  payment_recorded boolean
-)
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select
-    t.id as table_id,
-    t.table_number::text as table_number,
-    t.status as table_state,
-    batch.order_ids,
-    batch.order_numbers,
-    batch.invoice_number,
-    batch.order_status,
-    batch.order_created_at,
-    batch.order_total_amount,
-    batch.payment_recorded
-  from tables t
-  join profiles p on p.user_id = auth.uid()
-  left join lateral (
-    select
-      array_agg(ord.id) as order_ids,
-      array_agg(ord.order_number order by ord.order_number) as order_numbers,
-      max(ord.invoice_number) as invoice_number, -- one per sitting (assign_invoice_number() reuses it)
-      case when bool_or(ord.status <> 'completed') then 'open' else 'completed' end as order_status,
-      min(ord.created_at) as order_created_at,
-      sum(ord.total_amount) as order_total_amount,
-      bool_and(ord.payment_details is not null) as payment_recorded
-    from orders ord
-    where ord.table_id = t.id
-      and ord.status <> 'cancelled'
-      and not (ord.status = 'completed' and ord.payment_details is not null)
-  ) batch on batch.order_ids is not null
-  where has_permission('dashboard.view')
-    and t.outlet_id = p.outlet_id
-  order by t.table_number;
-$$;
-
-grant execute on function list_tables_for_outlet() to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- live_order_table_ids(): ids of this outlet's tables that currently carry a
@@ -5476,3 +5418,71 @@ begin
 end;
 $$;
 grant execute on function import_menu_items(jsonb, text) to authenticated;
+
+
+-- ---------------------------------------------------------------------------
+-- list_table_bills_for_outlet(): Dashboard tiles, one row per BILL (2026-11-18,
+-- docs/TABLE_BILLS.md). A table can carry a running bill and bills waiting for
+-- payment (a printed bill never takes new rounds, assign_invoice_number()), so
+-- each unpaid invoice of a table is its own row; a free table gives one row
+-- with no bill. Same columns as list_tables_for_outlet(), which stays for
+-- older app builds.
+-- ---------------------------------------------------------------------------
+create or replace function list_table_bills_for_outlet()
+returns table (
+  table_id uuid,
+  table_number text,
+  table_state text,
+  order_ids uuid[],
+  order_numbers text[],
+  invoice_number text,
+  order_status text,
+  order_created_at timestamptz,
+  order_total_amount numeric,
+  payment_recorded boolean,
+  order_discount_amount numeric
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with me as (
+    select p.outlet_id from profiles p
+     where p.user_id = auth.uid() and has_permission('dashboard.view')
+  ),
+  unpaid as (
+    select ord.*
+      from orders ord
+      join tables t on t.id = ord.table_id
+      join me on me.outlet_id = t.outlet_id
+     where ord.status <> 'cancelled'
+       and not (ord.status = 'completed' and ord.payment_details is not null)
+  ),
+  bills as (
+    select
+      u.table_id,
+      array_agg(u.id order by u.order_number) as order_ids,
+      array_agg(u.order_number order by u.order_number) as order_numbers,
+      max(u.invoice_number) as invoice_number,
+      case when bool_or(u.status <> 'completed') then 'available' else 'completed' end as order_status,
+      min(u.created_at) as order_created_at,
+      sum(u.total_amount) as order_total_amount,
+      bool_and(u.payment_details is not null) as payment_recorded,
+      sum(coalesce(u.discount_amount, 0)) as order_discount_amount
+    from unpaid u
+    -- An old order without an invoice number groups with the others of its table.
+    group by u.table_id, coalesce(u.invoice_number, '')
+  )
+  select
+    t.id, t.table_number::text, t.status,
+    b.order_ids, b.order_numbers, b.invoice_number, b.order_status,
+    b.order_created_at, b.order_total_amount, b.payment_recorded, b.order_discount_amount
+  from tables t
+  join me on me.outlet_id = t.outlet_id
+  left join bills b on b.table_id = t.id
+  -- Within a table: bills waiting for payment first (oldest first), the running bill last.
+  order by t.table_number, (b.order_status = 'available') nulls first, b.order_created_at;
+$$;
+
+grant execute on function list_table_bills_for_outlet() to authenticated;

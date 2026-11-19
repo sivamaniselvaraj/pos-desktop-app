@@ -18,7 +18,7 @@ import {
   PICK_UP_ORDER_TYPE,
 } from '@shared/types';
 import styles from '../styles/TableDashboard.module.css';
-import { formatMoney as formatCurrency } from '../lib/format';
+import { formatMoney as formatCurrency, displayInvoiceNumber } from '../lib/format';
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'card', label: 'Card' },
@@ -57,6 +57,11 @@ function elapsedMinutes(createdAt: string | undefined, now: number): number | nu
  * `onAddItems` opens New order for a table; `onNewTakeaway` opens a fresh New order
  * (Pickup). The caller passes them only when the user may place orders.
  */
+/** One tile per bill: a table can show a printed bill and a running bill (docs/TABLE_BILLS.md). */
+function cardKey(t: TableCard): string {
+  return `${t.tableId}:${t.invoiceNumber ?? t.orderId ?? ''}`;
+}
+
 export function Dashboard({
   onAddItems,
   onNewTakeaway,
@@ -149,7 +154,7 @@ export function Dashboard({
   async function handlePrint(table: TableCard) {
     if (!table.tableId) return;
     try {
-      setBusyTableId(table.tableId);
+      setBusyTableId(cardKey(table));
       if (table.cardStatus === 'active') {
       // Grouped reprint: pulls in every order still in this table's batch
       // (all rounds settled together) so a reprint after grouping still
@@ -212,7 +217,14 @@ export function Dashboard({
         cardAmount: paymentMethod === 'part-payment' ? Number(cardAmount) || 0 : undefined,
         upiAmount: paymentMethod === 'part-payment' ? Number(upiAmount) || 0 : undefined,
       });
-      flash('success', `Payment recorded for Table ${payingTable.tableNumber} — table released`);
+      const otherBills = tables.some((t) => t.tableId === payingTable.tableId && cardKey(t) !== cardKey(payingTable));
+      flash(
+        'success',
+        otherBills
+          ? `Payment recorded for Table ${payingTable.tableNumber} — its other bill is still open`
+          : `Payment recorded for Table ${payingTable.tableNumber} — table released`,
+      );
+      //flash('success', `Payment recorded for Table ${payingTable.tableNumber} — table released`);
       closePaymentDialog();
       await load();
     } catch (err) {
@@ -301,8 +313,7 @@ export function Dashboard({
 
   async function refreshView() {
     if (!viewInvoiceNumber) return;
-    await fetchView(viewInvoiceNumber);
-    await load();
+    await Promise.all([fetchView(viewInvoiceNumber), load(true)]);
   }
 
   // Write errors (e.g. wrong editor credentials) propagate to ApprovalModal;
@@ -363,14 +374,25 @@ export function Dashboard({
         : tables.filter((t) => tableMeta[t.tableId]?.floor === activeFloor),
     [tables, tableMeta, activeFloor],
   );
+  // A table can have two tiles: a printed bill waiting for payment and a running
+  // bill (docs/TABLE_BILLS.md). Footer stats count tables, not tiles.
+  const billCount = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of tables) m.set(t.tableId, (m.get(t.tableId) ?? 0) + 1);
+    return m;
+  }, [tables]);
+  const runningTableIds = useMemo(
+    () => new Set(tables.filter((t) => t.cardStatus === 'active').map((t) => t.tableId)),
+    [tables],
+  );
   // Footer stats for the visible floor.
-  const occupiedCount = visibleTables.filter((t) => t.cardStatus !== 'available').length;
-  const totalSeats = visibleTables.reduce((n, t) => n + (tableMeta[t.tableId]?.capacity ?? 0), 0);
-  const takenSeats = visibleTables
-    .filter((t) => t.cardStatus !== 'available')
-    .reduce((n, t) => n + (tableMeta[t.tableId]?.capacity ?? 0), 0);
-  const occupancyPct = visibleTables.length
-    ? Math.round((occupiedCount / visibleTables.length) * 100)
+  const visibleTableIds = Array.from(new Set(visibleTables.map((t) => t.tableId)));
+  const takenTableIds = new Set(visibleTables.filter((t) => t.cardStatus !== 'available').map((t) => t.tableId));
+  const occupiedCount = takenTableIds.size;
+  const totalSeats = visibleTableIds.reduce((n, id) => n + (tableMeta[id]?.capacity ?? 0), 0);
+  const takenSeats = Array.from(takenTableIds).reduce((n, id) => n + (tableMeta[id]?.capacity ?? 0), 0);
+  const occupancyPct = visibleTableIds.length
+    ? Math.round((occupiedCount / visibleTableIds.length) * 100)
     : 0;
 
   function statusOf(t: TableCard): { key: string; label: string } {
@@ -414,19 +436,18 @@ export function Dashboard({
             </div>
           ) : (
             <div>
-              <h2>Dining</h2>
-                <div className={styles.actionButtons}>
-                  <button className={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing}>
-                    <Icon name="refresh" size={16} />
-                    {refreshing ? 'Refreshing…' : 'Refresh Tables'}
-                  </button>
-                  {can('tables.manage') && (
-                  <button className={styles.addBtn} onClick={openAddTable}>
-                    <Icon name="plus" size={16} />
-                    Add Table
-                  </button>
-                  )}
-                </div>
+              <div className={styles.actionButtons}>
+                <button className={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing}>
+                  <Icon name="refresh" size={16} />
+                  {refreshing ? 'Refreshing…' : 'Refresh Tables'}
+                </button>
+                {can('tables.manage') && (
+                <button className={styles.addBtn} onClick={openAddTable}>
+                  <Icon name="plus" size={16} />
+                  Add Table
+                </button>
+                )}
+              </div>
             </div>
           )}
           {!showTakeaway && can('tables.manage') && (
@@ -528,7 +549,7 @@ export function Dashboard({
               const cap = tableMeta[table.tableId]?.capacity ?? 0;
               return (
                 <div
-                  key={table.tableId}
+                  key={table.invoiceNumber}
                   className={`${styles.card} ${styles[st.key] ?? ''}`}
                 >
                   <span className={styles.accent} />
@@ -550,6 +571,10 @@ export function Dashboard({
                     <div className={styles.cardStatus}>{st.label}</div>
                     {table.cardStatus !== 'available' && (
                       <div className={styles.cardTime}>
+                        {(billCount.get(table.tableId) ?? 0) > 1 && table.invoiceNumber
+                          ? `Bill ${displayInvoiceNumber(table.invoiceNumber)} · `
+                          : ''}
+                         [{table.orderNumbers?.join(',')}] · 
                         {startedAt(table.orderCreatedAt)}
                         {mins !== null ? ` · ${mins} min` : ''}
                       </div>
@@ -609,7 +634,7 @@ export function Dashboard({
 
         <div className={styles.footer}>
           <span>
-            <b>{occupiedCount}</b> / {visibleTables.length} tables occupied
+            <b>{occupiedCount}</b> / {visibleTableIds.length} tables occupied
           </span>
           {totalSeats > 0 && (
             <span>

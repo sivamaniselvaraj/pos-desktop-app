@@ -2193,13 +2193,22 @@ grant execute on function complete_invoice(text) to authenticated;
 -- above already applies. If a straggler exists, payment for the settled
 -- batch is still recorded (that money IS accounted for), the table just
 -- stays locked until the straggler is itself settled and paid too.
+--
+-- ONE BILL (2026-11-18, docs/TABLE_BILLS.md): a table can carry several
+-- printed bills (invoices). With p_invoice_number only that bill is paid and
+-- the part-payment check uses its total; without it (older app builds) every
+-- printed, unpaid bill of the table is paid together as before. The table is
+-- freed only when no round is open AND no bill is left unpaid.
 -- ---------------------------------------------------------------------------
+drop function if exists save_order_payment(uuid, text, numeric, numeric, numeric);
+
 create or replace function save_order_payment(
   p_order_id uuid,
   p_method text, -- 'card' | 'cash' | 'upi' | 'part-payment'
   p_cash_amount numeric default null,
   p_card_amount numeric default null,
-  p_upi_amount numeric default null
+  p_upi_amount numeric default null,
+  p_invoice_number text default null
 )
 returns void
 language plpgsql
@@ -2208,21 +2217,25 @@ set search_path = public
 as $$
 declare
   v_table_id uuid;
+  v_outlet uuid;
+  v_invoice text := nullif(btrim(p_invoice_number), '');
   v_total numeric;
   v_sum numeric;
   v_recorded_at timestamptz := now();
+  v_payment jsonb;
 begin
   if p_method not in ('card', 'cash', 'upi', 'part-payment') then
     raise exception 'Invalid payment method: %', p_method;
   end if;
 
-  select o.table_id into v_table_id
+  select o.table_id, o.outlet_id into v_table_id, v_outlet
   from orders o
   join profiles p on p.user_id = auth.uid()
   where o.id = p_order_id
     and has_permission('orders.complete')
     and p.outlet_id = o.outlet_id
-    and o.status = 'completed';
+    and o.status = 'completed'
+    and (v_invoice is null or o.invoice_number = v_invoice);
 
   if not found then
     raise exception 'Not authorized, order not found, or order is not completed yet';
@@ -2233,7 +2246,8 @@ begin
     from orders
     where table_id = v_table_id
       and status = 'completed'
-      and payment_details is null;
+      and payment_details is null
+      and (v_invoice is null or invoice_number = v_invoice);
   else
     select total_amount into v_total from orders where id = p_order_id;
   end if;
@@ -2245,41 +2259,38 @@ begin
     end if;
   end if;
 
+  v_payment := jsonb_build_object(
+    'method', p_method,
+    'cashAmount', p_cash_amount,
+    'cardAmount', p_card_amount,
+    'upiAmount', p_upi_amount,
+    'recordedAt', v_recorded_at
+  );
+
   if v_table_id is not null then
     update orders
-       set payment_details = jsonb_build_object(
-         'method', p_method,
-         'cashAmount', p_cash_amount,
-         'cardAmount', p_card_amount,
-         'upiAmount', p_upi_amount,
-         'recordedAt', v_recorded_at
-       )
+       set payment_details = v_payment
      where table_id = v_table_id
        and status = 'completed'
-       and payment_details is null;
+       and payment_details is null
+       and (v_invoice is null or invoice_number = v_invoice);
 
+    -- Free the table only when no round is open and no other bill waits for payment.
     if not exists (
       select 1 from orders
       where table_id = v_table_id
-        and status not in ('completed', 'cancelled')
+        and status <> 'cancelled'
+        and (status <> 'completed' or payment_details is null)
     ) then
       update tables set state = 'open' where id = v_table_id;
     end if;
   else
-    update orders
-       set payment_details = jsonb_build_object(
-         'method', p_method,
-         'cashAmount', p_cash_amount,
-         'cardAmount', p_card_amount,
-         'upiAmount', p_upi_amount,
-         'recordedAt', v_recorded_at
-       )
-     where id = p_order_id;
+    update orders set payment_details = v_payment where id = p_order_id;
   end if;
 end;
 $$;
 
-grant execute on function save_order_payment(uuid, text, numeric, numeric, numeric) to authenticated;
+grant execute on function save_order_payment(uuid, text, numeric, numeric, numeric, text) to authenticated;
 
 
 -- ============================================================================
@@ -2427,6 +2438,75 @@ as $$
 $$;
 
 grant execute on function list_tables_for_outlet() to authenticated;
+
+
+-- ---------------------------------------------------------------------------
+-- list_table_bills_for_outlet(): Dashboard tiles, one row per BILL (2026-11-18,
+-- docs/TABLE_BILLS.md). A table can carry a running bill and bills waiting for
+-- payment (a printed bill never takes new rounds, assign_invoice_number()), so
+-- each unpaid invoice of a table is its own row; a free table gives one row
+-- with no bill. Same columns as list_tables_for_outlet(), which stays for
+-- older app builds.
+-- ---------------------------------------------------------------------------
+create or replace function list_table_bills_for_outlet()
+returns table (
+  table_id uuid,
+  table_number text,
+  table_state text,
+  order_ids uuid[],
+  order_numbers int[],
+  invoice_number text,
+  order_status text,
+  order_created_at timestamptz,
+  order_total_amount numeric,
+  payment_recorded boolean,
+  order_discount_amount numeric
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with me as (
+    select p.outlet_id from profiles p
+     where p.user_id = auth.uid() and has_permission('dashboard.tables')
+  ),
+  unpaid as (
+    select ord.*
+      from orders ord
+      join tables t on t.id = ord.table_id
+      join me on me.outlet_id = t.outlet_id
+     where ord.status <> 'cancelled'
+       and not (ord.status = 'completed' and ord.payment_details is not null)
+  ),
+  bills as (
+    select
+      u.table_id,
+      array_agg(u.id order by u.order_number) as order_ids,
+      array_agg(u.order_number order by u.order_number) as order_numbers,
+      max(u.invoice_number) as invoice_number,
+      case when bool_or(u.status <> 'completed') then 'open' else 'completed' end as order_status,
+      min(u.created_at) as order_created_at,
+      sum(u.total_amount) as order_total_amount,
+      bool_and(u.payment_details is not null) as payment_recorded,
+      sum(coalesce(u.discount_amount, 0)) as order_discount_amount
+    from unpaid u
+    -- An old order without an invoice number groups with the others of its table.
+    group by u.table_id, coalesce(u.invoice_number, '')
+  )
+  select
+    t.id, t.table_number::text, t.state,
+    b.order_ids, b.order_numbers, b.invoice_number, b.order_status,
+    b.order_created_at, b.order_total_amount, b.payment_recorded, b.order_discount_amount
+  from tables t
+  join me on me.outlet_id = t.outlet_id
+  left join bills b on b.table_id = t.id
+  -- Within a table: bills waiting for payment first (oldest first), the running bill last.
+  order by t.table_number, (b.order_status = 'open') nulls first, b.order_created_at;
+$$;
+
+grant execute on function list_table_bills_for_outlet() to authenticated;
+
 
 
 create or replace function create_table(p_table_number text)

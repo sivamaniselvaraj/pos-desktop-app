@@ -93,6 +93,7 @@ function mapRow(row: Record<string, unknown>): FoodOrder {
     orderType: (row.order_type as OrderType) ?? 'pickup',
     tableNumber:
       row.table_number != null ? (row.table_number as string | number) : undefined,
+    tableFloor: 'table_floor' in row ? (row.table_floor != null ? String(row.table_floor) : null) : undefined,
     specialNotes: row.special_notes ? String(row.special_notes) : undefined,
     createdAt: String(row.created_at ?? new Date().toISOString()),
     status: row.status != null ? String(row.status) : undefined,
@@ -366,6 +367,84 @@ async function fetchAggregatedItems(orderId: string): Promise<OrderItem[]> {
     .eq('is_deleted', false);
   if (error) throw new Error(error.message);
   return aggregateItems((data as Record<string, unknown>[] | null)?.map(mapItem) ?? []);
+}
+
+/**
+ * #4 SEAM resolved: settle/reprint key on the order's BILL (its invoice on
+ * its table, 2026-11-18), not just the order itself. A table can carry several separate dine-in orders at once
+ * (rounds ordered before anyone settled), so this gathers every order
+ * sharing that table_id that's still part of the "current batch" — mirrors
+ * list_tables_for_outlet()'s batch definition (db/functions.sql): not
+ * cancelled, and not already completed-AND-paid. That covers both cases
+ * this is called from: pre-settle (orders still open) and post-settle
+ * reprint (orders completed, payment not yet recorded). Non-dine-in orders
+ * (table_id null) have nothing to group with — this just returns the order
+ * itself.
+ */
+
+async function fetchTableBatchOrders(orderId: string): Promise<TableBatch> {
+  const supabase = getClient();
+  if (!supabase) throw new Error('Database is not configured.');
+  const id = await resolveOrderId(orderId);
+  if (!id) return { tableId: null, orderIds: [], orderNumbers: [], orders: [] };
+
+  const { data: current, error: curErr } = await supabase
+    .from(supabaseSettings.table)
+    .select('table_id, order_number, invoice_number')
+    .eq('id', id)
+    .single();
+  if (curErr) throw new Error(curErr.message);
+  const currentRow = current as Record<string, unknown> | null;
+  const tableId = currentRow?.table_id != null ? String(currentRow.table_id) : null;
+
+  if (!tableId) {
+    // Pickup/delivery, or a dine-in order somehow missing its table link —
+    // nothing to group with, just this one order.
+    const orderNumber = currentRow?.order_number != null ? Number(currentRow.order_number) : null;
+    return {
+      tableId: null,
+      orderIds: [id],
+      orderNumbers: orderNumber != null ? [orderNumber] : [],
+      orders: orderNumber != null ? [{ id, orderNumber }] : [{ id, orderNumber: 0 }],
+    };
+  }
+
+  // One bill: the order's invoice (docs/TABLE_BILLS.md: a table can carry a
+  // running bill and printed bills waiting for payment, each billed and paid on
+  // its own). An old order without an invoice number groups by table as before.
+  const invoiceNumber = currentRow?.invoice_number != null ? String(currentRow.invoice_number) : null;
+  let query = supabase
+    .from(supabaseSettings.table)
+    .select('id, order_number, status, payment_details')
+    .eq('table_id', tableId)
+    .neq('status', 'cancelled');
+  query = invoiceNumber ? query.eq('invoice_number', invoiceNumber) : query.is('invoice_number', null);
+  const { data: rows, error } = await query;
+  if (error) throw new Error(error.message);
+
+  const list = ((rows as Record<string, unknown>[] | null) ?? []).filter((r) => {
+    // Exclude only orders that are BOTH completed AND already paid — those
+    // are done and out of the batch. Everything else (still open, or
+    // completed-but-unpaid awaiting the Save button) stays in.
+    const isPaidAndDone = r.status === 'completed' && r.payment_details != null;
+    return !isPaidAndDone;
+  });
+
+  let pairs = list.map((r) => ({ id: String(r.id), orderNumber: Number(r.order_number) }));
+  // Defensive: the triggering order should always satisfy the filter above,
+  // but include it explicitly in case of a race with a concurrent edit.
+  if (!pairs.some((p) => p.id === id)) {
+    const orderNumber = currentRow?.order_number != null ? Number(currentRow.order_number) : 0;
+    pairs.push({ id, orderNumber });
+  }
+  pairs = pairs.sort((a, b) => a.orderNumber - b.orderNumber);
+
+  return {
+    tableId,
+    orderIds: pairs.map((p) => p.id),
+    orderNumbers: pairs.map((p) => p.orderNumber),
+    orders: pairs,
+  };
 }
 
 /**

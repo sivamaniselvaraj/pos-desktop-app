@@ -60,7 +60,7 @@ async function liveOrderCounts(outletId: string): Promise<Map<string, number>> {
 
 export const tables: TableRepository = {
   async listCards(): Promise<TableCard[]> {
-    const { data, error } = await getAuthedClient().rpc('list_tables_for_outlet');
+    const { data, error } = await getAuthedClient().rpc('list_table_bills_for_outlet');
     if (error) throw new Error(error.message);
     return ((data ?? []) as Record<string, unknown>[]).map((row) => {
       const orderIds = (row.order_ids as string[] | null)?.map((id) => String(id)) ?? undefined;
