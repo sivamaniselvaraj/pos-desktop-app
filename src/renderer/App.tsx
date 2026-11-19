@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
+import type { ConnectionSetupStatus } from '@shared/connectionTypes';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { Dashboard } from './pages/Dashboard';
@@ -17,7 +18,6 @@ import { UpdateBanner, UpdateRequired } from './components/UpdateBanner';
 import { useAuth } from './context/AuthContext';
 import styles from './styles/App.module.css';
 import { DINE_IN_ORDER_TYPE, OrderType, PICK_UP_ORDER_TYPE } from '../shared/types';
-import { ConnectionSetupStatus } from '../shared/connectionTypes';
 
 // Pages opened rarely during service load on demand, so the app starts with a
 // smaller file. The Sales report pulls in Recharts (about half the old bundle);
@@ -125,7 +125,7 @@ export default function App() {
         printers={printers}
       />
       <main className={styles.main}>
-        <Header server={server} softwareStatus={update} onRefresh={handleRefresh} />
+        <Header server={server} version={update?.currentVersion} onRefresh={handleRefresh} />
         <UpdateBanner status={update} />
         <div className={styles.body}>
           <Suspense fallback={pageLoading}>
