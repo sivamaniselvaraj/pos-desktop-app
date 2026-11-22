@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Toast, type ToastMessage } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import { applyDiscount, computeTotals, type NewOrderDiscount } from '@shared/orderTotals';
@@ -83,6 +83,76 @@ const MAX_QTY = 99;
  * leave the box to apply it (0 removes the item, empty or invalid puts the old value back).
  * Clicks and keys inside it never reach the menu card around it, so they do not add the item again.
  */
+/** How long typing must pause before a kitchen note is saved to the page's state. */
+const NOTE_COMMIT_MS = 400;
+
+/**
+ * Kitchen note box of one cart line. Typing stays inside this component, so a
+ * keystroke re-renders only this box, not the whole New order page (menu
+ * cards, cart, totals). The text goes to the page when typing pauses, on
+ * Enter or Esc, and when the box loses focus (so Place Order and Save draft,
+ * which take the focus first, always see the latest text). An empty box closes.
+ */
+const CartNote = memo(function CartNote({
+  id,
+  name,
+  value,
+  onCommit,
+}: {
+  id: string;
+  name: string;
+  value: string;
+  onCommit: (id: string, text: string | undefined) => void;
+}) {
+  const [text, setText] = useState(value);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latest = useRef(value);
+
+  // A change from outside (draft opened, cart cleared) replaces what is shown.
+  useEffect(() => {
+    if (value !== latest.current) {
+      latest.current = value;
+      setText(value);
+    }
+  }, [value]);
+
+  // Unmount: drop a pending save (the line was removed or the cart cleared).
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  const commit = (t: string, closeIfEmpty: boolean) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    latest.current = t;
+    onCommit(id, closeIfEmpty && !t.trim() ? undefined : t);
+  };
+
+  return (
+    <input
+      className={styles.lineNote}
+      value={text}
+      maxLength={ITEM_NOTE_MAX}
+      autoFocus={value === ''}
+      placeholder="Kitchen note, e.g. no onion"
+      aria-label={`Kitchen note for ${name}`}
+      onChange={(e) => {
+        const t = e.target.value;
+        setText(t);
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => commit(t, false), NOTE_COMMIT_MS);
+      }}
+      onBlur={(e) => commit(e.target.value, true)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur();
+      }}
+    />
+  );
+});
+
 function Stepper({
   qty,
   name,
@@ -281,10 +351,12 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
   const cartLines = useMemo(
     () =>
       Object.entries(cart)
-        .map(([id, qty]) => ({ item: byId.get(id), qty , note: (itemNotes[id] ?? '').trim()}))
-        .filter((l): l is { item: MenuEntry; qty: number; note: string } => !!l.item && l.qty > 0),
-    [cart, byId, itemNotes],
+        .map(([id, qty]) => ({ item: byId.get(id), qty }))
+        .filter((l): l is { item: MenuEntry; qty: number } => !!l.item && l.qty > 0),
+    [cart, byId],
   );
+  // Kitchen notes are kept out of cartLines so a note change does not recompute the totals.
+  const noteOf = useCallback((id: string) => (itemNotes[id] ?? '').trim(), [itemNotes]);
 
   const totals = useMemo(
     () =>
@@ -327,14 +399,18 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
     return [...m.entries()];
   }, [tables]);
 
-  /** Sets a line's kitchen note; undefined closes the note box. */
-  const setNote = (id: string, text: string | undefined) =>
-    setItemNotes((n) => {
-      const next = { ...n };
-      if (text === undefined) delete next[id];
-      else next[id] = text.slice(0, ITEM_NOTE_MAX);
-      return next;
-    });
+  /** Sets a line's kitchen note; undefined closes the note box. Stable, so the note boxes do not re-render. */
+  const setNote = useCallback(
+    (id: string, text: string | undefined) =>
+      setItemNotes((n) => {
+        const next = { ...n };
+        if (text === undefined) delete next[id];
+        else next[id] = text.slice(0, ITEM_NOTE_MAX);
+        return next;
+      }),
+    [],
+  );
+
   const setQty = (id: string, qty: number) => {
     setCart((c) => {
       const next = { ...c };
@@ -371,7 +447,11 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
         placedBy: String(user?.id),
         orderType: orderType,
         tableId: orderType === DINE_IN_ORDER_TYPE ? (tableId ?? undefined) : undefined,
-        items: cartLines.map((l) => ({ menuItemId: l.item.id, quantity: l.qty, ...(l.note ? { note: l.note } : {}) })),
+        items: cartLines.map((l) => ({
+          menuItemId: l.item.id,
+          quantity: l.qty,
+          ...(noteOf(l.item.id) ? { note: noteOf(l.item.id) } : {}),
+        })),
         customerName,
         customerPhone,
         notes,
@@ -608,21 +688,7 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
                   + Kitchen note
                 </button>
               ) : (
-                <input
-                  className={styles.lineNote}
-                  value={itemNotes[item.id]}
-                  maxLength={ITEM_NOTE_MAX}
-                  autoFocus={itemNotes[item.id] === ''}
-                  placeholder="Kitchen note, e.g. no onion"
-                  aria-label={`Kitchen note for ${item.name}`}
-                  onChange={(e) => setNote(item.id, e.target.value)}
-                  onBlur={(e) => {
-                    if (!e.target.value.trim()) setNote(item.id, undefined);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur();
-                  }}
-                />
+                <CartNote id={item.id} name={item.name} value={itemNotes[item.id]} onCommit={setNote} />
               )}
             </div>
           ))}
