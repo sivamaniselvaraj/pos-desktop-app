@@ -4,7 +4,7 @@ import { getMyAccess } from './accessManager';
 import { orderManager } from './orderManager';
 import { printQueue } from './printQueueManager';
 import { listManagedTables, saveManagedTable } from './tablesManager';
-import { ApiMyOrder, DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE, PRINT_KOT_ONLY, type ApiTable, type PhoneKotSettings, type RemoteOrderRequest, type RemoteOrderResult } from '../shared/types';
+import { ApiMyOrder, DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE, PRINT_KOT_ONLY, TableCard, type ApiTable, type PhoneKotSettings, type RemoteOrderRequest, type RemoteOrderResult } from '../shared/types';
 import { BadRemoteOrder, NewTableRequest } from './remoteOrderValidation';
 
 export { BadRemoteOrder, validateNewTable, validateRemoteOrder } from './remoteOrderValidation';
@@ -22,21 +22,28 @@ let tablesInflight: Promise<ApiTable[]> | null = null;
 
 async function loadTables(): Promise<ApiTable[]> {
   const [managed, cards] = await Promise.all([listManagedTables(), db.tables.listCards()]);
-  const cardById = new Map(cards.map((c) => [c.tableId, c]));
+  // A table can have several bills (docs/TABLE_BILLS.md): at most one running and
+  // any number printed and waiting for payment. Phones see only the running bill.
+  // A table whose bills are all printed shows as FREE, so a captain can seat the
+  // next guests there; the printed bills are paid on the desktop.
+  const runningByTable = new Map<string, TableCard>();
+  for (const c of cards) if (c.cardStatus === 'active') runningByTable.set(c.tableId, c);
   return managed.map((m): ApiTable => {
-    const c = cardById.get(m.tableId);
-    const billStatus = c?.cardStatus ?? 'available';
+    const c = runningByTable.get(m.tableId);
     const ids = c?.orderIds ?? (c?.orderId ? [c.orderId] : []);
     const nums = c?.orderNumbers ?? [];
+    const blocked = m.status === 'reserved' || m.status === 'cleaning';
     return {
       tableId: m.tableId,
       tableNumber: m.tableNumber,
       floor: m.floor,
       capacity: m.capacity,
-      // A table with an open order is occupied whatever was set by hand.
-      status: billStatus !== 'available' ? 'occupied' : m.effectiveStatus,
+      // Occupied while a bill is running, whatever was set by hand. Otherwise the
+      // status set on the Tables page, where "occupied" (also set by unpaid printed
+      // bills) reads as available.
+      status: c ? 'occupied' : blocked ? m.status : 'available',
       manualStatus: m.status,
-      billStatus,
+      billStatus: c ? 'active' : 'available',
       paymentRecorded: c?.paymentRecorded ?? false,
       orders: ids.map((orderId, i) => ({ orderId, orderNumber: nums[i] ?? 0 })),
       invoiceNumber: c?.invoiceNumber ?? null,
