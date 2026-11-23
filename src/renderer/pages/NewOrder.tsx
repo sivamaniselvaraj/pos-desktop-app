@@ -18,7 +18,7 @@ import {
 }from '@shared/types';
 
 import styles from '../styles/NewOrder.module.css';
-import { displayInvoiceNumber, formatMoney as money } from '../lib/format';
+import { displayInvoiceNumber, formatTotal, formatMoney as money } from '../lib/format';
 
 //type OrderType = 'dine_in' | 'pickup' | 'takeaway';
 type VegFilter = 'all' | 'veg' | 'nonveg';
@@ -150,6 +150,75 @@ const CartNote = memo(function CartNote({
         if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur();
       }}
     />
+  );
+});
+
+/**
+ * One menu card on New order (docs/NEW_ORDER_MENU_CARDS.md). Memoised: with stable onAdd / onSetQty,
+ * a tap re-renders only the card whose quantity changed, not the whole menu grid.
+ */
+const MenuCard = memo(function MenuCard({
+  m,
+  qty,
+  kw,
+  q,
+  onAdd,
+  onSetQty,
+}: {
+  m: MenuEntry;
+  qty: number;
+  kw: boolean;
+  q: string;
+  onAdd: (id: string) => void;
+  onSetQty: (id: string, qty: number) => void;
+}) {
+  return (
+    <div
+      className={`${styles.card} ${qty ? styles.cardIn : ''}`}
+      role="button"
+      tabIndex={0}
+      aria-label={qty ? `${m.name}, ${qty} in order. Add one more` : `Add ${m.name}`}
+      onClick={() => onAdd(m.id)}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          if (!e.repeat) onAdd(m.id);
+        }
+      }}
+    >
+      {qty > 0 && (
+        <span className={styles.qtyBadge} aria-hidden="true">
+          {qty}
+        </span>
+      )}
+      <span className={`${styles.dot} ${m.isVeg ? '' : styles.dotNv}`} title={m.isVeg ? 'Veg' : 'Non-veg'} />
+      <div className={styles.cardName}>
+        <Highlight text={m.name} q={q} />
+        {kw && <span className={styles.kw}>keyword match</span>}
+      </div>
+      <span className={styles.price}>{money(m.price)}</span>
+      <div className={styles.cardRow}>
+        {qty ? (
+          <button
+            type="button"
+            className={styles.minus}
+            aria-label={`Take one ${m.name} away`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSetQty(m.id, qty - 1);
+            }}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <Icon name="minus" size={18} />
+          </button>
+        ) : (
+          <span className={styles.add} aria-hidden="true">
+            <Icon name="plus" size={18} />
+          </span>
+        )}
+      </div>
+    </div>
   );
 });
 
@@ -411,19 +480,25 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
     [],
   );
 
-  const setQty = (id: string, qty: number) => {
-    setCart((c) => {
-      const next = { ...c };
-      if (qty <= 0) delete next[id];
-      else next[id] = Math.min(MAX_QTY, qty);
-      return next;
-    });
-    if (qty <= 0) setNote(id, undefined);
-  };
+  /** Stable (like addOne), so a tap re-renders only the menu card that changed (MenuCard is memoised). */
+  const setQty = useCallback(
+    (id: string, qty: number) => {
+      setCart((c) => {
+        const next = { ...c };
+        if (qty <= 0) delete next[id];
+        else next[id] = Math.min(MAX_QTY, qty);
+        return next;
+      });
+      if (qty <= 0) setNote(id, undefined);
+    },
+    [setNote],
+  );
 
   /** A tap on a menu card adds one (up to the limit). */
-  const addOne = (id: string) =>
-    setCart((c) => ({ ...c, [id]: Math.min(MAX_QTY, (c[id] ?? 0) + 1) }));
+  const addOne = useCallback(
+    (id: string) => setCart((c) => ({ ...c, [id]: Math.min(MAX_QTY, (c[id] ?? 0) + 1) })),
+    [],
+  );
 
   const canPlace = cartLines.length > 0 && (orderType === 'pickup' || orderType === PICK_UP_ORDER_TYPE || !!selectedTable) && !placing;
 
@@ -473,58 +548,9 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
     void loadAll(false);
   }
 
-  const renderCard = (m: MenuEntry, kw = false) => {
-    const qty = cart[m.id] ?? 0;
-    return (
-      <div
-        key={m.id}
-        className={`${styles.card} ${qty ? styles.cardIn : ''}`}
-        role="button"
-        tabIndex={0}
-        aria-label={qty ? `${m.name}, ${qty} in order. Add one more` : `Add ${m.name}`}
-        onClick={() => addOne(m.id)}
-        onKeyDown={(e) => {
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            if (!e.repeat) addOne(m.id);
-          }
-        }}
-      >
-        {qty > 0 && (
-          <span className={styles.qtyBadge} aria-hidden="true">
-            {qty}
-          </span>
-        )}
-        <span className={`${styles.dot} ${m.isVeg ? '' : styles.dotNv}`} title={m.isVeg ? 'Veg' : 'Non-veg'} />
-        <div className={styles.cardName}>
-          <Highlight text={m.name} q={q} />
-          {kw && <span className={styles.kw}>keyword match</span>}
-        </div>
-        <span className={styles.price}>{money(m.price)}</span>
-        <div className={styles.cardRow}>
-          {qty ? (
-            <button
-              type="button"
-              className={styles.minus}
-              aria-label={`Take one ${m.name} away`}
-              onClick={(e) => {
-                e.stopPropagation();
-                setQty(m.id, qty - 1);
-              }}
-              onKeyDown={(e) => e.stopPropagation()}
-            >
-              <Icon name="minus" size={18} />
-            </button>
-          ) : (
-            <span className={styles.add} aria-hidden="true">
-              <Icon name="plus" size={18} />
-            </span>
-          )}
-        </div>
-      </div>
-    );
-  };
+  const renderCard = (m: MenuEntry, kw = false) => (
+    <MenuCard key={m.id} m={m} qty={cart[m.id] ?? 0} kw={kw} q={q} onAdd={addOne} onSetQty={setQty} />
+  );
 
   const total = nameMatches.length + keywordMatches.length;
 
@@ -694,7 +720,7 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
                   <i>{money(item.price)} each</i>
                 </div>
                 <Stepper qty={qty} name={item.name} onSet={(n) => setQty(item.id, n)} />
-                <div className={styles.tot}>{money(item.price * qty)}</div>
+                <div className={styles.tot}>{formatTotal(item.price * qty)}</div>
                 <button type="button" className={styles.rm} onClick={() => setQty(item.id, 0)} aria-label={`Remove ${item.name}`}>
                   <Icon name="cancel" size={14} />
                 </button>

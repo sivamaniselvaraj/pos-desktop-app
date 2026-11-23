@@ -42,6 +42,11 @@ export function formatMoney(n: number): string {
   return `${currencySymbol()} ${n.toFixed(2)}`;
 }
 
+/** "₹ 1234.50" — symbol, a space, two decimals (the app's existing money format). */
+export function formatTotal(n: number): string {
+  return `${n.toFixed(2)}`;
+}
+
 /** A number with the organization's digit grouping (chart axes etc.). */
 export function formatNumber(n: number): string {
   return n.toLocaleString(org.locale);
