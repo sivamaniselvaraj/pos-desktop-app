@@ -549,7 +549,7 @@ export function Dashboard({
               const cap = tableMeta[table.tableId]?.capacity ?? 0;
               return (
                 <div
-                  key={table.tableId}
+                  key={table.invoiceNumber ?? table.tableId}
                   className={`${styles.card} ${styles[st.key] ?? ''}`}
                 >
                   <span className={styles.accent} />

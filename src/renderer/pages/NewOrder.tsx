@@ -491,15 +491,31 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
           }
         }}
       >
+        {qty > 0 && (
+          <span className={styles.qtyBadge} aria-hidden="true">
+            {qty}
+          </span>
+        )}
+        <span className={`${styles.dot} ${m.isVeg ? '' : styles.dotNv}`} title={m.isVeg ? 'Veg' : 'Non-veg'} />
         <div className={styles.cardName}>
-          <span className={`${styles.dot} ${m.isVeg ? '' : styles.dotNv}`} title={m.isVeg ? 'Veg' : 'Non-veg'} />
           <Highlight text={m.name} q={q} />
           {kw && <span className={styles.kw}>keyword match</span>}
         </div>
+        <span className={styles.price}>{money(m.price)}</span>
         <div className={styles.cardRow}>
-          <span className={styles.price}>{money(m.price)}</span>
           {qty ? (
-            <Stepper qty={qty} name={m.name} onSet={(n) => setQty(m.id, n)} />
+            <button
+              type="button"
+              className={styles.minus}
+              aria-label={`Take one ${m.name} away`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setQty(m.id, qty - 1);
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              <Icon name="minus" size={18} />
+            </button>
           ) : (
             <span className={styles.add} aria-hidden="true">
               <Icon name="plus" size={18} />
