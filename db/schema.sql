@@ -779,6 +779,12 @@ alter table tables add column if not exists capacity integer;
 -- that insert directly; add_table() sets it, also for a phone's user.
 alter table tables add column if not exists created_by uuid default auth.uid();
 alter table tables add column if not exists created_at timestamptz default now();
+-- Soft delete (2026-11-24, docs/TABLE_SOFT_DELETE.md): deleting a table on the Tables page
+-- sets deleted_at / deleted_by through delete_table(); the row stays, so past orders, bills
+-- and reports keep its number. Every list and check of tables skips rows with deleted_at set,
+-- and the number can be used again for a new table.
+alter table tables add column if not exists deleted_at timestamptz;
+alter table tables add column if not exists deleted_by uuid;
 
 -- table_activity_log (2026-11-15): everything that happens to a table (created, edited, status
 -- changed, deleted), who did it, from where and when. app_activity_log is per order
@@ -828,6 +834,7 @@ create policy "staff manage own outlet tables" on tables
         and has_permission('tables.manage')
         and p.outlet_id = tables.outlet_id
     )
+    and tables.deleted_at is null  -- soft-deleted tables are hidden (2026-11-24)
   )
   with check (
     exists (
@@ -836,16 +843,20 @@ create policy "staff manage own outlet tables" on tables
         and has_permission('tables.manage')
         and p.outlet_id = tables.outlet_id
     )
+    and tables.deleted_at is null  -- soft-deleted tables are hidden (2026-11-24)
   );
 
 -- Backstops for the page's own validation. Both are skipped (with a notice)
 -- if existing data would violate them, rather than failing the whole script.
 do $$
 begin
-  create unique index if not exists uq_tables_outlet_number
-    on tables (outlet_id, lower(table_number));
+  -- Unique among the tables that are not deleted (2026-11-24): a deleted table's number
+  -- can be used again. Replaces the older uq_tables_outlet_number, which counted every row.
+  create unique index if not exists uq_tables_outlet_number_live
+    on tables (outlet_id, lower(table_number)) where deleted_at is null;
+  drop index if exists uq_tables_outlet_number;
 exception when others then
-  raise notice 'uq_tables_outlet_number not created (duplicate table numbers exist?): %', sqlerrm;
+  raise notice 'uq_tables_outlet_number_live not created (duplicate table numbers exist?): %', sqlerrm;
 end $$;
 
 do $$
@@ -881,6 +892,7 @@ create policy "staff view own outlet tables" on tables
         and has_permission('tables.view')
         and p.outlet_id = tables.outlet_id
     )
+    and tables.deleted_at is null  -- soft-deleted tables are hidden (2026-11-24)
   );
 
 drop policy if exists "staff toggle own outlet tables" on tables;
@@ -893,6 +905,7 @@ create policy "staff toggle own outlet tables" on tables
         and has_permission('tables.toggle')
         and p.outlet_id = tables.outlet_id
     )
+    and tables.deleted_at is null  -- soft-deleted tables are hidden (2026-11-24)
   )
   with check (
     exists (
@@ -901,6 +914,7 @@ create policy "staff toggle own outlet tables" on tables
         and has_permission('tables.toggle')
         and p.outlet_id = tables.outlet_id
     )
+    and tables.deleted_at is null  -- soft-deleted tables are hidden (2026-11-24)
   );
 
 create or replace function enforce_staff_table_update()
@@ -2519,3 +2533,35 @@ begin
 end $$;
 
 create index if not exists idx_app_activity_log_created_at on app_activity_log (created_at);
+
+
+-- 2026-11-23: live updates (docs/LIVE_UPDATES.md).
+-- One small row per outlet with two change counters. Triggers bump
+-- orders_version when an order or order item of the outlet is added, changed or
+-- deleted, and tables_version when one of its tables is. The desktop app reads
+-- the counters every few seconds with get_live_version() and reloads its
+-- screens only when one moved. This is how the current backend answers the
+-- app's "did anything change for this outlet?" question; another backend may
+-- answer it in its own way (see the doc).
+--
+-- Additive and re-runnable: older app builds ignore the table and the function.
+
+create table if not exists outlet_live_versions (
+  outlet_id uuid primary key,          -- no foreign key: deleting an outlet must not fail here
+  orders_version bigint not null default 0,
+  tables_version bigint not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+-- Read only through get_live_version(); nobody reads or writes the table directly.
+alter table outlet_live_versions enable row level security;
+revoke all on outlet_live_versions from public;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    execute 'revoke all on outlet_live_versions from anon';
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    execute 'revoke all on outlet_live_versions from authenticated';
+  end if;
+end $$;

@@ -53,18 +53,28 @@ async function loadTables(): Promise<ApiTable[]> {
   });
 }
 
+/** Drops the 2-second tables cache so the next GET /api/tables reads fresh data (live updates). */
+export function invalidateTablesForPhones(): void {
+  tablesCache = null;
+  tablesInflight = null; // a read started before the change must not be cached
+  tablesGeneration += 1;
+}
+let tablesGeneration = 0;
+
 /** Tables of this outlet with status and details. Cached for 2 seconds so many phones polling cost one database call. */
 export async function getTablesForPhones(): Promise<ApiTable[]> {
   if (tablesCache && Date.now() - tablesCache.at < TABLES_TTL_MS) return tablesCache.value;
   if (!tablesInflight) {
-    tablesInflight = loadTables()
+    const gen = tablesGeneration;
+    const p = loadTables()
       .then((v) => {
-        tablesCache = { at: Date.now(), value: v };
+        if (gen === tablesGeneration) tablesCache = { at: Date.now(), value: v };
         return v;
       })
       .finally(() => {
-        tablesInflight = null;
+        if (tablesInflight === p) tablesInflight = null;
       });
+    tablesInflight = p;
   }
   return tablesInflight;
 }

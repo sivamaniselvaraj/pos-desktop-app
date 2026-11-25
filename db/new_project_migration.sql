@@ -91,6 +91,7 @@ create table if not exists outlets (
   address text null,
   phone text null,
   email text null,
+  city varchar(100) null,
   created_at timestamp with time zone not null default now(),
   updated_at timestamp with time zone not null default now(),
   gst_number text null,
@@ -1132,3 +1133,35 @@ create policy "read own outlet menu activity log" on menu_activity_logs
   using (exists (select 1 from profiles p
                   where p.user_id = auth.uid() and p.outlet_id = menu_activity_logs.outlet_id
                     and (has_permission('menu.upload') or has_permission('menu.edit'))));
+
+
+-- 2026-11-23: live updates (docs/LIVE_UPDATES.md).
+-- One small row per outlet with two change counters. Triggers bump
+-- orders_version when an order or order item of the outlet is added, changed or
+-- deleted, and tables_version when one of its tables is. The desktop app reads
+-- the counters every few seconds with get_live_version() and reloads its
+-- screens only when one moved. This is how the current backend answers the
+-- app's "did anything change for this outlet?" question; another backend may
+-- answer it in its own way (see the doc).
+--
+-- Additive and re-runnable: older app builds ignore the table and the function.
+
+create table if not exists outlet_live_versions (
+  outlet_id uuid primary key,          -- no foreign key: deleting an outlet must not fail here
+  orders_version bigint not null default 0,
+  tables_version bigint not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+-- Read only through get_live_version(); nobody reads or writes the table directly.
+alter table outlet_live_versions enable row level security;
+revoke all on outlet_live_versions from public;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    execute 'revoke all on outlet_live_versions from anon';
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    execute 'revoke all on outlet_live_versions from authenticated';
+  end if;
+end $$;

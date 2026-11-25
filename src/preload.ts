@@ -43,6 +43,8 @@ import type {
   InvoiceSequenceStatus,
 } from './shared/types';
 import type { ConnectionSetupInput, ConnectionSetupResult, ConnectionSetupStatus } from './shared/connectionTypes';
+import type { LiveChange } from './shared/liveTypes';
+import type { OfflineStatus } from './shared/offlineTypes';
 import type {MenuUploadLogBatch, MenuUploadPickResult, MenuUploadSummary } from './shared/menuUploadTypes';
 import type {
   SalesReportRow,
@@ -271,6 +273,9 @@ const api: ElectronApi = {
   onOrderStatusChanged: (cb) => on<OrderWithStatus>(IpcChannels.ORDER_STATUS_CHANGED, cb),
   onPrinterStatus: (cb) => on<PrinterInfo[]>(IpcChannels.PRINTER_STATUS, cb),
   onServerStatus: (cb) => on<ServerStatus>(IpcChannels.SERVER_STATUS, cb),
+  getOfflineStatus: () => ipcRenderer.invoke(IpcChannels.GET_OFFLINE_STATUS) as Promise<OfflineStatus>,
+  onOfflineStatus: (cb) => on<OfflineStatus>(IpcChannels.OFFLINE_STATUS, cb),
+  onLiveChange: (cb) => on<LiveChange>(IpcChannels.LIVE_CHANGED, cb),
   getUpdateStatus: () => ipcRenderer.invoke(IpcChannels.GET_UPDATE_STATUS) as Promise<UpdateStatus>,
   checkForUpdates: () => ipcRenderer.invoke(IpcChannels.CHECK_FOR_UPDATES) as Promise<UpdateStatus>,
   getInstallCheck: () => ipcRenderer.invoke(IpcChannels.GET_INSTALL_CHECK) as Promise<InstallCheck>,

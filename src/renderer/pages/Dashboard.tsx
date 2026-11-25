@@ -19,6 +19,7 @@ import {
 } from '@shared/types';
 import styles from '../styles/TableDashboard.module.css';
 import { formatMoney as formatCurrency, displayInvoiceNumber } from '../lib/format';
+import { useLiveChange } from '../hooks/useLiveChange';
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'card', label: 'Card' },
@@ -120,7 +121,12 @@ export function Dashboard({
     return () => clearInterval(tick);
   }, []);
 
-  // quiet: refresh in place (no "Loading tables…" line), used after a print.
+  // Live updates (docs/LIVE_UPDATES.md): a new or changed order or table, from
+  // this PC, a phone or another PC, reloads the tiles in place.
+  useLiveChange(['orders', 'tables'], () => void load(true));
+
+  // quiet: refresh in place (no "Loading tables…" line), used after a print
+  // and on live updates.
   async function load(quiet = false) {
     try {
       if (!quiet) setLoading(true);
@@ -273,10 +279,8 @@ export function Dashboard({
   // Detail is fetched by invoice number (shared by every round of the table's
   // current sitting), the same path the Orders List uses.
   async function fetchView(invoiceNumber: string) {
-    const [detail] = await Promise.all([
-      window.api.getInvoiceOrderDetail(invoiceNumber),
-      //window.api.getInvoiceActivityLog(invoiceNumber),
-    ]);
+    const detail = await window.api.getInvoiceOrderDetail(invoiceNumber);
+     
     setViewOrders(detail.orders);
     setViewItems(detail.items);
     setViewDiscounts(detail.discounts ?? []);
@@ -494,7 +498,7 @@ export function Dashboard({
               <button
                 className={styles.refreshBtn}
                 onClick={() => void takeaway.reload()}
-                title="Reload now (the list also refreshes every 15 seconds)"
+                title="Reload now (the list also updates by itself when an order changes)"
               >
                 <Icon name="refresh" size={14} />
                 Refresh

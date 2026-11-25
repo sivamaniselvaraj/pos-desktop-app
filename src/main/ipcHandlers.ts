@@ -5,6 +5,7 @@ import { getPrinters, testPrint } from './printerManager';
 import { isServerRunning } from './api/httpServer';
 import { db } from './data';
 import { signIn, signOut, getCurrentUser } from './authManager';
+import { getOfflineStatus, isDatabaseConnected } from './offlineManager';
 import { getConnectionStatus } from './connectionSetup';
 import { saveConnectionSetup } from './setupManager';
 import { listDevices, revokeDevice, resetDevicePin } from './api/apiSecurity';
@@ -14,7 +15,7 @@ import { getAllPrinters, updatePrinter, removePrinter, getMaxPrinters } from './
 import { getInvoiceSequenceStatus, resetInvoiceSequence } from './invoiceManager';
 import { exportSalesReport } from './reportExport';
 import { exportCurrentMenu, exportMenuTemplate } from './menuExport';
-import { commitMenuUpload, pickMenuUploadFile, saveUploadErrorRows } from './menuImport';
+import { commitMenuUpload, listMenuUploadLog, pickMenuUploadFile, saveUploadErrorRows } from './menuImport';
 import {
   listUsers,
   listOutlets,
@@ -77,6 +78,7 @@ import {
 import { config, normalizePrintMethod } from './config';
 import { setPrinterAddress } from './imagePrintHelper';
 import { IpcChannels } from '../shared/ipc';
+import { restartLiveWatch } from './liveUpdatesManager';
 import type {
   ReceiptText,
   ServerStatus,
@@ -134,16 +136,19 @@ async function buildServerStatus(): Promise<ServerStatus> {
     running: isServerRunning(),
     port: config.http.port,
     host: config.http.host,
-    database: (await db.orders.isReachable()) ? 'connected' : 'disconnected',
+    // The 5 s health check's answer (offlineManager), not a new database call.
+    database: (await isDatabaseConnected()) ? 'connected' : 'disconnected',
     ipAddress: getLocalIpAddress(),
   };
 }
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
   // auth (renderer -> main)
-  ipcMain.handle(IpcChannels.AUTH_SIGN_IN, (_e, email: string, password: string) =>
-    signIn(email, password),
-  );
+  ipcMain.handle(IpcChannels.AUTH_SIGN_IN, async (_e, email: string, password: string) => {
+    const result = await signIn(email, password);
+    restartLiveWatch(); // the change check needs the new session (docs/LIVE_UPDATES.md)
+    return result;
+  });
   ipcMain.handle(IpcChannels.AUTH_SIGN_OUT, () => signOut());
   ipcMain.handle(IpcChannels.AUTH_GET_SESSION, () => getCurrentUser());
 
@@ -184,6 +189,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.RESET_INVOICE_SEQUENCE, () => resetInvoiceSequence());
 
   ipcMain.handle(IpcChannels.GET_SERVER_STATUS, () => buildServerStatus());
+  ipcMain.handle(IpcChannels.GET_OFFLINE_STATUS, () => getOfflineStatus());
   ipcMain.handle(IpcChannels.LIST_API_DEVICES, async () => {
     await requireDeviceAdmin();
     return listDevices();
@@ -238,6 +244,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle(IpcChannels.PICK_MENU_UPLOAD_FILE, () => pickMenuUploadFile(getWindow()));
   ipcMain.handle(IpcChannels.COMMIT_MENU_UPLOAD, (_e, token: string) => commitMenuUpload(token));
   ipcMain.handle(IpcChannels.SAVE_MENU_UPLOAD_ERRORS, (_e, token: string) => saveUploadErrorRows(getWindow(), token));
+  ipcMain.handle(IpcChannels.GET_MENU_UPLOAD_LOG, () => listMenuUploadLog());
   ipcMain.handle(IpcChannels.DOWNLOAD_MENU_TEMPLATE, () => exportMenuTemplate(getWindow()));
   ipcMain.handle(IpcChannels.DOWNLOAD_CURRENT_MENU, () => exportCurrentMenu(getWindow()));
   // Sales and revenue reports (reports.view, checked by each RPC; docs/SALES_REPORTS.md)

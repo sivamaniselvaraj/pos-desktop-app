@@ -8,19 +8,20 @@ export function useStatus() {
   useEffect(() => {
     let active = true;
 
-    const load = async () => {
-      const [s, p] = await Promise.all([
-        window.api.getServerStatus(),
-        window.api.getPrinters(),
-      ]);
-      if (active) {
-        setServer(s);
-        setPrinters(p);
-      }
+    const loadServer = async () => {
+      const s = await window.api.getServerStatus();
+      if (active) setServer(s);
     };
 
-    load();
-    const interval = setInterval(load, 10000); // refresh every 10s
+    // Printers: read once, then the main process pushes changes over
+    // onPrinterStatus (it checks the OS every 60 s). No polling from here, so
+    // Windows no longer starts a PowerShell process every 10 s.
+    void window.api.getPrinters().then((p) => {
+      if (active) setPrinters(p);
+    });
+
+    void loadServer();
+    const interval = setInterval(loadServer, 10000); // server status every 10 s
 
     const offServer = window.api.onServerStatus(setServer);
     const offPrinter = window.api.onPrinterStatus(setPrinters);

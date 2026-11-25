@@ -14,14 +14,17 @@ import { Login } from './pages/Login';
 import { ConnectionSetup } from './pages/ConnectionSetup';
 import { useStatus } from './hooks/useStatus';
 import { useUpdateStatus } from './hooks/useUpdateStatus';
+import { useOfflineStatus } from './hooks/useOfflineStatus';
+import { OfflineBanner } from './components/OfflineBanner';
 import { UpdateBanner, UpdateRequired } from './components/UpdateBanner';
 import { useAuth } from './context/AuthContext';
 import styles from './styles/App.module.css';
 import { DINE_IN_ORDER_TYPE, OrderType, PICK_UP_ORDER_TYPE } from '../shared/types';
 
 // Pages opened rarely during service load on demand, so the app starts with a
-// smaller file. The Sales report pulls in Recharts (about half the old bundle);
-// Settings (with Tax rates), User management and Menu items are admin pages.
+// smaller file. The Sales report (pages/Reports.tsx) pulls in Recharts, which
+// is split into its own "charts" chunk (vite.config.ts); Settings (with Tax
+// rates), User management and Menu items are admin pages.
 const Reports = lazy(() =>
   import('./pages/Reports').then((m) => ({ default: m.Reports })),
 );
@@ -42,6 +45,7 @@ export default function App() {
   const [orderType, setOrderType] = useState<OrderType>(PICK_UP_ORDER_TYPE);
   const { server, printers } = useStatus();
   const update = useUpdateStatus();
+  const offline = useOfflineStatus();
   // Database URL, auth token and outlet id of this PC (docs/CONNECTION_SETUP.md).
   const [setup, setSetup] = useState<ConnectionSetupStatus | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
@@ -125,7 +129,8 @@ export default function App() {
         printers={printers}
       />
       <main className={styles.main}>
-        <Header server={server} version={update?.currentVersion} onRefresh={handleRefresh} />
+        <Header server={server} offline={offline} version={update?.currentVersion} onRefresh={handleRefresh} />
+        <OfflineBanner status={offline} />
         <UpdateBanner status={update} />
         <div className={styles.body}>
           <Suspense fallback={pageLoading}>

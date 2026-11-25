@@ -82,11 +82,13 @@ export const remoteOrders: RemoteOrderRepository = {
       total: Number(o.total ?? 0),
       orderType: String(o.order_type ?? ''),
       createdAt: str(o.created_at),
+      notes: str(o.notes),
       items: (Array.isArray(o.items) ? (o.items as Record<string, unknown>[]) : []).map((i) => ({
         id: String(i.id),
         name: String(i.name ?? ''),
         quantity: Number(i.quantity ?? 0),
         status: String(i.status ?? ''),
+        note: str(i.note),
       })),
     }));
   },

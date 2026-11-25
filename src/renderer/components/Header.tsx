@@ -2,10 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon } from './Icon';
 import { useAuth } from '../context/AuthContext';
 import type { ServerStatus } from '@shared/types';
+import type { OfflineStatus } from '@shared/offlineTypes';
+import { connectionLabel, localCopyLine, shortTime } from '../lib/offline';
 import styles from '../styles/Header.module.css';
 
 interface HeaderProps {
   server: ServerStatus | null;
+  /** Offline mode: online / offline / syncing (docs/OFFLINE_MODE.md). */
+  offline: OfflineStatus | null;
   /** Installed app version (from the update status), shown as "Beta v1.0.0" beside the title. */
   version?: string;
   onRefresh: () => void;
@@ -29,10 +33,21 @@ function initials(name: string): string {
   return letters.toUpperCase();
 }
 
-export function Header({ server, version, onRefresh }: HeaderProps) {
+export function Header({ server, offline, version, onRefresh }: HeaderProps) {
   const { user, signOut } = useAuth();
   const online = server?.running ?? false;
-  const dbConnected = server?.database === 'connected';
+  const state = offline?.state ?? (server?.database === 'connected' ? 'online' : 'unknown');
+  const conn = offline ? connectionLabel(offline) : server?.database === 'connected' ? 'Online' : 'Checking';
+  const connClass =
+    state === 'offline' ? styles.down : state === 'syncing' ? styles.sync : state === 'online' ? styles.ok : styles.wait;
+  const connTitle =
+    state === 'offline'
+      ? `No internet connection since ${shortTime(offline?.since)}. Showing this computer's copy.`
+      : state === 'syncing'
+        ? "Online. Updating this computer's copy of the menu and settings."
+        : state === 'online'
+          ? 'Database connected'
+          : 'Checking the connection';
   const [menuOpen, setMenuOpen] = useState(false);
   const personaRef = useRef<HTMLDivElement>(null);
 
@@ -75,12 +90,9 @@ export function Header({ server, version, onRefresh }: HeaderProps) {
           <span className={styles.dotMark} />
           {online ? 'Server' : 'Server offline'}
         </div>
-        <div
-          className={`${styles.dot} ${dbConnected ? styles.ok : styles.down}`}
-          title={dbConnected ? 'Database connected' : 'Database disconnected'}
-        >
+        <div className={`${styles.dot} ${connClass}`} title={connTitle} role="status">
           <span className={styles.dotMark} />
-          {dbConnected ? 'DB' : 'DB disconnected'}
+          {conn}
         </div>
 
         <div className={styles.info} tabIndex={0} aria-label="Connection details">
@@ -96,7 +108,17 @@ export function Header({ server, version, onRefresh }: HeaderProps) {
             </div>
             <div className={styles.tipRow}>
               <span>Database</span>
-              <strong>{dbConnected ? 'Connected' : 'Disconnected'}</strong>
+              <strong>
+                {state === 'offline'
+                  ? `Offline since ${shortTime(offline?.since)}`
+                  : state === 'unknown'
+                    ? 'Checking'
+                    : 'Connected'}
+              </strong>
+            </div>
+            <div className={styles.tipRow}>
+              <span>Offline copy</span>
+              <strong>{localCopyLine(offline)}</strong>
             </div>
             {version && (
               <div className={styles.tipRow}>

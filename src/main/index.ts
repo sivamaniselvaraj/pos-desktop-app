@@ -8,6 +8,9 @@ import { startMenuCache, stopMenuCache } from './menuCache';
 import { initLogging } from './logger';
 import { startPrinterWatch, stopPrinterWatch } from './printerManager';
 import { destroyHtmlPrintWindow } from './htmlPrintHelper';
+import { startUpdateManager, stopUpdateManager } from './updateManager';
+import { startOfflineMode, stopOfflineMode } from './offlineManager';
+import { startLiveUpdates, stopLiveUpdates } from './liveUpdates';
 import { IpcChannels } from '../shared/ipc';
 
 // First thing: copy every console line into the log file (see logger.ts), so
@@ -157,6 +160,11 @@ app.whenReady().then(async () => {
 
   registerIpcHandlers(() => mainWindow);
 
+  // Offline mode (docs/OFFLINE_MODE.md): opens the local database, starts the
+  // 5 s health check and keeps this computer's copy of the outlet's data.
+  // Before the menu cache, so a start without internet reads the saved menu.
+  startOfflineMode(() => mainWindow);
+
   try {
     await startHttpServer();
   } catch (err) {
@@ -168,11 +176,15 @@ app.whenReady().then(async () => {
   // See kotReconciliation.ts for the full design and its constraints.
   startKotReconciliation();
 
-    // Populates the in-memory menu cache now, then refreshes every 5 minutes.
-    // See menuCache.ts.
+  // Populates the in-memory menu cache now, then refreshes every 5 minutes.
+  // See menuCache.ts.
   startMenuCache();
 
   createWindow();
+
+  // Live updates (docs/LIVE_UPDATES.md): screens and phones reload when this
+  // outlet's orders or tables change, here or on another computer.
+  startLiveUpdates(() => mainWindow);
 
   // Tell the UI when the printer list changes (checked every 60 s, cached in
   // between). Replaces the status bar polling getPrinters() every 10 s.
@@ -181,6 +193,10 @@ app.whenReady().then(async () => {
       mainWindow.webContents.send(IpcChannels.PRINTER_STATUS, printers);
     }
   });
+
+  // App updates: checks a minute after start, then every 4 hours; downloads in
+  // the background and installs only when the cashier presses Install now.
+  startUpdateManager(() => mainWindow);
 
   app.on('activate', () => {
     if (!mainWindow) createWindow(); // not getAllWindows(): the hidden print window may exist
@@ -192,5 +208,8 @@ app.on('window-all-closed', () => {
   stopKotReconciliation();
   stopMenuCache();
   stopPrinterWatch();
+  stopUpdateManager();
+  stopOfflineMode();
+  stopLiveUpdates();
   if (process.platform !== 'darwin') app.quit();
 });

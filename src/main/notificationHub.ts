@@ -2,6 +2,7 @@ import type { Response } from 'express';
 import { db } from './data';
 import { config } from './config';
 import { diffStates, type Memory, type PhoneNotification } from './kotNotifierCore';
+import type { LiveChange } from '../shared/liveTypes';
 
 /**
  * notificationHub.ts: LAN-only notifications to the phone that placed an order.
@@ -29,6 +30,8 @@ interface Box {
   nextId: number;
   items: QueuedNotification[];
   clients: Set<Response>;
+  /** Connections that asked for change events (GET /api/events?live=1). */
+  liveClients: Set<Response>;
 }
 
 const boxes = new Map<string, Box>();
@@ -39,7 +42,7 @@ let busy = false;
 function box(deviceId: string): Box {
   let b = boxes.get(deviceId);
   if (!b) {
-    b = { nextId: 1, items: [], clients: new Set() };
+    b = { nextId: 1, items: [], clients: new Set(), liveClients: new Set() };
     boxes.set(deviceId, b);
   }
   return b;
@@ -69,8 +72,23 @@ export function since(deviceId: string, after: number): QueuedNotification[] {
   return (boxes.get(deviceId)?.items ?? []).filter((n) => n.id > after);
 }
 
-/** Opens the event stream for a device. `lastId` is the Last-Event-ID the phone saw, to replay what it missed. */
-export function openStream(deviceId: string, res: Response, lastId: number): void {
+/**
+ * Tells every paired device that asked for it (GET /api/events?live=1) that
+ * this outlet's orders or tables changed, so it reloads them now instead of
+ * polling (docs/LIVE_UPDATES.md). The event has no id: it is not replayed and
+ * does not move the phone's Last-Event-ID. Older apps that did not ask for it
+ * never get it.
+ */
+export function broadcastChange(change: LiveChange): void {
+  const line = `event: changed\ndata: ${JSON.stringify({ scopes: change.scopes, at: change.at })}\n\n`;
+  for (const b of boxes.values()) for (const c of b.liveClients) c.write(line);
+}
+
+/**
+ * Opens the event stream for a device. `lastId` is the Last-Event-ID the phone saw, to replay what it missed.
+ * `live`: also send `changed` events (orders or tables changed).
+ */
+export function openStream(deviceId: string, res: Response, lastId: number, live = false): void {
   res.status(200).set({
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-store',
@@ -82,7 +100,11 @@ export function openStream(deviceId: string, res: Response, lastId: number): voi
   const b = box(deviceId);
   for (const n of b.items) if (n.id > lastId) sse(res, n);
   b.clients.add(res);
-  res.on('close', () => b.clients.delete(res));
+  if (live) b.liveClients.add(res);
+  res.on('close', () => {
+    b.clients.delete(res);
+    b.liveClients.delete(res);
+  });
 }
 
 async function pollOnce(): Promise<void> {

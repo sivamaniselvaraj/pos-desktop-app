@@ -13,8 +13,14 @@
  */
 import type { DataProvider } from './ports';
 import { createSupabaseProvider } from './supabase';
+import { OfflineMode } from './offline';
+import { timedWatch, trackLocalWrites } from './live';
+import type { LiveRepository } from './ports';
 
 export type * from './ports';
+export type { ConnectivitySnapshot, ConnectivityState, LocalStoreInfo, OfflineStatusParts } from './offline';
+export { OfflineError, OFFLINE_MESSAGE } from './offline';
+export { onLocalWrite } from './live';
 
 const factories: Record<string, () => DataProvider> = {
   supabase: createSupabaseProvider,
@@ -35,6 +41,33 @@ export function getProvider(): DataProvider {
   return active;
 }
 
+/**
+ * Offline mode (docs/OFFLINE_MODE.md): the health check, the local database
+ * and the wrapper that saves reference reads and answers them offline. The
+ * health check uses the provider's own isReachable, never the wrapped one.
+ */
+export const offline = new OfflineMode(async () => {
+  const p = getProvider();
+  return p.isConfigured() && p.orders.isReachable();
+});
+
+type Repos = Omit<DataProvider, 'name' | 'isConfigured' | 'checkConnection' | 'live'>;
+function repo<K extends keyof Repos>(name: K): Repos[K] {
+  return trackLocalWrites(name, offline.facade.wrap(name, getProvider()[name]));
+}
+
+/**
+ * Live updates (docs/LIVE_UPDATES.md): the provider's own watch, paused while
+ * offline, or a timed reload when the provider has none.
+ */
+const live: LiveRepository = {
+  watch(outletId, onChange) {
+    const isPaused = () => offline.monitor.isOffline();
+    const p = getProvider().live;
+    return p ? p.watch(outletId, onChange, { isPaused }) : timedWatch(onChange, { isPaused });
+  },
+};
+
 /** Lazy facade so modules can `import { db }` before the environment is loaded. */
 export const db: DataProvider = {
   get name() {
@@ -43,51 +76,52 @@ export const db: DataProvider = {
   isConfigured: () => getProvider().isConfigured(),
   checkConnection: (url, token) => getProvider().checkConnection(url, token),
   get auth() {
-    return getProvider().auth;
+    return repo('auth');
   },
   get access() {
-    return getProvider().access;
+    return repo('access');
   },
   get orders() {
-    return getProvider().orders;
+    return repo('orders');
   },
   get orderAdmin() {
-    return getProvider().orderAdmin;
+    return repo('orderAdmin');
   },
   get orderEntry() {
-    return getProvider().orderEntry;
+    return repo('orderEntry');
   },
   get tax() {
-    return getProvider().tax;
+    return repo('tax');
   },
   get remoteOrders() {
-    return getProvider().remoteOrders;
+    return repo('remoteOrders');
   },
   get devices() {
-    return getProvider().devices;
+    return repo('devices');
   },
   get kots() {
-    return getProvider().kots;
+    return repo('kots');
   },
   get tables() {
-    return getProvider().tables;
+    return repo('tables');
   },
   get menu() {
-    return getProvider().menu;
+    return repo('menu');
   },
   get users() {
-    return getProvider().users;
+    return repo('users');
   },
   get groups() {
-    return getProvider().groups;
+    return repo('groups');
   },
   get invoices() {
-    return getProvider().invoices;
+    return repo('invoices');
   },
   get reports() {
-    return getProvider().reports;
+    return repo('reports');
   },
   get releases() {
-    return getProvider().releases;
+    return repo('releases');
   },
+  live,
 };

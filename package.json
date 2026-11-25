@@ -21,12 +21,15 @@
     "rebuild": "electron-rebuild -f -w @timokunze/node-printer",
     "postinstall": "electron-rebuild -f -w @timokunze/node-printer || echo \"electron-rebuild skipped (run 'npm run rebuild' manually if printing fails)\"",
     "lint": "eslint src",
+    "test:live": "esbuild tests/live/*.test.ts --bundle --platform=node --format=cjs --target=node22 --outdir=dist/tests/live && node --test dist/tests/live/*.test.js",
+    "test:offline": "esbuild tests/offline/*.test.ts --bundle --platform=node --format=cjs --target=node22 --external:better-sqlite3-multiple-ciphers --outdir=dist/tests/offline && node --test dist/tests/offline/*.test.js",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\""
   },
   "dependencies": {
     "@timokunze/node-printer": "^0.6.37",
     "@mapbox/node-pre-gyp": "^2.0.3",
     "@supabase/supabase-js": "^2.108.2",
+    "better-sqlite3-multiple-ciphers": "^13.2.0",
     "cors": "^2.8.6",
     "electron-updater": "^6.8.11",
     "express": "^5.2.1",
@@ -84,7 +87,11 @@
       "!node_modules/nan/**",
       "!node_modules/@timokunze/node-printer/{src,patches,types}/**",
       "!node_modules/@timokunze/node-printer/build/Release/obj/**",
-      "!node_modules/@timokunze/node-printer/build/**/*.{pdb,iobj,ipdb,ilk,exp,lib}"
+      "!node_modules/@timokunze/node-printer/build/**/*.{pdb,iobj,ipdb,ilk,exp,lib}",
+      "!node_modules/better-sqlite3-multiple-ciphers/{deps,src}/**",
+      "!node_modules/better-sqlite3-multiple-ciphers/binding.gyp",
+      "!node_modules/better-sqlite3-multiple-ciphers/prebuilds/{darwin,linux,linuxmusl}-*.node",
+      "!node_modules/better-sqlite3-multiple-ciphers/prebuilds/win32-arm64.node"
     ],
     "electronLanguages": [
       "en-US",
@@ -97,7 +104,8 @@
       "buildResources": "assets"
     },
     "asarUnpack": [
-      "**/node_modules/@timokunze/node-printer/**"
+      "**/node_modules/@timokunze/node-printer/**",
+      "**/node_modules/better-sqlite3-multiple-ciphers/prebuilds/**"
     ],
     "publish": [
       {

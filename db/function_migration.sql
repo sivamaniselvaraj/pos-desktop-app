@@ -3326,10 +3326,12 @@ begin
              'total', coalesce(o.total_amount, 0),
              'order_type', o.order_type,
              'created_at', o.created_at,
+             'notes', nullif(btrim(o.notes), ''),
              'items', (
                select coalesce(jsonb_agg(jsonb_build_object(
                         'id', oi.id, 'name', mi.name,
-                        'quantity', oi.quantity, 'status', oi.status)
+                        'quantity', oi.quantity, 'status', oi.status,
+                        'note', nullif(btrim(oi.notes), ''))
                         order by oi.created_at, oi.id), '[]'::jsonb)
                  from order_items oi
                  join menu_items mi on mi.id = oi.menu_item_id

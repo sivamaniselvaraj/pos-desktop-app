@@ -2,6 +2,7 @@
 // Imported by the main process, the preload script and the renderer (window.api).
 
 import type { ConnectionSetupInput, ConnectionSetupResult, ConnectionSetupStatus } from './connectionTypes';
+import type { LiveChange } from './liveTypes';
 import type {
   ReportBucket,
   SalesReportRow,
@@ -75,6 +76,7 @@ import type {
   UpdateStatus,
   InstallCheck,
 } from './types';
+import { OfflineStatus } from './offlineTypes';
 
 // ---- IPC channel names (single source of truth) ----
 export const IpcChannels = {
@@ -208,6 +210,9 @@ export const IpcChannels = {
   ORDER_STATUS_CHANGED: 'order-status-changed',
   PRINTER_STATUS: 'printer-status',
   SERVER_STATUS: 'server-status',
+  OFFLINE_STATUS: 'offline-status', // offline mode: connection and local copy (push)
+  LIVE_CHANGED: 'live-changed', // live updates: this outlet's orders or tables changed (push, docs/LIVE_UPDATES.md)
+  GET_OFFLINE_STATUS: 'get-offline-status',
   // app updates (see docs/APP_UPDATES.md)
   GET_UPDATE_STATUS: 'get-update-status',
   CHECK_FOR_UPDATES: 'check-for-updates',
@@ -378,6 +383,11 @@ export interface ElectronApi {
   onOrderStatusChanged(cb: (order: OrderWithStatus) => void): () => void;
   onPrinterStatus(cb: (printers: PrinterInfo[]) => void): () => void;
   onServerStatus(cb: (status: ServerStatus) => void): () => void;
+  /** Offline mode: online / offline / syncing and the state of this computer's copy (docs/OFFLINE_MODE.md). */
+  getOfflineStatus(): Promise<OfflineStatus>;
+  onOfflineStatus(cb: (status: OfflineStatus) => void): () => void;
+  /** Live updates: called when this outlet's orders or tables changed, here or elsewhere (docs/LIVE_UPDATES.md). */
+  onLiveChange(cb: (change: LiveChange) => void): () => void;
   getUpdateStatus(): Promise<UpdateStatus>;
   /** Check now (About page). Resolves with the status after the check starts. */
   checkForUpdates(): Promise<UpdateStatus>;

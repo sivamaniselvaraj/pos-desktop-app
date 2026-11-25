@@ -355,11 +355,19 @@ export function isTableNumber(value: unknown): value is string | number {
   return typeof value === 'string' && value.length >= 1 && value.length <= 32 && !/[\u0000-\u001f]/.test(value);
 }
 
-/** Columns that must never leave the machine through the menu API. */
-const MENU_PRIVATE_FIELDS = ['cost_price'];
+/**
+ * What a phone gets for each menu item: only what it uses to browse and order. Cost price,
+ * incentive, the off-reason and audit columns, description, image and cooking time are not
+ * sent. A whitelist, so a column added to the table later is not sent by accident.
+ */
+const MENU_PUBLIC_FIELDS = [
+  'id', 'name', 'price', 'category_id', 'category_name', 'category_sort_order', 'is_veg',
+  'is_active', 'is_available', 'search_key', 'container_charge',
+  'tax_name', 'tax_rate_percent', 'price_includes_tax',
+];
 
 export function publicMenuItem(item: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...item };
-  for (const f of MENU_PRIVATE_FIELDS) delete out[f];
+  const out: Record<string, unknown> = {};
+  for (const f of MENU_PUBLIC_FIELDS) if (f in item) out[f] = item[f];
   return out;
 }

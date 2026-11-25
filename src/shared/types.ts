@@ -649,7 +649,7 @@ export interface AddTaxRatePayload {
   effectiveLocal?: string;
 }
 
-// ---- KOT board ----------------------------------------------------------
+// ---- KDS board (was KOT board; code names keep 'kot') ---------------------
 export interface KotStatus {
   id: string;
   /** The order_items.status value of this step (new, preparing, ready, ...). */
@@ -784,7 +784,10 @@ export interface ApiMyOrder {
   total: number;
   orderType: string;
   createdAt: string | null;
-  items: { id: string; name: string; quantity: number; status: string }[];
+  /** Order note (orders.special_notes, the phone's `notes` on POST /api/orders); null when none. Added 2026-11-24. */
+  notes: string | null;
+  /** note: the dish's kitchen note (order_items.special_instructions, KOT_ITEM_NOTES.md); null when none. Added 2026-11-24. */
+  items: { id: string; name: string; quantity: number; status: string; note: string | null }[];
 }
 
 /** One table as the HTTP API reports it (GET /api/tables, GET /api/tables/:id). */

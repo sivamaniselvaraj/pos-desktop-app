@@ -36,8 +36,8 @@ as $$
 select to_jsonb(o)
   || jsonb_build_object('table_number', tbls.table_number)
   -- table_floor: picks the floor's printers (Settings > Printers, docs/PRINTERS.md).
-  || jsonb_build_object('table_floor', tbls.floor_area)
-  || jsonb_build_object('placed_by_name', wp.first_name)
+  || jsonb_build_object('table_floor', tbls.floor)
+  || jsonb_build_object('placed_by_name', wp.full_name)
   -- is_running_order: a dine-in order that is not the first round of its table, i.e. an earlier,
   -- not cancelled order exists on the same invoice (or, for an old order with no invoice number,
   -- an earlier open order on the same table). The KOT prints "RUNNING ORDER" for it.
@@ -66,7 +66,7 @@ select to_jsonb(o)
       (
         select jsonb_agg(
           (select to_jsonb(item_cols) from
-            (select oi.id, oi.status, oi.quantity, oi.unit_price, oi.total_price, mi.name, oi.notes)
+            (select oi.id, oi.status, oi.quantity, oi.unit_price, oi.total_price, mi.name)
             item_cols
           )
         )
@@ -2434,6 +2434,7 @@ as $$
   ) batch on batch.order_ids is not null
   where has_permission('dashboard.tables')
     and t.outlet_id = p.outlet_id
+    and t.deleted_at is null  -- soft-deleted tables are not shown (2026-11-24)
   order by t.table_number;
 $$;
 
@@ -2501,6 +2502,7 @@ as $$
   from tables t
   join me on me.outlet_id = t.outlet_id
   left join bills b on b.table_id = t.id
+  where t.deleted_at is null  -- soft-deleted tables are not shown (2026-11-24)
   -- Within a table: bills waiting for payment first (oldest first), the running bill last.
   order by t.table_number, (b.order_status = 'open') nulls first, b.order_created_at;
 $$;
@@ -2938,7 +2940,8 @@ begin
   end if;
 
   if v_dine_in and not exists (select 1 from tables t
-                                where t.id = p_table_id and t.outlet_id = v_outlet) then
+                                where t.id = p_table_id and t.outlet_id = v_outlet
+                                  and t.deleted_at is null) then
     raise exception 'Table not found in your outlet';
   end if;
 
@@ -3824,7 +3827,9 @@ begin
   if v_state not in ('open', 'occupied', 'reserved', 'cleaning') then
     raise exception 'Invalid status';
   end if;
-  if exists (select 1 from tables t where t.outlet_id = p_outlet_id and lower(t.table_number) = lower(v_number)) then
+  -- A deleted table's number may be used again (2026-11-24, soft delete).
+  if exists (select 1 from tables t where t.outlet_id = p_outlet_id and lower(t.table_number) = lower(v_number)
+               and t.deleted_at is null) then
     raise exception 'Table "%" already exists in this outlet', v_number;
   end if;
   -- The trigger log_table_change() writes the table_activity_log row; tell it who this is for.
@@ -3848,13 +3853,59 @@ $$;
 revoke all on function add_table(uuid, text, text, integer, text, uuid) from public, anon;
 grant execute on function add_table(uuid, text, text, integer, text, uuid) to authenticated;
 
+-- delete_table(outlet, table): the Tables page's Delete (2026-11-24, docs/TABLE_SOFT_DELETE.md).
+-- A soft delete: sets deleted_at and deleted_by and keeps the row, so the table's past orders,
+-- bills and reports still show its number. A deleted table is left out of every table list
+-- (Tables page, Dashboard, New order, phones), cannot take new orders, and its number can be
+-- used again. Needs tables.manage in the caller's own outlet. Refused while the table has a
+-- live order (not cancelled and not yet paid, which includes a printed bill waiting for
+-- payment). The trigger log_table_change() writes table.deleted to table_activity_log.
+create or replace function delete_table(p_outlet_id uuid, p_table_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_number text;
+begin
+  if not has_permission('tables.manage') then
+    raise exception 'Not allowed to delete tables';
+  end if;
+  if not exists (select 1 from profiles p where p.user_id = auth.uid() and coalesce(p.is_active, true)
+                   and p.outlet_id = p_outlet_id) then
+    raise exception 'Not allowed to delete tables in this outlet';
+  end if;
+  select t.table_number into v_number
+    from tables t
+   where t.id = p_table_id and t.outlet_id = p_outlet_id and t.deleted_at is null
+   for update;
+  if not found then
+    raise exception 'Table not found in this outlet';
+  end if;
+  if exists (select 1 from orders o
+              where o.table_id = p_table_id
+                and o.status <> 'cancelled'
+                and o.payment_details is null) then
+    raise exception 'Table % has an open order or a bill waiting for payment, so it can''t be deleted', v_number;
+  end if;
+  update tables
+     set deleted_at = now(), deleted_by = auth.uid()
+   where id = p_table_id;
+end;
+$$;
+revoke all on function delete_table(uuid, uuid) from public, anon;
+grant execute on function delete_table(uuid, uuid) to authenticated;
+
 -- log_table_change(): AFTER INSERT / UPDATE / DELETE trigger on tables. Every change to a
 -- table, whichever app version or function makes it, is written to table_activity_log:
 --   table.created         (details: number, floor, capacity, state)
 --   table.updated         (details.changes: field -> {from, to} for number, floor, capacity, state)
 --   table.status.changed  (only the state changed: details {from, to}; includes the automatic
 --                          flips when an order is placed, settled or cancelled)
---   table.deleted         (details: the values it had)
+--   table.deleted         (details: the values it had). Since 2026-11-24 tables are soft
+--                          deleted (deleted_at set by delete_table()); that update is
+--                          logged as table.deleted. A hard DELETE (older app) is too.
 -- changed_by is the signed-in user, or the phone's user when add_table() set app.table_actor
 -- for the transaction (then via = 'phone' and details.desktopUser is the desktop's user).
 -- via is 'app' for everything else. Updates that change none of those four fields (the
@@ -3881,6 +3932,11 @@ begin
     v_details := jsonb_build_object('tableNumber', new.table_number, 'floor', new.floor,
                                     'capacity', new.capacity, 'state', new.state);
   elsif tg_op = 'DELETE' then
+    v_activity := 'table.deleted';
+    v_details := jsonb_build_object('tableNumber', old.table_number, 'floor', old.floor,
+                                    'capacity', old.capacity, 'state', old.state);
+  elsif old.deleted_at is null and new.deleted_at is not null then
+    -- soft delete (delete_table)
     v_activity := 'table.deleted';
     v_details := jsonb_build_object('tableNumber', old.table_number, 'floor', old.floor,
                                     'capacity', old.capacity, 'state', old.state);
@@ -4748,8 +4804,10 @@ grant execute on function save_discount_presets(jsonb) to authenticated;
 -- (settled) nor cancelled, oldest first, each with its items. Deleted items are
 -- left out; cancelled items stay, with status 'cancelled'.
 -- Returns [{ order_id, order_number, table_id, table_number, floor, outlet,
---            status, total, order_type, created_at,
---            items:[{ id, name, quantity, status }] }]
+--            status, total, order_type, created_at, notes,
+--            items:[{ id, name, quantity, status, note }] }]
+-- notes = the order note (orders.special_notes), note = the dish's kitchen note
+-- (order_items.special_instructions); null when there is none (2026-11-24).
 create or replace function get_my_orders(p_waiter_id uuid)
 returns jsonb
 language plpgsql
@@ -4781,10 +4839,12 @@ begin
              'total', coalesce(o.total_amount, 0),
              'order_type', o.order_type,
              'created_at', o.created_at,
+             'notes', nullif(btrim(o.special_notes), ''),
              'items', (
                select coalesce(jsonb_agg(jsonb_build_object(
                         'id', oi.id, 'name', mi.name,
-                        'quantity', oi.quantity, 'status', oi.status)
+                        'quantity', oi.quantity, 'status', oi.status,
+                        'note', nullif(btrim(oi.special_instructions), ''))
                         order by oi.created_at, oi.id), '[]'::jsonb)
                  from order_items oi
                  join menu_items mi on mi.id = oi.menu_item_id
@@ -6555,3 +6615,116 @@ begin
 end;
 $$;
 grant execute on function import_menu_items(jsonb, text) to authenticated;
+
+
+-- 2026-11-23: live updates (docs/LIVE_UPDATES.md). Counters table is in schema.sql.
+
+create or replace function bump_live_version(p_outlet_id uuid, p_orders boolean, p_tables boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_outlet_id is null then
+    return;
+  end if;
+  insert into outlet_live_versions as v (outlet_id, orders_version, tables_version, updated_at)
+  values (p_outlet_id, case when p_orders then 1 else 0 end, case when p_tables then 1 else 0 end, now())
+  on conflict (outlet_id) do update
+     set orders_version = v.orders_version + case when p_orders then 1 else 0 end,
+         tables_version = v.tables_version + case when p_tables then 1 else 0 end,
+         updated_at = now();
+end;
+$$;
+revoke all on function bump_live_version(uuid, boolean, boolean) from public;
+
+create or replace function live_version_orders_trg()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'DELETE' then
+    perform bump_live_version(old.outlet_id, true, false);
+    return old;
+  end if;
+  perform bump_live_version(new.outlet_id, true, false);
+  if tg_op = 'UPDATE' and old.outlet_id is distinct from new.outlet_id then
+    perform bump_live_version(old.outlet_id, true, false);
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function live_version_order_items_trg()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_order uuid := case when tg_op = 'DELETE' then old.order_id else new.order_id end;
+begin
+  perform bump_live_version((select o.outlet_id from orders o where o.id = v_order), true, false);
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+
+create or replace function live_version_tables_trg()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'DELETE' then
+    perform bump_live_version(old.outlet_id, false, true);
+    return old;
+  end if;
+  perform bump_live_version(new.outlet_id, false, true);
+  if tg_op = 'UPDATE' and old.outlet_id is distinct from new.outlet_id then
+    perform bump_live_version(old.outlet_id, false, true);
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_live_version_orders on orders;
+create trigger trg_live_version_orders
+  after insert or update or delete on orders
+  for each row execute function live_version_orders_trg();
+
+drop trigger if exists trg_live_version_order_items on order_items;
+create trigger trg_live_version_order_items
+  after insert or update or delete on order_items
+  for each row execute function live_version_order_items_trg();
+
+drop trigger if exists trg_live_version_tables on tables;
+create trigger trg_live_version_tables
+  after insert or update or delete on tables
+  for each row execute function live_version_tables_trg();
+
+-- The counters of one outlet: {"orders": n, "tables": n}. Any signed-in user of
+-- the outlet's organization may read them (they reveal only that something
+-- changed). An outlet with no changes yet answers zeros.
+create or replace function get_live_version(p_outlet_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v record;
+begin
+  if not exists (select 1 from outlets ol where ol.id = p_outlet_id and ol.org_id = current_org_id()) then
+    raise exception 'Not allowed to read this outlet';
+  end if;
+  select orders_version, tables_version into v from outlet_live_versions where outlet_id = p_outlet_id;
+  return jsonb_build_object('orders', coalesce(v.orders_version, 0), 'tables', coalesce(v.tables_version, 0));
+end;
+$$;
+revoke all on function get_live_version(uuid) from public;
+grant execute on function get_live_version(uuid) to authenticated;

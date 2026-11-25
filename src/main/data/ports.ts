@@ -54,6 +54,7 @@ import type {
   InvoiceSequenceStatus,
   OrderType,
 } from '../../shared/types';
+import type { LiveChangeScope } from '../../shared/liveTypes';
 import type {
   ReportBucket,
   SalesReportRow,
@@ -175,7 +176,7 @@ export interface OrderAdminRepository {
   listOrders(outletId: string, filter: OrderListFilter): Promise<OrderListPage>;
   listInvoiceOrders(invoiceNumber: string): Promise<InvoiceOrderRef[]>;
   /** Order number and customer of each order (Dashboard Takeaway tab). Unknown or foreign ids are left out. */
-    listOrderCustomers(orderIds: string[]): Promise<OrderCustomerRef[]>;
+  listOrderCustomers(orderIds: string[]): Promise<OrderCustomerRef[]>;
   listItemsForOrders(orderIds: string[]): Promise<InvoiceItemRecord[]>;
   getOrderActivityLog(orderId: string): Promise<ActivityLogRecord[]>;
   /** True when the item exists and its order is still open. */
@@ -478,6 +479,36 @@ export interface ReleaseRepository {
 // ---------------------------------------------------------------------------
 // The provider
 // ---------------------------------------------------------------------------
+// ---- Live updates (docs/LIVE_UPDATES.md) ----------------------------------
+
+/** What changed for an outlet: its orders (and their items) or its tables. */
+export type { LiveChangeScope };
+
+export interface LiveWatchOptions {
+  /** Checked before each look at the backend; true skips it (e.g. while offline). */
+  isPaused?: () => boolean;
+}
+
+/**
+ * Tells the app when another computer or device changed this outlet's orders
+ * or tables, so screens reload without a refresh button. How a backend finds
+ * out (a change counter, a push stream, anything else) is its own business:
+ * callers only see this contract.
+ *
+ * - `watch` starts watching one outlet and returns a function that stops it.
+ * - `onChange` gets the scopes that changed. Calling it more often than
+ *   needed is harmless (the screens just reload); missing a change is not.
+ * - It must never throw and must keep trying after a failure. Only data of
+ *   the given outlet may count, and the backend must refuse an outlet the
+ *   signed-in user does not belong to.
+ * - The first look only records where things stand; it does not call onChange.
+ *
+ * Optional: a provider without it gets a timed reload (see data/live.ts).
+ */
+export interface LiveRepository {
+  watch(outletId: string, onChange: (scopes: LiveChangeScope[]) => void, options?: LiveWatchOptions): () => void;
+}
+
 export interface DataProvider {
   readonly name: string;
   /** True when the backend's connection settings are present. */
@@ -504,4 +535,6 @@ export interface DataProvider {
   invoices: InvoiceRepository;
   reports: ReportRepository;
   releases: ReleaseRepository;
+  /** Live updates; optional (data/live.ts falls back to a timed reload). */
+  live?: LiveRepository;
 }

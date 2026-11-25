@@ -8,6 +8,7 @@ import { orderManager } from '../orderManager';
 import { printQueue, PrintTimeoutError } from '../printQueueManager';
 import { db } from '../data';
 import { getCachedMenuItems } from '../menuCache';
+import { isDatabaseConnected } from '../offlineManager';
 import { checkCode, consumeCode, describeCodeState, noteFailedSignIn } from './pairingCodes';
 import { createHash } from 'crypto';
 import { getKotBoard, moveKot } from '../kotManager';
@@ -105,7 +106,10 @@ export function startHttpServer(): Promise<void> {
       version: '1.0.0',
     };
     if (hasValidToken(req)) {
-      body.database = (await db.orders.isReachable()) ? 'connected' : 'disconnected';
+      const connected = await isDatabaseConnected();
+      body.database = connected ? 'connected' : 'disconnected';
+      // Offline mode: the desktop answers from this computer's copy while the internet is down.
+      body.mode = connected ? 'online' : 'offline';
     }
     res.json(body);
   });
@@ -244,7 +248,6 @@ export function startHttpServer(): Promise<void> {
       return res.status(429).json({ error: 'Too many wrong PINs. Try again later.', code: 'LOCKED_OUT', retryAfterSeconds: Math.ceil(wait / 1000) });
     }
     const pin = req.body?.pin;
-
     if (typeof pin !== 'string' || !/^\d{4}$/.test(pin)) return res.status(400).json({ error: 'The PIN must be exactly 4 digits.' });
     if (checkPin(pin, stored)) {
       clearWrongPins(id);
@@ -644,13 +647,17 @@ export function startHttpServer(): Promise<void> {
 
   // ---- Notifications for the phone that placed an order (LAN only) ----------
   // GET /api/events: a server-sent-events stream; each event is one notification.
+  // With ?live=1 it also carries `changed` events ({ scopes, at }) when this
+  // outlet's orders or tables change, so the phone reloads them at once
+  // (docs/LIVE_UPDATES.md).
   // GET /api/notifications?after=<id>: the same notifications as a list, for a
   // phone that cannot keep a connection open.
   app.get('/api/events', (req, res) => {
     const header = Number(req.header('Last-Event-ID'));
     const q = Number(req.query.after);
     const last = Number.isFinite(header) && header > 0 ? header : Number.isFinite(q) && q > 0 ? q : 0;
-    openStream(deviceIdOf(res), res, last);
+    const live = req.query.live === '1' || req.query.live === 'true';
+    openStream(deviceIdOf(res), res, last, live);
   });
 
   app.get('/api/notifications', (req, res) => {
