@@ -9,6 +9,7 @@ import { printQueue, PrintTimeoutError } from '../printQueueManager';
 import { db } from '../data';
 import { getCachedMenuItems } from '../menuCache';
 import { isDatabaseConnected } from '../offlineManager';
+import { buildHealthBody, createOutletNameCache } from '../healthInfo';
 import { checkCode, consumeCode, describeCodeState, noteFailedSignIn } from './pairingCodes';
 import { createHash } from 'crypto';
 import { getKotBoard, moveKot } from '../kotManager';
@@ -61,6 +62,9 @@ import type { DeviceOwner, PrintOrderRequest, PrintOrderResponse } from '../../s
 
 let server: Server | https.Server | null = null;
 
+// Outlet display name for /api/health (cached: phones poll every 10 s).
+const outletName = createOutletNameCache((id:any) => db.auth.loadOutletName(id));
+
 function fail(
   res: express.Response,
   status: number,
@@ -100,18 +104,13 @@ export function startHttpServer(): Promise<void> {
   // Health is open so a phone can show "server reachable" before it is paired.
   // It reveals the database state only to a caller holding a valid token.
   app.get('/api/health', async (req, res) => {
-    const body: Record<string, unknown> = {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      version: '1.0.0',
-    };
-    if (hasValidToken(req)) {
-      const connected = await isDatabaseConnected();
-      body.database = connected ? 'connected' : 'disconnected';
-      // Offline mode: the desktop answers from this computer's copy while the internet is down.
-      body.mode = connected ? 'online' : 'offline';
-    }
-    res.json(body);
+    res.json(
+      await buildHealthBody({
+        hasValidToken: hasValidToken(req),
+        isDatabaseConnected,
+        restaurantName: () => outletName(config.outletId),
+      }),
+    );
   });
 
   // Everything below needs a paired device's token.

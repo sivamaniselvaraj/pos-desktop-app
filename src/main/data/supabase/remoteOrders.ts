@@ -8,6 +8,7 @@ function toJsonItems(items: OrderItem[]) {
     unit_price: i.unitPrice,
     total_price: i.totalPrice,
     quantity: i.quantity,
+    note: String(i.notes),
   }));
 }
 

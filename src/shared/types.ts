@@ -11,6 +11,7 @@ export interface OrderItem {
   specialInstructions?: string;
   kotPrinted?: boolean;
   kotPrintedAt?: string;
+  notes?: string|null;
 }
 
 export type OrderType = 'delivery' | 'pickup' | 'dine-in' | 'takeaway' | 'dine_in';
