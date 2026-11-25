@@ -115,7 +115,7 @@ export function renderBillHtml(order: FoodOrder, isDuplicate = false): string {
   const rows = order.items
     .map((item) => {
       totalQty += item.quantity;
-      const note = item.specialInstructions ? `<tr><td colspan="4" class="note">* ${esc(item.specialInstructions)}</td></tr>` : '';
+      const note = item.notes ? `<tr><td colspan="4" class="note">* ${esc(item.notes)}</td></tr>` : '';
       return (
         `<tr><td>${esc(item.name)}</td><td class="n">${item.quantity}</td>` +
         `<td class="n">${price(item.unitPrice)}</td><td class="n">${price(item.unitPrice * item.quantity)}</td></tr>${note}`
@@ -184,8 +184,8 @@ export function renderKotHtml(order: FoodOrder): string {
   const rows = order.items
     .map((item) => {
       totalQty += item.quantity;
-      const note = item.specialInstructions
-        ? `<div class="kotnote">* ${esc(item.specialInstructions)}</div>`
+      const note = item.notes
+        ? `<div class="kotnote">* ${esc(item.notes)}</div>`
         : '';
       return `<tr><td class="kotn">${esc(item.name)}${note}</td><td class="kotq">${item.quantity}</td></tr>`;
     })

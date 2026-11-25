@@ -381,8 +381,8 @@ export async function printKotEscPos(order: FoodOrder, printerName: string): Pro
         { text: nameLines[0], align: 'LEFT', cols: ITEM_COL, bold: false },
         { text: qtyStr, align: 'CENTER', cols: QTY_COL, bold: false },
       ]);
-      if (item.specialInstructions) {
-        printer.println('     * ' + item.specialInstructions);
+      if (item.notes) {
+        printer.println('     * ' + item.notes);
       }
     }
 

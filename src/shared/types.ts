@@ -8,7 +8,6 @@ export interface OrderItem {
   unitPrice: number;
   totalPrice?: number;
   //status: string;
-  specialInstructions?: string;
   kotPrinted?: boolean;
   kotPrintedAt?: string;
   notes?: string|null;

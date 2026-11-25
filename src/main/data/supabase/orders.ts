@@ -19,7 +19,7 @@ function mapItem(row: Record<string, unknown>): OrderItem {
     name: menuItemRaw ? String(mapMenuItem(menuItemRaw).name) : 'Item',
     quantity: Number(row.quantity ?? row.qty ?? 1),
     unitPrice: Number(row.price ?? row.unit_price ?? 0),
-    specialInstructions: row.notes
+    notes: row.notes
         ? String(row.notes)
         : '',
     kotPrinted: row.kot_printed === true,
