@@ -230,19 +230,20 @@ export function TablesManagement() {
               <th>Capacity</th>
               <th>Status</th>
               <th>Available</th>
+              <th>Active</th>
               {canManage && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={canManage ? 6 : 5} className={pageStyles.muted}>
+                <td colSpan={canManage ? 7 : 6} className={pageStyles.muted}>
                   {tables.length === 0 ? 'No tables yet — add one.' : 'No tables match these filters.'}
                 </td>
               </tr>
             ) : (
               filtered.map((t) => (
-                <tr key={t.tableId}>
+                <tr key={t.tableId} className={t.isActive ? undefined : styles.inactiveRow}>
                   <td>
                     <strong>{t.tableNumber}</strong>
                   </td>
@@ -298,6 +299,31 @@ export function TablesManagement() {
                     </button>
                     )}
                   </td>
+                  <td>
+                    {/* Active switch (tables are never deleted, docs/TABLE_ACTIVE.md): on = active. */}
+                    {!canManage ? (
+                      <span className={styles.hintInline}>{t.isActive ? 'Active' : 'Inactive'}</span>
+                    ) : (
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={t.isActive}
+                        aria-label={`Table ${t.tableNumber} active`}
+                        className={`${styles.switch} ${t.isActive ? styles.switchOn : ''}`}
+                        onClick={() => void handleSetActive(t, !t.isActive)}
+                        disabled={busyId === t.tableId || (t.isActive && t.activeOrderCount > 0)}
+                        title={
+                          t.isActive && t.activeOrderCount > 0
+                            ? 'Has an open order or unpaid bill, so it cannot be made inactive'
+                            : t.isActive
+                              ? 'Make inactive: no new orders; it stays here with its past orders'
+                              : 'Make active: offer this table for orders again'
+                        }
+                      >
+                        <span className={styles.knob} />
+                      </button>
+                    )}
+                  </td>
                   {canManage && (
                   <td>
                     <div className={styles.actions}>
@@ -308,14 +334,6 @@ export function TablesManagement() {
                         disabled={busyId === t.tableId}
                       >
                         <Icon name="edit" size={16} />
-                      </button>
-                      <button
-                        className={styles.cancelBtn}
-                        title={t.isActive ? 'No new orders on this table; it stays here with its past orders' : 'Offer this table for orders again'}
-                        onClick={() => void handleSetActive(t, !t.isActive)}
-                        disabled={busyId === t.tableId}
-                      >
-                        {t.isActive ? 'Make inactive' : 'Make active'}
                       </button>
                     </div>
                   </td>
