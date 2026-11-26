@@ -20,6 +20,7 @@ import { DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE } from '../../shared/types';
 import pageStyles from '../styles/Page.module.css';
 import styles from '../styles/OrdersList.module.css';
 import { formatMoney as formatCurrency, displayInvoiceNumber } from '../lib/format';
+import { useLiveChange } from '../hooks/useLiveChange';
 
 
 const PAGE_SIZE = 25;
@@ -113,6 +114,7 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
   const [refreshing, setRefreshing] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const inFlight = useRef(false);
+  const reloadAgain = useRef(false);
   const seq = useRef(0);
   const lastFullAt = useRef(0);
   const rowsRef = useRef<OrderListRow[]>([]);
@@ -185,6 +187,10 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
         setLoading(false);
         setRefreshing(false);
         inFlight.current = false;
+        if (reloadAgain.current) {
+          reloadAgain.current = false;
+          setTimeout(() => void loadRef.current(true), 0);
+        }
       }
     }
   }
@@ -200,6 +206,20 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, debouncedSearch, fromDate, toDate, page]);
+
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    const timer = setInterval(() => {
+      //if (!document.hidden) void tickRef.current();
+    }, AUTO_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, []);
+  // A change while a read is running reloads once more when it ends.
+  useLiveChange(['orders'], () => {
+    if (inFlight.current) reloadAgain.current = true;
+    else void loadRef.current(true);
+  });
 
   function selectStatus(s: StatusFilter) {
     setStatusFilter(s);
@@ -380,8 +400,7 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
   // swallowed so a refresh hiccup is never shown as an approval failure.
   async function refreshAfterWrite(): Promise<void> {
     try {
-      await reloadDetail();
-      await load();
+      await Promise.all([reloadDetail(), load()]);
     } catch (err) {
       flash('error', err instanceof Error ? err.message : 'Saved, but failed to refresh');
     }
