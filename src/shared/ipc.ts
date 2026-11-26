@@ -4,6 +4,7 @@
 import type { ConnectionSetupInput, ConnectionSetupResult, ConnectionSetupStatus } from './connectionTypes';
 import type { LiveChange } from './liveTypes';
 import type { OfflineStatus } from './offlineTypes';
+import type { TimingSnapshot } from './timingTypes';
 import type {
   ReportBucket,
   SalesReportRow,
@@ -21,7 +22,7 @@ import type {
   SalesReportExportPayload,
   ExportResult,
 } from './reportTypes';
-import type {MenuUploadLogBatch, MenuUploadPickResult, MenuUploadSummary } from './menuUploadTypes';
+import type { MenuUploadLogBatch, MenuUploadPickResult, MenuUploadSummary } from './menuUploadTypes';
 import type {
   ReceiptText,
   OrderWithStatus,
@@ -220,6 +221,10 @@ export const IpcChannels = {
   INSTALL_UPDATE: 'install-update',
   SET_UPDATE_CHANNEL: 'set-update-channel',
   UPDATE_STATUS: 'update-status', // main -> renderer (send)
+  // speed measurements (docs/TIMINGS.md)
+  GET_TIMINGS: 'get-timings',
+  RESET_TIMINGS: 'reset-timings',
+  RECORD_SCREEN_TIMING: 'record-screen-timing', // renderer -> main (send)
 } as const;
 
 // Shape exposed on window.api by the preload bridge.
@@ -398,6 +403,11 @@ export interface ElectronApi {
   /** Beta = this PC gets releases a few days early (saved in settings.json). */
   setUpdateChannel(channel: UpdateChannel): Promise<UpdateStatus>;
   onUpdateStatus(cb: (status: UpdateStatus) => void): () => void;
+  /** Speed measurements since the app started or the last reset (About page, docs/TIMINGS.md). */
+  getTimings(): Promise<TimingSnapshot>;
+  resetTimings(): Promise<void>;
+  /** A screen opened and showed its first data after `ms`. */
+  recordScreenTiming(screen: string, ms: number, failed: boolean): Promise<void>;
 }
 
 declare global {

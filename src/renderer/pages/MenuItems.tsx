@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useScreenTiming } from '../lib/timing';
 import { useConfirm } from '../context/ConfirmContext';
 import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
@@ -115,6 +116,7 @@ function MenuItemsList({ embedded = false }: { embedded?: boolean }) {
     lastError: null,
   });
   const [loading, setLoading] = useState(true);
+  useScreenTiming('Menu items', !loading);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [togglingId, setTogglingId] = useState<string | null>(null);

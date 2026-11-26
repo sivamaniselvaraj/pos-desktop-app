@@ -58,6 +58,8 @@ export function createOutletNameCache(
 }
 
 export interface HealthDeps {
+  /** The installed desktop app's version (app.getVersion(), from package.json). */
+  appVersion: string;
   hasValidToken: boolean;
   isDatabaseConnected: () => Promise<boolean>;
   restaurantName: () => Promise<string | null>;
@@ -69,7 +71,7 @@ export async function buildHealthBody(deps: HealthDeps): Promise<Record<string, 
   const body: Record<string, unknown> = {
     status: 'ok',
     timestamp: (deps.now ? deps.now() : new Date()).toISOString(),
-    version: '1.0.0',
+    version: deps.appVersion,
   };
   if (deps.hasValidToken) {
     const [connected, name] = await Promise.all([deps.isDatabaseConnected(), deps.restaurantName()]);

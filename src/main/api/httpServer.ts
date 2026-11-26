@@ -1,4 +1,5 @@
 import express from 'express';
+import { app as electronApp } from 'electron';
 import cors from 'cors';
 import https from 'https';
 import { readFileSync } from 'fs';
@@ -10,6 +11,7 @@ import { db } from '../data';
 import { getCachedMenuItems } from '../menuCache';
 import { isDatabaseConnected } from '../offlineManager';
 import { buildHealthBody, createOutletNameCache } from '../healthInfo';
+import { apiTiming } from '../apiTimingsManager';
 import { checkCode, consumeCode, describeCodeState, noteFailedSignIn } from './pairingCodes';
 import { createHash } from 'crypto';
 import { getKotBoard, moveKot } from '../kotManager';
@@ -83,6 +85,8 @@ export function startHttpServer(): Promise<void> {
   // authentication BEFORE any request body is read.
   app.use(securityHeaders);
   app.use('/api', auditLog);
+  // Response time per route, in memory (About page > Speed, docs/TIMINGS.md).
+  app.use('/api', apiTiming());
 
   // CORS: deny cross-origin BROWSER access by default; only origins listed in
   // ALLOWED_ORIGINS are permitted. Requests with no Origin header (Android's
@@ -106,6 +110,7 @@ export function startHttpServer(): Promise<void> {
   app.get('/api/health', async (req, res) => {
     res.json(
       await buildHealthBody({
+        appVersion: electronApp.getVersion(),
         hasValidToken: hasValidToken(req),
         isDatabaseConnected,
         restaurantName: () => outletName(config.outletId),

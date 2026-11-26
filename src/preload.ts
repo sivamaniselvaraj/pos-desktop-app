@@ -45,6 +45,7 @@ import type {
 import type { ConnectionSetupInput, ConnectionSetupResult, ConnectionSetupStatus } from './shared/connectionTypes';
 import type { LiveChange } from './shared/liveTypes';
 import type { OfflineStatus } from './shared/offlineTypes';
+import type { TimingSnapshot } from './shared/timingTypes';
 import type { MenuUploadLogBatch, MenuUploadPickResult, MenuUploadSummary } from './shared/menuUploadTypes';
 import type {
   SalesReportRow,
@@ -283,6 +284,10 @@ const api: ElectronApi = {
   setUpdateChannel: (channel) =>
     ipcRenderer.invoke(IpcChannels.SET_UPDATE_CHANNEL, channel) as Promise<UpdateStatus>,
   onUpdateStatus: (cb) => on<UpdateStatus>(IpcChannels.UPDATE_STATUS, cb),
+  getTimings: () => ipcRenderer.invoke(IpcChannels.GET_TIMINGS) as Promise<TimingSnapshot>,
+  resetTimings: () => ipcRenderer.invoke(IpcChannels.RESET_TIMINGS) as Promise<void>,
+  recordScreenTiming: (screen, ms, failed) =>
+    ipcRenderer.invoke(IpcChannels.RECORD_SCREEN_TIMING, screen, ms, failed) as Promise<void>,
 };
 
 contextBridge.exposeInMainWorld('api', api);

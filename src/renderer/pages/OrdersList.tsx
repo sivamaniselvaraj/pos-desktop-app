@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useScreenTiming } from '../lib/timing';
 import { useConfirm } from '../context/ConfirmContext';
 import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
@@ -68,6 +69,7 @@ export function OrdersList({ onNewOrder }: { onNewOrder?: () => void } = {}) {
   const [totalRows, setTotalRows] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  useScreenTiming('Orders list', !loading, error !== null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(
     null,
   );

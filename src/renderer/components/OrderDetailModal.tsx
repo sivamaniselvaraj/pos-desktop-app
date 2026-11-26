@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from 'react';
+import { useScreenTiming } from '../lib/timing';
 import { useAuth } from '../context/AuthContext';
 import type { OrderDetailItem, OrderActivityLogEntry, EditorApproval, OrderDiscountMode, OrderDiscountInfo } from '@shared/types';
 import { DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE } from '../../shared/types';
@@ -121,6 +122,7 @@ export function OrderDetailModal({
 }: OrderDetailModalProps) {
   // Buttons appear only when one of the user's groups grants the matching permission.
   const { can } = useAuth();
+  useScreenTiming('Order details', !loading);
   const canEditItems = editable && can('orders.edit');
   const canCancelRound = editable && can('orders.cancel');
   const canCompleteRound = editable && can('orders.complete');

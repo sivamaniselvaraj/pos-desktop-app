@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { skipAppStartTiming } from '../lib/timing';
 import { Icon } from '../components/Icon';
 import { useAuth } from '../context/AuthContext';
 import styles from '../styles/Login.module.css';
@@ -9,6 +10,8 @@ interface Props {
 }
 
 export function Login({ onOpenSetup }: Props = {}) {
+  // A screen shown after signing in here is not an \"app start\" time (lib/timing.ts).
+  useEffect(() => skipAppStartTiming(), []);
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useScreenTiming } from '../lib/timing';
 import type { KotBoard as Board, KotCard, KotCardItem, KotStatus } from '@shared/types';
 import { DINE_IN_ORDER_TYPE } from '../../shared/types';
 import { useAuth } from '../context/AuthContext';
@@ -66,6 +67,7 @@ export function KotBoardPage() {
   const [tab, setTab] = useState<Tab>('all');
   const [floor, setFloor] = useState<string>(readFloor);
   const [error, setError] = useState<string | null>(null);
+  useScreenTiming('KDS board', board !== null || error !== null, error !== null);
   // Card or dish ids with a move in progress (blocks double taps).
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [tick, setTick] = useState(0);

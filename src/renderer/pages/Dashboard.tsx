@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useScreenTiming } from '../lib/timing';
 import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import { OrderDetailModal } from '../components/OrderDetailModal';
@@ -87,6 +88,7 @@ export function Dashboard({
   const [tables, setTables] = useState<TableCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  useScreenTiming('Dashboard', !loading, error !== null);
   const [now, setNow] = useState(() => Date.now());
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(
     null,
@@ -416,7 +418,7 @@ export function Dashboard({
     <div className={styles.page}>
       <div className={styles.main}>
         <div className={styles.header}>
-          {canSeeTakeaway ? (
+          {canSeeTakeaway && (
             <div className={styles.viewTabs} role="tablist" aria-label="Dashboard view">
               <button
                 role="tab"
@@ -437,21 +439,6 @@ export function Dashboard({
                 Takeaway
                 {takeaway.orders.length > 0 && <span className={styles.viewCount}>{takeaway.orders.length}</span>}
               </button>
-            </div>
-          ) : (
-            <div>
-              <div className={styles.actionButtons}>
-                <button className={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing}>
-                  <Icon name="refresh" size={16} />
-                  {refreshing ? 'Refreshing…' : 'Refresh Tables'}
-                </button>
-                {can('tables.manage') && (
-                <button className={styles.addBtn} onClick={openAddTable}>
-                  <Icon name="plus" size={16} />
-                  Add Table
-                </button>
-                )}
-              </div>
             </div>
           )}
           {!showTakeaway && can('tables.manage') && (

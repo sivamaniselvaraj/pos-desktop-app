@@ -100,6 +100,7 @@ import type {
 } from '../shared/types';
 import type { ConnectionSetupInput } from '../shared/connectionTypes';
 import type { SalesReportExportPayload, ReportBucket, ShiftWindow } from '../shared/reportTypes';
+import { registerTimingHandlers, timedHandle } from './ipcTimingManager.js';
 
 /**
  * This machine's LAN IPv4 address — what Android should actually point the
@@ -143,70 +144,73 @@ async function buildServerStatus(): Promise<ServerStatus> {
 }
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
+  // Speed measurements: every handler below is timed by timedHandle (docs/TIMINGS.md).
+  registerTimingHandlers();
+
   // auth (renderer -> main)
-  ipcMain.handle(IpcChannels.AUTH_SIGN_IN, async (_e, email: string, password: string) => {
+  timedHandle(IpcChannels.AUTH_SIGN_IN, async (_e, email: string, password: string) => {
     const result = await signIn(email, password);
     restartLiveWatch(); // the change check needs the new session (docs/LIVE_UPDATES.md)
     return result;
   });
-  ipcMain.handle(IpcChannels.AUTH_SIGN_OUT, () => signOut());
-  ipcMain.handle(IpcChannels.AUTH_GET_SESSION, () => getCurrentUser());
+  timedHandle(IpcChannels.AUTH_SIGN_OUT, () => signOut());
+  timedHandle(IpcChannels.AUTH_GET_SESSION, () => getCurrentUser());
 
   // connection setup (setup screen)
-  ipcMain.handle(IpcChannels.SETUP_GET_STATUS, () => getConnectionStatus());
-  ipcMain.handle(IpcChannels.SETUP_SAVE, (_e, input: ConnectionSetupInput) =>
+  timedHandle(IpcChannels.SETUP_GET_STATUS, () => getConnectionStatus());
+  timedHandle(IpcChannels.SETUP_SAVE, (_e, input: ConnectionSetupInput) =>
     saveConnectionSetup(input ?? { databaseUrl: '', outletId: '' }),
   );
 
   // orders (renderer -> main, invoke/handle)
-  ipcMain.handle(IpcChannels.GET_ORDERS, () => orderManager.getAll());
-  ipcMain.handle(IpcChannels.RETRY_PRINT, (_e, orderId: string) => orderManager.retry(orderId));
-  ipcMain.handle(IpcChannels.CANCEL_ORDER, (_e, orderId: string) => orderManager.cancel(orderId));
-  ipcMain.handle(IpcChannels.CLEAR_PRINTED, () => orderManager.clearPrinted());
-  ipcMain.handle(IpcChannels.GET_PRINTERS, (_e, refresh?: boolean) => getPrinters(refresh === true));
-  ipcMain.handle(IpcChannels.GET_PRINT_METHOD, () => config.printMethod);
-  ipcMain.handle(IpcChannels.SET_PRINT_METHOD, (_e, method: unknown) => {
+  timedHandle(IpcChannels.GET_ORDERS, () => orderManager.getAll());
+  timedHandle(IpcChannels.RETRY_PRINT, (_e, orderId: string) => orderManager.retry(orderId));
+  timedHandle(IpcChannels.CANCEL_ORDER, (_e, orderId: string) => orderManager.cancel(orderId));
+  timedHandle(IpcChannels.CLEAR_PRINTED, () => orderManager.clearPrinted());
+  timedHandle(IpcChannels.GET_PRINTERS, (_e, refresh?: boolean) => getPrinters(refresh === true));
+  timedHandle(IpcChannels.GET_PRINT_METHOD, () => config.printMethod);
+  timedHandle(IpcChannels.SET_PRINT_METHOD, (_e, method: unknown) => {
     config.printMethod = normalizePrintMethod(method);
   });
-  ipcMain.handle(IpcChannels.GET_PRINTER_ADDRESSES, () => config.printerAddresses);
-  ipcMain.handle(IpcChannels.SET_PRINTER_ADDRESS, (_e, printerName: unknown, address: unknown) =>
+  timedHandle(IpcChannels.GET_PRINTER_ADDRESSES, () => config.printerAddresses);
+  timedHandle(IpcChannels.SET_PRINTER_ADDRESS, (_e, printerName: unknown, address: unknown) =>
     setPrinterAddress(String(printerName ?? ''), String(address ?? '')),
   );
-  ipcMain.handle(IpcChannels.TEST_PRINT, (_e, target?: string) => testPrint(target));
+  timedHandle(IpcChannels.TEST_PRINT, (_e, target?: string) => testPrint(target));
 
   // Printers & Settings (multi-printer support)
-  ipcMain.handle(IpcChannels.GET_SETTINGS, () => getAllPrinters());
-  ipcMain.handle(IpcChannels.UPDATE_SETTINGS, (_e, printerType: string, deviceName: string) =>
+  timedHandle(IpcChannels.GET_SETTINGS, () => getAllPrinters());
+  timedHandle(IpcChannels.UPDATE_SETTINGS, (_e, printerType: string, deviceName: string) =>
     updatePrinter(printerType, deviceName),
   );
-  ipcMain.handle(IpcChannels.REMOVE_PRINTER, (_e, printerType: string) =>
+  timedHandle(IpcChannels.REMOVE_PRINTER, (_e, printerType: string) =>
     removePrinter(printerType),
   );
-  ipcMain.handle(IpcChannels.GET_MAX_PRINTERS, () => getMaxPrinters());
+  timedHandle(IpcChannels.GET_MAX_PRINTERS, () => getMaxPrinters());
 
   // Invoicing (admin-only — enforced server-side by the RPCs)
-  ipcMain.handle(IpcChannels.GET_INVOICE_SEQUENCE_STATUS, () => getInvoiceSequenceStatus());
-  ipcMain.handle(IpcChannels.RESET_INVOICE_SEQUENCE, () => resetInvoiceSequence());
+  timedHandle(IpcChannels.GET_INVOICE_SEQUENCE_STATUS, () => getInvoiceSequenceStatus());
+  timedHandle(IpcChannels.RESET_INVOICE_SEQUENCE, () => resetInvoiceSequence());
 
-  ipcMain.handle(IpcChannels.GET_SERVER_STATUS, () => buildServerStatus());
-  ipcMain.handle(IpcChannels.GET_OFFLINE_STATUS, () => getOfflineStatus());
-  ipcMain.handle(IpcChannels.LIST_API_DEVICES, async () => {
+  timedHandle(IpcChannels.GET_SERVER_STATUS, () => buildServerStatus());
+  timedHandle(IpcChannels.GET_OFFLINE_STATUS, () => getOfflineStatus());
+  timedHandle(IpcChannels.LIST_API_DEVICES, async () => {
     await requireDeviceAdmin();
     return listDevices();
   });
-  ipcMain.handle(IpcChannels.CREATE_PAIRING_CODE, async () => {
+  timedHandle(IpcChannels.CREATE_PAIRING_CODE, async () => {
     await requireDeviceAdmin();
     return createCode();
   });
-  ipcMain.handle(IpcChannels.CANCEL_PAIRING_CODE, async () => {
+  timedHandle(IpcChannels.CANCEL_PAIRING_CODE, async () => {
     await requireDeviceAdmin();
     cancelCode();
   });
-  ipcMain.handle(IpcChannels.REVOKE_API_DEVICE, async (_e, id: string) => {
+  timedHandle(IpcChannels.REVOKE_API_DEVICE, async (_e, id: string) => {
     await requireDeviceAdmin();
     revokeDevice(id);
   });
-  ipcMain.handle(IpcChannels.RESET_API_DEVICE_PIN, async (_e, id: string) => {
+  timedHandle(IpcChannels.RESET_API_DEVICE_PIN, async (_e, id: string) => {
     await requireDeviceAdmin();
     resetDevicePin(id);
   });
@@ -216,166 +220,166 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   // see it (docs/SALES_REPORTS.md, "Outlet parameter").
 
 
-  ipcMain.handle(IpcChannels.GET_MENU_AVAILABILITY, (_e, outlet: string, from: string, to: string) => db.reports.menuAvailability(outlet, from, to));
-  ipcMain.handle(IpcChannels.GET_VOIDS_DISCOUNTS, (_e, outlet: string, from: string, to: string) => db.reports.voidsDiscounts(outlet, from, to));
-  ipcMain.handle(IpcChannels.GET_SALES_BY_WAITER, (_e, outlet: string, from: string, to: string) => db.reports.salesByWaiter(outlet, from, to));
+  timedHandle(IpcChannels.GET_MENU_AVAILABILITY, (_e, outlet: string, from: string, to: string) => db.reports.menuAvailability(outlet, from, to));
+  timedHandle(IpcChannels.GET_VOIDS_DISCOUNTS, (_e, outlet: string, from: string, to: string) => db.reports.voidsDiscounts(outlet, from, to));
+  timedHandle(IpcChannels.GET_SALES_BY_WAITER, (_e, outlet: string, from: string, to: string) => db.reports.salesByWaiter(outlet, from, to));
 
   // Sales report (manager/owner/admin — enforced server-side by the RPC)
-  ipcMain.handle(
+  timedHandle(
     IpcChannels.GET_SALES_REPORT,
     (_e, outlet: string, from: string, to: string, bucket: 'day' | 'month') =>
     db.reports.salesReport(outlet, from, to, bucket),
   );
-  ipcMain.handle(IpcChannels.GET_TOP_ITEMS, (_e, outlet: string, from: string, to: string) =>
+  timedHandle(IpcChannels.GET_TOP_ITEMS, (_e, outlet: string, from: string, to: string) =>
     db.reports.topItems(outlet, from, to, 10),
   );
-  ipcMain.handle(IpcChannels.GET_SALES_BY_ORDER_TYPE, (_e, outlet: string, from: string, to: string) =>
+  timedHandle(IpcChannels.GET_SALES_BY_ORDER_TYPE, (_e, outlet: string, from: string, to: string) =>
     db.reports.salesByOrderType(outlet, from, to),
   );
-  ipcMain.handle(
+  timedHandle(
     IpcChannels.GET_SALES_BY_TYPE_BUCKETED,
     (_e, outlet: string, from: string, to: string, bucket: ReportBucket) =>
       db.reports.salesByTypeBucketed(outlet, from, to, bucket),
   );
-  ipcMain.handle(IpcChannels.EXPORT_SALES_REPORT, (_e, payload: SalesReportExportPayload) =>
+  timedHandle(IpcChannels.EXPORT_SALES_REPORT, (_e, payload: SalesReportExportPayload) =>
     exportSalesReport(getWindow(), payload),
   );
   // Settings > Menu upload (menu.upload is checked by the database function; docs/MENU_UPLOAD.md)
-  ipcMain.handle(IpcChannels.PICK_MENU_UPLOAD_FILE, () => pickMenuUploadFile(getWindow()));
-  ipcMain.handle(IpcChannels.COMMIT_MENU_UPLOAD, (_e, token: string) => commitMenuUpload(token));
-  ipcMain.handle(IpcChannels.SAVE_MENU_UPLOAD_ERRORS, (_e, token: string) => saveUploadErrorRows(getWindow(), token));
-  ipcMain.handle(IpcChannels.GET_MENU_UPLOAD_LOG, () => listMenuUploadLog());
-  ipcMain.handle(IpcChannels.DOWNLOAD_MENU_TEMPLATE, () => exportMenuTemplate(getWindow()));
-  ipcMain.handle(IpcChannels.DOWNLOAD_CURRENT_MENU, () => exportCurrentMenu(getWindow()));
+  timedHandle(IpcChannels.PICK_MENU_UPLOAD_FILE, () => pickMenuUploadFile(getWindow()));
+  timedHandle(IpcChannels.COMMIT_MENU_UPLOAD, (_e, token: string) => commitMenuUpload(token));
+  timedHandle(IpcChannels.SAVE_MENU_UPLOAD_ERRORS, (_e, token: string) => saveUploadErrorRows(getWindow(), token));
+  timedHandle(IpcChannels.GET_MENU_UPLOAD_LOG, () => listMenuUploadLog());
+  timedHandle(IpcChannels.DOWNLOAD_MENU_TEMPLATE, () => exportMenuTemplate(getWindow()));
+  timedHandle(IpcChannels.DOWNLOAD_CURRENT_MENU, () => exportCurrentMenu(getWindow()));
   // Sales and revenue reports (reports.view, checked by each RPC; docs/SALES_REPORTS.md)
-  ipcMain.handle(IpcChannels.GET_DAILY_SUMMARY, (_e, outlet: string, from: string, to: string, shift: ShiftWindow | null) =>
+  timedHandle(IpcChannels.GET_DAILY_SUMMARY, (_e, outlet: string, from: string, to: string, shift: ShiftWindow | null) =>
     db.reports.dailySummary(outlet, from, to, shift ?? null),
   );
-  ipcMain.handle(IpcChannels.GET_SALES_BY_HOUR, (_e, outlet: string, from: string, to: string) => db.reports.salesByHour(outlet, from, to));
-  ipcMain.handle(IpcChannels.GET_PRODUCT_MIX, (_e, outlet: string, from: string, to: string) => db.reports.productMix(outlet, from, to));
-  ipcMain.handle(IpcChannels.GET_SALES_BY_CHANNEL, (_e, outlet: string, from: string, to: string) => db.reports.salesByChannel(outlet, from, to));
+  timedHandle(IpcChannels.GET_SALES_BY_HOUR, (_e, outlet: string, from: string, to: string) => db.reports.salesByHour(outlet, from, to));
+  timedHandle(IpcChannels.GET_PRODUCT_MIX, (_e, outlet: string, from: string, to: string) => db.reports.productMix(outlet, from, to));
+  timedHandle(IpcChannels.GET_SALES_BY_CHANNEL, (_e, outlet: string, from: string, to: string) => db.reports.salesByChannel(outlet, from, to));
 
   // User management (admin-only — enforced server-side by the RPCs / assertCallerIsAdmin)
-  ipcMain.handle(IpcChannels.LIST_USERS, () => listUsers());
-  ipcMain.handle(IpcChannels.LIST_OUTLETS, () => listOutlets());
-  ipcMain.handle(IpcChannels.CREATE_USER, (_e, payload: CreateUserPayload) => createUser(payload));
-  ipcMain.handle(IpcChannels.UPDATE_USER, (_e, payload: UpdateUserPayload) => updateUser(payload));
-  ipcMain.handle(IpcChannels.SET_USER_ACTIVE, (_e, userId: string, isActive: boolean) =>
+  timedHandle(IpcChannels.LIST_USERS, () => listUsers());
+  timedHandle(IpcChannels.LIST_OUTLETS, () => listOutlets());
+  timedHandle(IpcChannels.CREATE_USER, (_e, payload: CreateUserPayload) => createUser(payload));
+  timedHandle(IpcChannels.UPDATE_USER, (_e, payload: UpdateUserPayload) => updateUser(payload));
+  timedHandle(IpcChannels.SET_USER_ACTIVE, (_e, userId: string, isActive: boolean) =>
     setUserActive(userId, isActive),
   );
 
   // User groups (admin-only — enforced server-side by the RPCs)
-  ipcMain.handle(IpcChannels.LIST_GROUPS, () => listGroups());
-  ipcMain.handle(IpcChannels.LIST_PERMISSIONS, () => listPermissions());
-  ipcMain.handle(IpcChannels.LIST_GROUP_MEMBERSHIPS, () => listGroupMemberships());
-  ipcMain.handle(IpcChannels.SAVE_GROUP, (_e, payload: SaveGroupPayload) => saveGroup(payload));
-  ipcMain.handle(IpcChannels.DELETE_GROUP, (_e, groupId: string) => deleteGroup(groupId));
-  ipcMain.handle(IpcChannels.SET_GROUP_MEMBERS, (_e, groupId: string, userIds: string[]) =>
+  timedHandle(IpcChannels.LIST_GROUPS, () => listGroups());
+  timedHandle(IpcChannels.LIST_PERMISSIONS, () => listPermissions());
+  timedHandle(IpcChannels.LIST_GROUP_MEMBERSHIPS, () => listGroupMemberships());
+  timedHandle(IpcChannels.SAVE_GROUP, (_e, payload: SaveGroupPayload) => saveGroup(payload));
+  timedHandle(IpcChannels.DELETE_GROUP, (_e, groupId: string) => deleteGroup(groupId));
+  timedHandle(IpcChannels.SET_GROUP_MEMBERS, (_e, groupId: string, userIds: string[]) =>
     setGroupMembers(groupId, userIds),
   );
-  ipcMain.handle(IpcChannels.SET_USER_GROUPS, (_e, userId: string, groupIds: string[]) =>
+  timedHandle(IpcChannels.SET_USER_GROUPS, (_e, userId: string, groupIds: string[]) =>
     setUserGroups(userId, groupIds),
   );
-  ipcMain.handle(IpcChannels.GET_USER_ACCESS, (_e, userId: string) => getUserAccess(userId));
+  timedHandle(IpcChannels.GET_USER_ACCESS, (_e, userId: string) => getUserAccess(userId));
 
   // Orders List (manager/owner/admin — enforced server-side by the RPCs)
-  ipcMain.handle(IpcChannels.LIST_ACTIVE_TAKEAWAY, () => listActiveTakeaway());
-  ipcMain.handle(IpcChannels.LIST_ORDERS, (_e, filter: OrderListFilter) => listOrders(filter));
-  ipcMain.handle(IpcChannels.GET_INVOICE_ORDER_DETAIL, (_e, invoiceNumber: string) =>
+  timedHandle(IpcChannels.LIST_ACTIVE_TAKEAWAY, () => listActiveTakeaway());
+  timedHandle(IpcChannels.LIST_ORDERS, (_e, filter: OrderListFilter) => listOrders(filter));
+  timedHandle(IpcChannels.GET_INVOICE_ORDER_DETAIL, (_e, invoiceNumber: string) =>
     getInvoiceOrderDetail(invoiceNumber),
   );
-  ipcMain.handle(IpcChannels.GET_INVOICE_ACTIVITY_LOG, (_e, invoiceNumber: string) =>
+  timedHandle(IpcChannels.GET_INVOICE_ACTIVITY_LOG, (_e, invoiceNumber: string) =>
     getInvoiceActivityLog(invoiceNumber),
   );
-  ipcMain.handle(IpcChannels.EDIT_ORDER_ITEM, (_e, payload: EditOrderItemPayload) =>
+  timedHandle(IpcChannels.EDIT_ORDER_ITEM, (_e, payload: EditOrderItemPayload) =>
     editOrderItem(payload),
   );
-  ipcMain.handle(
+  timedHandle(
     IpcChannels.DELETE_ORDER_ITEM,
     (_e, orderItemId: string, reason: string, approval: EditorApproval) =>
       deleteOrderItem(orderItemId, reason, approval),
   );
-  ipcMain.handle(IpcChannels.GET_DISCOUNT_SETTINGS, () => getDiscountSettings());
-  ipcMain.handle(IpcChannels.SAVE_DISCOUNT_PRESETS, (_e, presets: DiscountPreset[]) => saveDiscountPresets(presets));
-  ipcMain.handle(IpcChannels.GET_DISCOUNT_OPTIONS, () => getDiscountOptions());
-  ipcMain.handle(IpcChannels.SET_ORDER_DISCOUNT, (_e, payload: SetOrderDiscountPayload) => setOrderDiscount(payload));
-  ipcMain.handle(
+  timedHandle(IpcChannels.GET_DISCOUNT_SETTINGS, () => getDiscountSettings());
+  timedHandle(IpcChannels.SAVE_DISCOUNT_PRESETS, (_e, presets: DiscountPreset[]) => saveDiscountPresets(presets));
+  timedHandle(IpcChannels.GET_DISCOUNT_OPTIONS, () => getDiscountOptions());
+  timedHandle(IpcChannels.SET_ORDER_DISCOUNT, (_e, payload: SetOrderDiscountPayload) => setOrderDiscount(payload));
+  timedHandle(
     IpcChannels.CANCEL_ORDER_WITH_REASON,
     (_e, orderId: string, reason: string, approval: EditorApproval) =>
       cancelOrderWithReason(orderId, reason, approval),
   );
-  ipcMain.handle(
+  timedHandle(
     IpcChannels.CANCEL_INVOICE_WITH_REASON,
     (_e, invoiceNumber: string, reason: string, approval: EditorApproval) =>
       cancelInvoiceWithReason(invoiceNumber, reason, approval),
   );
-  ipcMain.handle(IpcChannels.COMPLETE_ORDER, (_e, orderId: string) => completeOrder(orderId));
-  ipcMain.handle(IpcChannels.COMPLETE_INVOICE, (_e, invoiceNumber: string) => completeInvoice(invoiceNumber));
-  ipcMain.handle(IpcChannels.REPRINT_ORDER, (_e, invoiceNumber: string) => reprintOrder(invoiceNumber));
+  timedHandle(IpcChannels.COMPLETE_ORDER, (_e, orderId: string) => completeOrder(orderId));
+  timedHandle(IpcChannels.COMPLETE_INVOICE, (_e, invoiceNumber: string) => completeInvoice(invoiceNumber));
+  timedHandle(IpcChannels.REPRINT_ORDER, (_e, invoiceNumber: string) => reprintOrder(invoiceNumber));
 
   // Menu cache: getCachedMenuItems() is synchronous (no DB call) — wrapped
   // in Promise.resolve() only so it matches the async invoke() contract.
-  ipcMain.handle(IpcChannels.GET_MENU_ITEMS, () => Promise.resolve(getCachedMenuItems()));
-  ipcMain.handle(IpcChannels.REFRESH_MENU_CACHE, () => refreshMenuCache());
-  ipcMain.handle(IpcChannels.SET_MENU_ITEMS_ACTIVE, (_e, ids: string[], isActive: boolean, reason?: string) =>
+  timedHandle(IpcChannels.GET_MENU_ITEMS, () => Promise.resolve(getCachedMenuItems()));
+  timedHandle(IpcChannels.REFRESH_MENU_CACHE, () => refreshMenuCache());
+  timedHandle(IpcChannels.SET_MENU_ITEMS_ACTIVE, (_e, ids: string[], isActive: boolean, reason?: string) =>
     setMenuItemsActive(ids, isActive, reason),
   );
-  ipcMain.handle(IpcChannels.SET_CATEGORY_ACTIVE, (_e, categoryId: string, isActive: boolean, reason?: string) =>
+  timedHandle(IpcChannels.SET_CATEGORY_ACTIVE, (_e, categoryId: string, isActive: boolean, reason?: string) =>
     setCategoryActive(categoryId, isActive, reason),
   );
-  ipcMain.handle(
+  timedHandle(
     IpcChannels.SET_MENU_ITEM_ACTIVE,
     (_e, menuItemId: string, isActive: boolean, reason?: string) => setMenuItemActive(menuItemId, isActive, reason),
   );
 
   // Dashboard table cards
-  ipcMain.handle(IpcChannels.LIST_TABLES, () => listTables());
-  ipcMain.handle(IpcChannels.LIST_MANAGED_TABLES, () => listManagedTables());
-  ipcMain.handle(IpcChannels.LIST_MENU_CATEGORIES, () => listMenuCategories());
-  ipcMain.handle(IpcChannels.LIST_MENU_CATEGORIES_ADMIN, () => listMenuCategoriesAdmin());
-  ipcMain.handle(IpcChannels.SAVE_MENU_CATEGORY, (_e, payload: { id?: string; name: string }) => saveMenuCategory(payload));
-  ipcMain.handle(IpcChannels.REORDER_MENU_CATEGORIES, (_e, ids: string[]) => reorderMenuCategories(ids));
-  ipcMain.handle(IpcChannels.SET_MENU_CATEGORY_ACTIVE, (_e, id: string, isActive: boolean) => setMenuCategoryActive(id, isActive));
-  ipcMain.handle(IpcChannels.GET_MENU_ITEM, (_e, id: string) => getMenuItem(id));
-  ipcMain.handle(IpcChannels.SAVE_MENU_ITEM, (_e, payload: SaveMenuItemPayload) => saveMenuItem(payload));
-  ipcMain.handle(IpcChannels.GET_RECEIPT_TEXT, () => getReceiptText());
-  ipcMain.handle(IpcChannels.SAVE_RECEIPT_TEXT, (_e, text: ReceiptText) => saveReceiptText(text));
-  ipcMain.handle(IpcChannels.SAVE_BRAND_COLOR, (_e, color: string | null) => saveBrandColor(color));
-  ipcMain.handle(IpcChannels.GET_MY_ACCESS, () => getMyAccess());
-  ipcMain.handle(IpcChannels.GET_KOT_BOARD, (_e, userId: string) => getKotBoard(userId));
-  ipcMain.handle(IpcChannels.GET_UNPRINTED_KOTS, () => getUnprintedKots());
-  ipcMain.handle(IpcChannels.PRINT_KOT_NOW, (_e, orderId: string) => printKotNow(orderId));
-  ipcMain.handle(IpcChannels.MOVE_KOT, (_e, orderId: string, to: string, from: string, userId: string) => moveKot(orderId, to, from, userId));
-  ipcMain.handle(IpcChannels.MOVE_KOT_ITEMS, (_e, orderId: string, itemIds: string[], to: string, from: string, userId: string) =>
+  timedHandle(IpcChannels.LIST_TABLES, () => listTables());
+  timedHandle(IpcChannels.LIST_MANAGED_TABLES, () => listManagedTables());
+  timedHandle(IpcChannels.LIST_MENU_CATEGORIES, () => listMenuCategories());
+  timedHandle(IpcChannels.LIST_MENU_CATEGORIES_ADMIN, () => listMenuCategoriesAdmin());
+  timedHandle(IpcChannels.SAVE_MENU_CATEGORY, (_e, payload: { id?: string; name: string }) => saveMenuCategory(payload));
+  timedHandle(IpcChannels.REORDER_MENU_CATEGORIES, (_e, ids: string[]) => reorderMenuCategories(ids));
+  timedHandle(IpcChannels.SET_MENU_CATEGORY_ACTIVE, (_e, id: string, isActive: boolean) => setMenuCategoryActive(id, isActive));
+  timedHandle(IpcChannels.GET_MENU_ITEM, (_e, id: string) => getMenuItem(id));
+  timedHandle(IpcChannels.SAVE_MENU_ITEM, (_e, payload: SaveMenuItemPayload) => saveMenuItem(payload));
+  timedHandle(IpcChannels.GET_RECEIPT_TEXT, () => getReceiptText());
+  timedHandle(IpcChannels.SAVE_RECEIPT_TEXT, (_e, text: ReceiptText) => saveReceiptText(text));
+  timedHandle(IpcChannels.SAVE_BRAND_COLOR, (_e, color: string | null) => saveBrandColor(color));
+  timedHandle(IpcChannels.GET_MY_ACCESS, () => getMyAccess());
+  timedHandle(IpcChannels.GET_KOT_BOARD, (_e, userId: string) => getKotBoard(userId));
+  timedHandle(IpcChannels.GET_UNPRINTED_KOTS, () => getUnprintedKots());
+  timedHandle(IpcChannels.PRINT_KOT_NOW, (_e, orderId: string) => printKotNow(orderId));
+  timedHandle(IpcChannels.MOVE_KOT, (_e, orderId: string, to: string, from: string, userId: string) => moveKot(orderId, to, from, userId));
+  timedHandle(IpcChannels.MOVE_KOT_ITEMS, (_e, orderId: string, itemIds: string[], to: string, from: string, userId: string) =>
       moveKotItems(orderId, itemIds, to, from, userId),
     );
-  ipcMain.handle(IpcChannels.GET_KOT_WORKFLOW, () => getKotWorkflow());
-  ipcMain.handle(IpcChannels.SAVE_KOT_WORKFLOW, (_e, w: KotWorkflow) => saveKotWorkflow(w));
-  ipcMain.handle(IpcChannels.GET_TAX_RATE, () => getTaxRate());
-  ipcMain.handle(IpcChannels.LIST_TAX_RATES, () => listTaxRates());
-  ipcMain.handle(IpcChannels.ADD_TAX_RATE, (_e, payload: AddTaxRatePayload) => addTaxRate(payload));
-  ipcMain.handle(IpcChannels.DELETE_TAX_RATE, (_e, id: string) => deleteTaxRate(id));
-  ipcMain.handle(IpcChannels.PLACE_ORDER, (_e, payload: PlaceOrderPayload) => placeOrder(payload));
-  ipcMain.handle(IpcChannels.SAVE_MANAGED_TABLE, (_e, payload: SaveManagedTablePayload) =>
+  timedHandle(IpcChannels.GET_KOT_WORKFLOW, () => getKotWorkflow());
+  timedHandle(IpcChannels.SAVE_KOT_WORKFLOW, (_e, w: KotWorkflow) => saveKotWorkflow(w));
+  timedHandle(IpcChannels.GET_TAX_RATE, () => getTaxRate());
+  timedHandle(IpcChannels.LIST_TAX_RATES, () => listTaxRates());
+  timedHandle(IpcChannels.ADD_TAX_RATE, (_e, payload: AddTaxRatePayload) => addTaxRate(payload));
+  timedHandle(IpcChannels.DELETE_TAX_RATE, (_e, id: string) => deleteTaxRate(id));
+  timedHandle(IpcChannels.PLACE_ORDER, (_e, payload: PlaceOrderPayload) => placeOrder(payload));
+  timedHandle(IpcChannels.SAVE_MANAGED_TABLE, (_e, payload: SaveManagedTablePayload) =>
     saveManagedTable(payload),
   );
-  ipcMain.handle(
+  timedHandle(
     IpcChannels.SET_MANAGED_TABLE_STATUS,
     (_e, tableId: string, status: ManagedTableStatus) => setManagedTableStatus(tableId, status),
   );
-  ipcMain.handle(IpcChannels.SET_MANAGED_TABLE_ACTIVE, (_e, tableId: string, active: boolean) =>
+  timedHandle(IpcChannels.SET_MANAGED_TABLE_ACTIVE, (_e, tableId: string, active: boolean) =>
     setManagedTableActive(tableId, active === true),
   );
-  ipcMain.handle(IpcChannels.SAVE_ORDER_PAYMENT, (_e, payload: SavePaymentPayload) =>
+  timedHandle(IpcChannels.SAVE_ORDER_PAYMENT, (_e, payload: SavePaymentPayload) =>
     savePayment(payload),
   );
 
   // App updates (updateManager.ts, docs/APP_UPDATES.md)
-  ipcMain.handle(IpcChannels.GET_UPDATE_STATUS, () => getUpdateStatus());
-  ipcMain.handle(IpcChannels.CHECK_FOR_UPDATES, () => checkForUpdates());
-  ipcMain.handle(IpcChannels.GET_INSTALL_CHECK, () => getInstallCheck());
-  ipcMain.handle(IpcChannels.INSTALL_UPDATE, () => installUpdate());
-  ipcMain.handle(IpcChannels.SET_UPDATE_CHANNEL, (_e, channel: string) =>
+  timedHandle(IpcChannels.GET_UPDATE_STATUS, () => getUpdateStatus());
+  timedHandle(IpcChannels.CHECK_FOR_UPDATES, () => checkForUpdates());
+  timedHandle(IpcChannels.GET_INSTALL_CHECK, () => getInstallCheck());
+  timedHandle(IpcChannels.INSTALL_UPDATE, () => installUpdate());
+  timedHandle(IpcChannels.SET_UPDATE_CHANNEL, (_e, channel: string) =>
     setUpdateChannel(channel === 'beta' ? 'beta' : 'stable'),
   );
 

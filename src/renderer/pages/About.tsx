@@ -3,6 +3,7 @@ import type { UpdateStatus } from '@shared/types';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../context/ConfirmContext';
 import { installUpdateWithConfirm } from '../lib/updates';
+import { SpeedPanel } from '../components/SpeedPanel';
 import styles from '../styles/Page.module.css';
 
 function describe(s: UpdateStatus): string {
@@ -25,6 +26,7 @@ function describe(s: UpdateStatus): string {
 }
 
 export function About({ update }: { update: UpdateStatus | null }) {
+  const { access } = useAuth();
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
 
@@ -94,6 +96,8 @@ export function About({ update }: { update: UpdateStatus | null }) {
           </>
         )}
       </section>
+
+      <SpeedPanel />
     </div>
   );
 }

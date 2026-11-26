@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useScreenTiming } from '../../lib/timing';
 import {
   BarChart,
   Bar,
@@ -195,6 +196,9 @@ export function SalesOverview({ outletId }: { outletId: string }) {
   const [typeChartData, setTypeChartData] = useState<SalesByTypeBucketRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // First load finished (loading starts false here), for the screen timing.
+  const [firstLoadDone, setFirstLoadDone] = useState(false);
+  useScreenTiming('Sales report', firstLoadDone, error !== null);
   const [exporting, setExporting] = useState<ReportExportFormat | null>(null);
   const [exportMessage, setExportMessage] = useState<{
     type: 'success' | 'error';
@@ -263,7 +267,10 @@ export function SalesOverview({ outletId }: { outletId: string }) {
         setTypeChartData([]);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setFirstLoadDone(true);
+        }
       });
 
     return () => {

@@ -18,6 +18,7 @@ import { useOfflineStatus } from './hooks/useOfflineStatus';
 import { OfflineBanner } from './components/OfflineBanner';
 import { UpdateBanner, UpdateRequired } from './components/UpdateBanner';
 import { useAuth } from './context/AuthContext';
+import { markPageOpen } from './lib/timing';
 import styles from './styles/App.module.css';
 import { DINE_IN_ORDER_TYPE, OrderType, PICK_UP_ORDER_TYPE } from '../shared/types';
 
@@ -123,7 +124,8 @@ export default function App() {
         onNavigate={(next) => {
           // The sidebar always opens a fresh New order (Pickup), never one left over from a Dashboard table.
           setPresetTable(null);
-          setOrderType(PICK_UP_ORDER_TYPE)
+          markPageOpen(next); // screen timing starts at the tap (docs/TIMINGS.md)
+          setOrderType(PICK_UP_ORDER_TYPE);
           setPage(next);
         }}
         printers={printers}
@@ -140,6 +142,7 @@ export default function App() {
                   allowed.has('new-order')
                     ? (tableId) => {
                         setPresetTable(tableId);
+                        markPageOpen('new-order');
                         setOrderType(DINE_IN_ORDER_TYPE)
                         setPage('new-order');
                       }
@@ -149,6 +152,7 @@ export default function App() {
                   allowed.has('new-order')
                     ? () => {
                         setPresetTable(null); // a fresh order opens on Pickup
+                        markPageOpen('new-order');
                         setOrderType(PICK_UP_ORDER_TYPE)
                         setPage('new-order');
                       }
@@ -166,6 +170,7 @@ export default function App() {
                   allowed.has('new-order')
                     ? () => {
                         setPresetTable(null); // a fresh order, not one left over from a table
+                        markPageOpen('new-order');
                         setPage('new-order');
                       }
                     : undefined

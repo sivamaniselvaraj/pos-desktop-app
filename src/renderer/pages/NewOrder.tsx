@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useScreenTiming } from '../lib/timing';
 import { Toast, type ToastMessage } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import { applyDiscount, computeTotals, type NewOrderDiscount } from '@shared/orderTotals';
@@ -299,6 +300,7 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
   const [tables, setTables] = useState<ManagedTable[]>([]);
   const [tax, setTax] = useState<TaxRates | null>(null);
   const [loading, setLoading] = useState(true);
+  useScreenTiming('New order', !loading, menuError !== null);
 
   const [orderType, setOrderType] = useState<OrderType>(initialOrderType ?? PICK_UP_ORDER_TYPE);
   const [tableId, setTableId] = useState<string | null>(initialTableId ?? null);

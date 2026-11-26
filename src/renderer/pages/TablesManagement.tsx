@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useScreenTiming } from '../lib/timing';
 import { useConfirm } from '../context/ConfirmContext';
 import { Toast } from '../components/Toast';
 import { Icon } from '../components/Icon';
@@ -28,6 +29,7 @@ export function TablesManagement() {
   const [tables, setTables] = useState<ManagedTable[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  useScreenTiming('Tables', !loading, error !== null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const [query, setQuery] = useState('');
