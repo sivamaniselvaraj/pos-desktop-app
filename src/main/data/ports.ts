@@ -265,7 +265,11 @@ export interface TableRepository {
   /** Throws 'Table not found in this outlet' when nothing was updated. */
   update(outletId: string, tableId: string, values: TableValues): Promise<void>;
   countOrdersForTable(tableId: string): Promise<number>;
-  remove(outletId: string, tableId: string): Promise<void>;
+  /**
+   * Marks a table active or inactive (tables are never deleted, docs/TABLE_ACTIVE.md).
+   * Refused by the database while making inactive a table with a live order or unpaid bill.
+   */
+  setActive(outletId: string, tableId: string, active: boolean): Promise<void>;
   /** null when the table isn't in this outlet. */
   getStatus(outletId: string, tableId: string): Promise<ManagedTableStatus | null>;
   /** Number of live (not cancelled, not yet paid) orders on a table. */

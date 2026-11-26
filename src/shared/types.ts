@@ -747,6 +747,7 @@ export interface ManagedTable {
   /** What the table is really doing now — 'occupied' while it carries a live order. */
   effectiveStatus: ManagedTableStatus;
   activeOrderCount: number;
+  isActive: boolean;
 }
 
 export interface SaveManagedTablePayload {

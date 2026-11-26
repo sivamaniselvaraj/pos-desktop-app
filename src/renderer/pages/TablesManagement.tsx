@@ -20,7 +20,8 @@ const STATUS_CLASS: Record<ManagedTableStatus, string> = {
 export function TablesManagement() {
   const { can } = useAuth();
   const confirm = useConfirm();
-  // Managers add/edit/delete; staff/waiters only see the list and use the
+  // Managers add/edit and mark tables active or inactive (tables are never deleted,
+  // docs/TABLE_ACTIVE.md); staff/waiters only see the list and use the
   // available <-> occupied toggle. The database enforces this too.
   const canManage = can('tables.manage');
   const canToggle = can('tables.toggle');
@@ -32,6 +33,7 @@ export function TablesManagement() {
   const [query, setQuery] = useState('');
   const [floorFilter, setFloorFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | ManagedTableStatus>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
   // undefined = closed, null = adding, ManagedTable = editing
   const [formTable, setFormTable] = useState<ManagedTable | null | undefined>(undefined);
@@ -70,19 +72,22 @@ export function TablesManagement() {
       reserved: 0,
       cleaning: 0,
     };
-    for (const t of tables) c[t.effectiveStatus] += 1;
+    for (const t of tables) if (t.isActive) c[t.effectiveStatus] += 1;
     return c;
   }, [tables]);
+  const inactiveCount = useMemo(() => tables.filter((t) => !t.isActive).length, [tables]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return tables.filter((t) => {
       if (floorFilter !== 'all' && t.floor !== floorFilter) return false;
       if (statusFilter !== 'all' && t.effectiveStatus !== statusFilter) return false;
+      if (activeFilter === 'active' && !t.isActive) return false;
+      if (activeFilter === 'inactive' && t.isActive) return false;
       if (q && !t.tableNumber.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [tables, query, floorFilter, statusFilter]);
+  }, [tables, query, floorFilter, statusFilter, activeFilter]);
 
   async function handleSave(payload: SaveManagedTablePayload): Promise<void> {
     await window.api.saveManagedTable(payload); // throws -> shown inside the modal
@@ -111,31 +116,35 @@ export function TablesManagement() {
     }
   }
 
-  async function handleDelete(t: ManagedTable) {
-    if (t.activeOrderCount > 0) {
-      flash('error', `Table ${t.tableNumber} has a live order and can't be deleted`);
+  // Tables are never deleted: a table not used any more is made inactive. It stays here
+  // with its past orders, but is not offered on the Dashboard, New order or phones.
+  async function handleSetActive(t: ManagedTable, active: boolean) {
+    if (!active && t.activeOrderCount > 0) {
+      flash('error', `Table ${t.tableNumber} has an open order or a bill waiting for payment, so it can't be made inactive`);
       return;
     }
     if (
+      !active &&
       !(await confirm({
-        title: 'Delete table',
-        message: `Delete table ${t.tableNumber}? This can't be undone.`,
-        confirmLabel: 'Delete',
+        title: 'Make table inactive',
+        message: `Make table ${t.tableNumber} inactive? It will no longer show on the Dashboard, New order or phones, and no orders can be placed on it. Its past orders and reports stay. You can make it active again here.`,
+        confirmLabel: 'Make inactive',
         tone: 'danger',
       }))
     )
       return;
     try {
       setBusyId(t.tableId);
-      await window.api.deleteManagedTable(t.tableId);
-      flash('success', `Deleted table ${t.tableNumber}`);
+      await window.api.setManagedTableActive(t.tableId, active);
+      flash('success', active ? `Table ${t.tableNumber} is active again` : `Table ${t.tableNumber} is now inactive`);
       await load();
     } catch (err) {
-      flash('error', err instanceof Error ? err.message : 'Delete failed');
+      flash('error', err instanceof Error ? err.message : 'Failed to change the table');
     } finally {
       setBusyId(null);
     }
   }
+
 
   return (
     <div className={pageStyles.page}>
@@ -160,6 +169,7 @@ export function TablesManagement() {
             {s}: {counts[s]}
           </span>
         ))}
+        {inactiveCount > 0 && <span className={`${styles.badge} ${styles.statusInactive}`}>inactive: {inactiveCount}</span>}
       </div>
 
       <div className={styles.filters}>
@@ -193,6 +203,15 @@ export function TablesManagement() {
               {s}
             </option>
           ))}
+        </select>
+        <select
+          className={styles.statusSelect}
+          value={activeFilter}
+          onChange={(e) => setActiveFilter(e.target.value as 'all' | 'active' | 'inactive')}
+        >
+          <option value="all">Active and inactive</option>
+          <option value="active">Active only</option>
+          <option value="inactive">Inactive only</option>
         </select>
       </div>
 
@@ -228,9 +247,13 @@ export function TablesManagement() {
                   <td>{t.floor || '—'}</td>
                   <td>{t.capacity ?? '—'}</td>
                   <td>
-                    <span className={`${styles.badge} ${STATUS_CLASS[t.effectiveStatus]}`}>
-                      {t.effectiveStatus}
-                    </span>
+                    {t.isActive ? (
+                      <span className={`${styles.badge} ${STATUS_CLASS[t.effectiveStatus]}`}>
+                        {t.effectiveStatus}
+                      </span>
+                    ) : (
+                      <span className={`${styles.badge} ${styles.statusInactive}`}>inactive</span>
+                    )}
                     {t.activeOrderCount > 0 && (
                       <span className={styles.hintInline}>
                         {t.activeOrderCount} live order{t.activeOrderCount > 1 ? 's' : ''}
@@ -238,7 +261,9 @@ export function TablesManagement() {
                     )}
                   </td>
                   <td>
-                    {!canToggle ? (
+                    {!t.isActive ? (
+                      <span className={styles.hintInline}>Inactive</span>
+                    ) : !canToggle ? (
                       <span className={styles.hintInline}>
                         {t.effectiveStatus === 'available' ? 'Available' : t.effectiveStatus}
                       </span>
@@ -283,12 +308,12 @@ export function TablesManagement() {
                         <Icon name="edit" size={16} />
                       </button>
                       <button
-                        className={styles.iconBtn}
-                        title="Delete"
-                        onClick={() => handleDelete(t)}
+                        className={styles.cancelBtn}
+                        title={t.isActive ? 'No new orders on this table; it stays here with its past orders' : 'Offer this table for orders again'}
+                        onClick={() => void handleSetActive(t, !t.isActive)}
                         disabled={busyId === t.tableId}
                       >
-                        <Icon name="trash" size={16} />
+                        {t.isActive ? 'Make inactive' : 'Make active'}
                       </button>
                     </div>
                   </td>

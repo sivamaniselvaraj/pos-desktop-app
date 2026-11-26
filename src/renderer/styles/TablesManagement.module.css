@@ -2,6 +2,8 @@
 .statusOccupied { background: #dc2626; }
 .statusReserved { background: #d97706; }
 .statusCleaning { background: #2563eb; }
+.statusInactive { background: #6b7280; }
+.inactiveRow td { color: #6b7280; }
 
 .summary {
   display: flex;
@@ -150,4 +152,13 @@
 .iconBtn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.cancelBtn {
+  padding: 8px 16px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
 }

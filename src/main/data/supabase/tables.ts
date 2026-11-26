@@ -114,6 +114,7 @@ export const tables: TableRepository = {
         status,
         effectiveStatus: active > 0 ? 'occupied' : status,
         activeOrderCount: active,
+        isActive: row.is_active !== false,
       };
     });
   },
@@ -163,15 +164,16 @@ export const tables: TableRepository = {
     return count ?? 0;
   },
 
-  async remove(outletId, tableId) {
-    const { data, error } = await getAuthedClient()
-      .from('tables')
-      .delete()
-      .eq('id', tableId)
-      .eq('outlet_id', outletId)
-      .select('id');
-    if (error) throw friendlyDbError(error, 'Failed to delete table');
-    if (!data || data.length === 0) throw new Error('Table not found in this outlet');
+
+  // set_table_active checks tables.manage and the outlet, and refuses to make a table with a
+  // live order or unpaid bill inactive. Tables are never deleted (docs/TABLE_ACTIVE.md).
+  async setActive(outletId, tableId, active) {
+    const { error } = await getAuthedClient().rpc('set_table_active', {
+      p_outlet_id: outletId,
+      p_table_id: tableId,
+      p_active: active,
+    });
+    if (error) throw friendlyDbError(error, 'Failed to change the table');
   },
 
   async getStatus(outletId, tableId) {

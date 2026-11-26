@@ -3,6 +3,7 @@
 
 import type { ConnectionSetupInput, ConnectionSetupResult, ConnectionSetupStatus } from './connectionTypes';
 import type { LiveChange } from './liveTypes';
+import type { OfflineStatus } from './offlineTypes';
 import type {
   ReportBucket,
   SalesReportRow,
@@ -76,7 +77,6 @@ import type {
   UpdateStatus,
   InstallCheck,
 } from './types';
-import { OfflineStatus } from './offlineTypes';
 
 // ---- IPC channel names (single source of truth) ----
 export const IpcChannels = {
@@ -184,7 +184,7 @@ export const IpcChannels = {
   SAVE_TAKEAWAY_DRAFT: 'save-takeaway-draft',
   DELETE_TAKEAWAY_DRAFT: 'delete-takeaway-draft',
   SAVE_MANAGED_TABLE: 'save-managed-table',
-  DELETE_MANAGED_TABLE: 'delete-managed-table',
+  SET_MANAGED_TABLE_ACTIVE: 'set-managed-table-active',
   SET_MANAGED_TABLE_STATUS: 'set-managed-table-status',
   SAVE_ORDER_PAYMENT: 'save-order-payment',
   REPRINT_TABLE_BILL: 'reprint-table-bill',
@@ -360,7 +360,8 @@ export interface ElectronApi {
   getMenuItem(id: string): Promise<MenuItemRecord>;
   placeOrder(payload: PlaceOrderPayload): Promise<PlaceOrderResult>;
   saveManagedTable(payload: SaveManagedTablePayload): Promise<void>;
-  deleteManagedTable(tableId: string): Promise<void>;
+  /** Tables are never deleted: mark one inactive (or active again). docs/TABLE_ACTIVE.md */
+  setManagedTableActive(tableId: string, active: boolean): Promise<void>;
   /** Quick status toggle from the Tables list; refused while the table has a live order. */
   setManagedTableStatus(tableId: string, status: ManagedTableStatus): Promise<void>;
   savePayment(payload: SavePaymentPayload): Promise<void>;

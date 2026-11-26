@@ -107,17 +107,19 @@ export async function saveManagedTable(payload: SaveManagedTablePayload, actingU
   return null;
 }
 
-export async function deleteManagedTable(tableId: string): Promise<void> {
+/**
+ * Tables are never deleted (docs/TABLE_ACTIVE.md). A table that is not used any more is
+ * marked inactive: it stays on the Tables page with its number and past orders, but is not
+ * offered on the Dashboard, New order or phones, and takes no new orders. Making a table
+ * inactive is refused while it has an open order or a bill waiting for payment (the
+ * database checks again in set_table_active).
+ */
+export async function setManagedTableActive(tableId: string, active: boolean): Promise<void> {
   const outletId = requireOutletId();
-
-  // Never delete a table that has carried an order: it would orphan (or, with
-  // a foreign key, be blocked by) that order's history and the reports.
-  if ((await db.tables.countOrdersForTable(tableId)) > 0) {
-    throw new Error(
-      'This table has order history and cannot be deleted. Set its status to cleaning/reserved instead, or rename it.',
-    );
+  if (!active && (await db.tables.liveOrderCount(outletId, tableId)) > 0) {
+    throw new Error("This table has an open order or a bill waiting for payment, so it can't be made inactive.");
   }
-  await db.tables.remove(outletId, tableId);
+  await db.tables.setActive(outletId, tableId, active);
 }
 
 /**

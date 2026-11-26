@@ -45,7 +45,7 @@ import type {
 import type { ConnectionSetupInput, ConnectionSetupResult, ConnectionSetupStatus } from './shared/connectionTypes';
 import type { LiveChange } from './shared/liveTypes';
 import type { OfflineStatus } from './shared/offlineTypes';
-import type {MenuUploadLogBatch, MenuUploadPickResult, MenuUploadSummary } from './shared/menuUploadTypes';
+import type { MenuUploadLogBatch, MenuUploadPickResult, MenuUploadSummary } from './shared/menuUploadTypes';
 import type {
   SalesReportRow,
   SalesByWaiterRow,
@@ -243,8 +243,8 @@ const api: ElectronApi = {
     ipcRenderer.invoke(IpcChannels.SAVE_MANAGED_TABLE, payload) as Promise<void>,
   setManagedTableStatus: (tableId, status) =>
     ipcRenderer.invoke(IpcChannels.SET_MANAGED_TABLE_STATUS, tableId, status) as Promise<void>,
-  deleteManagedTable: (tableId) =>
-    ipcRenderer.invoke(IpcChannels.DELETE_MANAGED_TABLE, tableId) as Promise<void>,
+  setManagedTableActive: (tableId, active) =>
+    ipcRenderer.invoke(IpcChannels.SET_MANAGED_TABLE_ACTIVE, tableId, active) as Promise<void>,
   savePayment: (payload: SavePaymentPayload) =>
     ipcRenderer.invoke(IpcChannels.SAVE_ORDER_PAYMENT, payload) as Promise<void>,
   testPrint: (target) => ipcRenderer.invoke(IpcChannels.TEST_PRINT, target) as Promise<string>,

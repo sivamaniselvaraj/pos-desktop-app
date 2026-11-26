@@ -72,7 +72,7 @@ import {
   savePayment,
   listManagedTables,
   saveManagedTable,
-  deleteManagedTable,
+  setManagedTableActive,
   setManagedTableStatus,
 } from './tablesManager';
 import { config, normalizePrintMethod } from './config';
@@ -363,8 +363,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     IpcChannels.SET_MANAGED_TABLE_STATUS,
     (_e, tableId: string, status: ManagedTableStatus) => setManagedTableStatus(tableId, status),
   );
-  ipcMain.handle(IpcChannels.DELETE_MANAGED_TABLE, (_e, tableId: string) =>
-    deleteManagedTable(tableId),
+  ipcMain.handle(IpcChannels.SET_MANAGED_TABLE_ACTIVE, (_e, tableId: string, active: boolean) =>
+    setManagedTableActive(tableId, active === true),
   );
   ipcMain.handle(IpcChannels.SAVE_ORDER_PAYMENT, (_e, payload: SavePaymentPayload) =>
     savePayment(payload),
