@@ -843,6 +843,22 @@ export interface TableCard {
   cardStatus: TableCardStatus;
   /** True once every order in the batch has payment_details set (transient — a fully-paid batch drops out of the next list). */
   paymentRecorded?: boolean;
+
+  /**
+   * The table's floor ('' when none) and seats, from the same call (2026-11-27,
+   * docs/DASHBOARD_TABLES.md). Undefined when the database does not have
+   * db/migrations/table_bills_floor.sql yet; the Dashboard then reads the tables list.
+   */
+  floor?: string;
+  capacity?: number | null;
+  /**
+   * The status set on the Tables page (tables.state) and whether the table is
+   * active, from the same call (2026-11-27), so the phones' GET /api/tables needs
+   * no second read. Undefined on a database without table_bills_floor.sql.
+   * (manualStatus above is the older tables.status column.)
+   */
+  managedStatus?: ManagedTableStatus;
+  isActive?: boolean;
 }
 export type PaymentMethod = 'card' | 'cash' | 'upi' | 'part-payment';
 

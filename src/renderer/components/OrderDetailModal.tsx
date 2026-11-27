@@ -1,9 +1,11 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useScreenTiming } from '../lib/timing';
 import { useAuth } from '../context/AuthContext';
+import { useStableCallback } from '../hooks/useStableCallback';
 import type { OrderDetailItem, OrderActivityLogEntry, EditorApproval, OrderDiscountMode, OrderDiscountInfo } from '@shared/types';
 import { DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE } from '../../shared/types';
 import { DiscountModal } from './DiscountModal';
+import { Icon } from './Icon';
 import { ApprovalModal } from './ApprovalModal';
 import styles from '../styles/OrderDetailModal.module.css';
 import { displayInvoiceNumber, formatMoney as formatCurrency, formatDateTime, taxLabel } from '../lib/format';
@@ -52,7 +54,12 @@ export interface OrderDetailModalProps {
   meta?: OrderDetailModalMeta;
   totals?: OrderDetailModalTotals;
   items: OrderDetailItem[];
-  log: OrderActivityLogEntry[];
+  /**
+   * Reads the activity log of these orders. Called only when the user taps
+   * "View activity" (and again after a change while it is shown), so opening the
+   * modal does not wait for it (docs/ORDER_DETAIL_MODAL.md).
+   */
+  loadLog: () => Promise<OrderActivityLogEntry[]>;
   loading: boolean;
   /** Whether the Edit/Remove actions render at all — false for a locked (completed/cancelled) order. */
   editable: boolean;
@@ -106,7 +113,7 @@ export function OrderDetailModal({
   meta,
   totals,
   items: rawItems,
-  log,
+  loadLog,
   loading,
   editable,
   onClose,
@@ -144,6 +151,40 @@ export function OrderDetailModal({
     action: string;
     run: (approval: EditorApproval) => Promise<void>;
   } | null>(null);
+  // Activity log, on demand. Read when shown, and again when the items change
+  // while it is shown (an edit, remove or discount reloads them). `for` is the
+  // items list the log was read for: a newer list means a read is running.
+  const [logOpen, setLogOpen] = useState(false);
+  const [logTry, setLogTry] = useState(0);
+  const [logView, setLogView] = useState<{
+    for: OrderDetailItem[];
+    entries: OrderActivityLogEntry[] | null;
+    error: string | null;
+  } | null>(null);
+  const readLog = useStableCallback(loadLog);
+  useEffect(() => {
+    if (!logOpen) return;
+    let cancelled = false;
+    readLog().then(
+      (entries) => {
+        if (!cancelled) setLogView({ for: rawItems, entries, error: null });
+      },
+      (err: unknown) => {
+        if (!cancelled)
+          setLogView((prev) => ({
+            for: rawItems,
+            entries: prev?.entries ?? null,
+            error: err instanceof Error ? err.message : 'Failed to load the activity log',
+          }));
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [logOpen, rawItems, logTry, readLog]);
+  const logLoading = logOpen && logView?.for !== rawItems;
+  const log = logView?.entries ?? null;
+
   const grouped = orders.length > 1;
   // One block per order: items sorted by order number (stable, so each order keeps its own item order).
   const items = useMemo(
@@ -225,10 +266,16 @@ export function OrderDetailModal({
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+        {/* Title row stays at the top while the modal scrolls; × closes (2026-11-27). */}
+        <div className={styles.titleRow}>
         <h3>
           {title}
           {headerAmount != null && ` · ${formatCurrency(headerAmount)}`}
         </h3>
+          <button type="button" className={styles.closeX} onClick={onClose} title="Close" aria-label="Close">
+            <Icon name="cancel" size={18} />
+          </button>
+        </div>
 
         {grouped && (
           <p className={styles.muted}>Orders: {orders.map((o) => o.orderNumber).join(', ')}</p>
@@ -487,8 +534,29 @@ export function OrderDetailModal({
 
         {!loading && (
           <>
+            <div className={styles.logHeadingRow}>
             <h4 className={styles.logHeading}>Activity Log</h4>
-            {log.length === 0 ? (
+              <button
+                type="button"
+                className={styles.linkBtn}
+                onClick={() => setLogOpen((o) => !o)}
+                aria-expanded={logOpen}
+              >
+                {logOpen ? 'Hide activity' : 'View activity'}
+              </button>
+            </div>
+            {!logOpen ? null : log === null ? (
+              logView?.error && !logLoading ? (
+                <p className={styles.muted}>
+                  {logView.error}{' '}
+                  <button type="button" className={styles.linkBtn} onClick={() => setLogTry((n) => n + 1)}>
+                    Try again
+                  </button>
+                </p>
+              ) : (
+                <p className={styles.muted}>Loading activity…</p>
+              )
+            ) : log.length === 0 ? (
               <p className={styles.muted}>No items have been edited or removed.</p>
             ) : (
               <table className={styles.itemsTable}>
@@ -536,16 +604,13 @@ export function OrderDetailModal({
           </>
         )}
 
-        <div className={styles.modalActions}>
           {editable && onAddItems && (
+          <div className={styles.modalActions}>
             <button className={styles.addItemsBtn} onClick={onAddItems}>
               + Add items
             </button>
-          )}
-          <button className={styles.cancelBtn} onClick={onClose}>
-            Close
-          </button>
         </div>
+        )}
 
         {discountOpen && discountFigures && onDiscount && (
           <DiscountModal
