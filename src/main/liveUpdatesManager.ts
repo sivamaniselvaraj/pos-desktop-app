@@ -68,7 +68,12 @@ export function restartLiveWatch(): void {
 export function startLiveUpdates(windowGetter: () => BrowserWindow | null): void {
   getWindow = windowGetter;
   if (safetyTimer) return;
-  stopLocal = onLocalWrite((scopes) => queue(scopes, 'local'));
+  stopLocal = onLocalWrite((scopes) => {
+    // The phones' tables cache is dropped at once, not after the 250 ms merge, so a
+    // phone that reads its tables right after placing an order sees the order.
+    if (scopes.includes('tables') || scopes.includes('orders')) invalidateTablesForPhones();
+    queue(scopes, 'local');
+  });
   let wasOffline = offline.monitor.isOffline();
   stopMonitor = offline.monitor.onChange((snap) => {
     const nowOffline = snap.state === 'offline';

@@ -1,6 +1,7 @@
-import { db } from './data';
+import { db, offline } from './data';
 import { config } from './config';
-import type { MyAccess, ReceiptText } from '../shared/types';
+import { createSwrCache } from './swrCache';
+import type { MyAccess, OrgSettings, ReceiptText } from '../shared/types';
 
 /**
  * accessManager.ts
@@ -19,11 +20,65 @@ import type { MyAccess, ReceiptText } from '../shared/types';
 export async function saveBrandColor(color: string | null): Promise<string | null> {
   const c = typeof color === 'string' ? color.trim() : '';
   if (c !== '' && !/^#[0-9a-fA-F]{6}$/.test(c)) throw new Error('Enter a colour as # and six letters or digits, for example #4caf50.');
-  return db.access.setBrandColor(c === '' ? null : c.toLowerCase());
+  const saved = await db.access.setBrandColor(c === '' ? null : c.toLowerCase());
+  invalidateAccessForPhones(); // the organisation's settings changed
+  return saved;
 }
 
 export function getMyAccess(): Promise<MyAccess | null> {
   return db.access.fetchMyAccess();
+}
+
+/*
+ * The organisation settings phones get in GET /api/me (docs/API_CACHE.md). They
+ * come from get_my_access of the user signed in on THIS desktop (the phone's own
+ * device name and user id are read per request, never cached), so the cache is
+ * keyed by that user and this PC's outlet: after a sign-out, another sign-in or
+ * an outlet change the old answer is never served. Fresh for 30 seconds, then
+ * answered at once for up to 5 minutes while one refresh runs in the background
+ * (not while offline). Dropped on sign-in, sign-out, session restore, a colour
+ * save and any change to users or groups on this PC. No answer (null, no org) is
+ * never cached: the phone gets the defaults, as before.
+ */
+export const PHONE_ACCESS_FRESH_MS = 30_000;
+export const PHONE_ACCESS_STALE_MS = 5 * 60_000;
+class NoOrgSettings extends Error {}
+let sessionUserId = '';
+
+const orgCache = createSwrCache<OrgSettings>({
+  load: async () => {
+    const org = (await getMyAccess())?.org;
+    if (!org) throw new NoOrgSettings('No organisation settings.');
+    return org;
+  },
+  freshMs: PHONE_ACCESS_FRESH_MS,
+  staleMs: PHONE_ACCESS_STALE_MS,
+  allowStale: () => !offline.monitor.isOffline(),
+  key: () => `${sessionUserId}|${config.outletId}`,
+  onBackgroundError: (err:any) => {
+    if (!(err instanceof NoOrgSettings)) console.warn('[api] settings refresh failed:', err instanceof Error ? err.message : err);
+  },
+});
+
+/** The desktop's signed-in user changed (sign-in, sign-out, session restore): drop the phones' settings cache. */
+export function setAccessSessionUser(userId: string | null): void {
+  sessionUserId = userId ?? '';
+  orgCache.invalidate();
+}
+
+/** Permissions, groups or organisation settings changed: the next GET /api/me reads them again. */
+export function invalidateAccessForPhones(): void {
+  orgCache.invalidate();
+}
+
+/** The organisation settings for GET /api/me, through the cache above; null when the database gave none. */
+export async function getOrgSettingsForPhones(): Promise<OrgSettings | null> {
+  try {
+    return await orgCache.get();
+  } catch (err) {
+    if (err instanceof NoOrgSettings) return null;
+    throw err;
+  }
 }
 
 const RECEIPT_MAX_LINES = 8;

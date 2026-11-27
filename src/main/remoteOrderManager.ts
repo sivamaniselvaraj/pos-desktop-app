@@ -1,10 +1,12 @@
-import { db } from './data';
+import { db, offline } from './data';
+import { createSwrCache } from './swrCache';
 import { config } from './config';
 import { getMyAccess } from './accessManager';
 import { orderManager } from './orderManager';
 import { printQueue } from './printQueueManager';
 import { listManagedTables, saveManagedTable } from './tablesManager';
-import { ApiMyOrder, DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE, PRINT_KOT_ONLY, TableCard, type ApiTable, type PhoneKotSettings, type RemoteOrderRequest, type RemoteOrderResult } from '../shared/types';
+import { tablesFromCards, toApiTables } from './phoneTables';
+import { ApiMyOrder, DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE, PRINT_KOT_ONLY, type ApiTable, type PhoneKotSettings, type RemoteOrderRequest, type RemoteOrderResult } from '../shared/types';
 import { BadRemoteOrder, NewTableRequest } from './remoteOrderValidation';
 
 export { BadRemoteOrder, validateNewTable, validateRemoteOrder } from './remoteOrderValidation';
@@ -16,67 +18,54 @@ export { BadRemoteOrder, validateNewTable, validateRemoteOrder } from './remoteO
  * ticket itself.
  */
 
-const TABLES_TTL_MS = 2000;
-let tablesCache: { at: number; value: ApiTable[] } | null = null;
-let tablesInflight: Promise<ApiTable[]> | null = null;
+/**
+ * One database call when the bill list carries each table's Tables-page status
+ * and active flag (db/migrations/table_bills_floor.sql, 2026-11-27); else the
+ * older two reads (tables list, which is two round trips, and the bill list).
+ * Both give the same answer.
+ */
+let billsCarryTableFields: boolean | null = null; // learnt from the first read
 
 async function loadTables(): Promise<ApiTable[]> {
-  const [managed, cards] = await Promise.all([listManagedTables(), db.tables.listCards()]);
-  // A table can have several bills (docs/TABLE_BILLS.md): at most one running and
-  // any number printed and waiting for payment. Phones see only the running bill.
-  // A table whose bills are all printed shows as FREE, so a captain can seat the
-  // next guests there; the printed bills are paid on the desktop.
-  const runningByTable = new Map<string, TableCard>();
-  for (const c of cards) if (c.cardStatus === 'active') runningByTable.set(c.tableId, c);
-  return managed.map((m): ApiTable => {
-    const c = runningByTable.get(m.tableId);
-    const ids = c?.orderIds ?? (c?.orderId ? [c.orderId] : []);
-    const nums = c?.orderNumbers ?? [];
-    const blocked = m.status === 'reserved' || m.status === 'cleaning';
-    return {
-      tableId: m.tableId,
-      tableNumber: m.tableNumber,
-      floor: m.floor,
-      capacity: m.capacity,
-      // Occupied while a bill is running, whatever was set by hand. Otherwise the
-      // status set on the Tables page, where "occupied" (also set by unpaid printed
-      // bills) reads as available.
-      status: c ? 'occupied' : blocked ? m.status : 'available',
-      manualStatus: m.status,
-      billStatus: c ? 'active' : 'available',
-      paymentRecorded: c?.paymentRecorded ?? false,
-      orders: ids.map((orderId, i) => ({ orderId, orderNumber: nums[i] ?? 0 })),
-      invoiceNumber: c?.invoiceNumber ?? null,
-      total: c?.orderTotalAmount ?? 0,
-      since: c?.orderCreatedAt ?? null,
-    };
-  });
+  // Older database already seen: both reads side by side, as before.
+  const managedEarly = billsCarryTableFields === false ? listManagedTables() : null;
+  const cards = await db.tables.listCards();
+  if (cards.length > 0) billsCarryTableFields = cards[0].managedStatus !== undefined;
+  if (billsCarryTableFields) return tablesFromCards(cards);
+  const managed = await (managedEarly ?? listManagedTables());
+  return toApiTables(
+    managed.map((m) => ({ tableId: m.tableId, tableNumber: m.tableNumber, floor: m.floor, capacity: m.capacity, status: m.status, isActive: m.isActive })),
+    cards,
+  );
 }
 
-/** Drops the 2-second tables cache so the next GET /api/tables reads fresh data (live updates). */
+/**
+ * The phones' tables list (docs/API_CACHE.md). Fresh for 2 seconds, so many
+ * phones polling cost one database call. Up to 10 seconds old it is answered at
+ * once while one refresh runs in the background (not while offline: then every
+ * call waits and sees the real error). Any order or table change, on this PC at
+ * once and from other PCs through live updates, drops it.
+ */
+export const TABLES_FRESH_MS = 2000;
+export const TABLES_STALE_MS = 10_000;
+const tablesCache = createSwrCache<ApiTable[]>({
+  load: loadTables,
+  freshMs: TABLES_FRESH_MS,
+  staleMs: TABLES_STALE_MS,
+  allowStale: () => !offline.monitor.isOffline(),
+  key: () => config.outletId,
+  onBackgroundError: (err:any) => console.warn('[api] tables refresh failed:', err instanceof Error ? err.message : err),
+});
+
+/** Drops the tables cache so the next GET /api/tables reads fresh data (live updates, local writes). */
 export function invalidateTablesForPhones(): void {
-  tablesCache = null;
-  tablesInflight = null; // a read started before the change must not be cached
-  tablesGeneration += 1;
+  tablesCache.invalidate(); // a read started before the change is not kept either
 }
 let tablesGeneration = 0;
 
-/** Tables of this outlet with status and details. Cached for 2 seconds so many phones polling cost one database call. */
-export async function getTablesForPhones(): Promise<ApiTable[]> {
-  if (tablesCache && Date.now() - tablesCache.at < TABLES_TTL_MS) return tablesCache.value;
-  if (!tablesInflight) {
-    const gen = tablesGeneration;
-    const p = loadTables()
-      .then((v) => {
-        if (gen === tablesGeneration) tablesCache = { at: Date.now(), value: v };
-        return v;
-      })
-      .finally(() => {
-        if (tablesInflight === p) tablesInflight = null;
-      });
-    tablesInflight = p;
-  }
-  return tablesInflight;
+/** Tables of this outlet with status and details, through the cache above. */
+export function getTablesForPhones(): Promise<ApiTable[]> {
+  return tablesCache.get();
 }
 
 /**
@@ -91,7 +80,7 @@ export async function addTableForPhone(req: NewTableRequest, userId: string): Pr
     { tableNumber: req.tableNumber, floor: req.floor ?? '', capacity: req.capacity, status: 'available' },
     userId,
   );
-  tablesCache = null; // a new table
+  invalidateTablesForPhones(); // a new table
   const table = (await getTablesForPhones()).find((t) => t.tableId === tableId);
   if (!table) throw new Error('The table was saved but could not be read back.');
   return table;
@@ -154,7 +143,7 @@ export async function placeRemoteOrder(
     deviceId,
     clientRequestId: req.clientRequestId,
   });
-  tablesCache = null; // the table just changed
+  invalidateTablesForPhones(); // the table just changed
 
   if (config.outletId) {
     printQueue

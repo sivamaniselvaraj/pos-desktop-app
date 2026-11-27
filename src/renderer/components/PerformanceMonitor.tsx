@@ -1,5 +1,5 @@
 /**
- * About > Speed: response times of the phone API, this PC's calls to the main
+ * About > Performance monitor: response times of the phone API, this PC's calls to the main
  * process and screen loads, measured since the app started (docs/TIMINGS.md).
  * Reads the numbers only when opened or refreshed; nothing polls.
  */
@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { TimingKind, TimingSnapshot, TimingStat } from '@shared/timingTypes';
 import { useConfirm } from '../context/ConfirmContext';
 import page from '../styles/Page.module.css';
-import styles from '../styles/SpeedPanel.module.css';
+import styles from '../styles/PerformanceMonitor.module.css';
 
 const TABS: { kind: TimingKind; label: string; hint: string }[] = [
   { kind: 'api', label: 'Phone API', hint: 'Each phone call, from arrival at this PC until the reply was sent.' },
@@ -23,10 +23,10 @@ const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${M
 function asText(snap: TimingSnapshot): string {
   const head = ['kind', 'name', 'count', 'errors', 'avg ms', 'p50 ms', 'p95 ms', 'max ms', 'slowest at'].join('\t');
   const rows = snap.stats.map((s) => [s.kind, s.name, s.count, s.errors, s.avgMs, s.p50Ms, s.p95Ms, s.maxMs, s.maxAt].join('\t'));
-  return [`Speed measurements ${snap.since} to ${snap.takenAt}`, head, ...rows].join('\n');
+  return [`Performance measurements ${snap.since} to ${snap.takenAt}`, head, ...rows].join('\n');
 }
 
-export function SpeedPanel() {
+export function PerformanceMonitor() {
   const confirm = useConfirm();
   const [snap, setSnap] = useState<TimingSnapshot | null>(null);
   const [kind, setKind] = useState<TimingKind>('api');
@@ -46,7 +46,7 @@ export function SpeedPanel() {
 
   const reset = async () => {
     const ok = await confirm({
-      title: 'Reset speed measurements?',
+      title: 'Reset performance measurements?',
       message: 'All numbers start again from zero. The summaries already written to main.log stay.',
       confirmLabel: 'Reset',
     });
@@ -71,7 +71,7 @@ export function SpeedPanel() {
 
   return (
     <section className={page.section}>
-      <h3>Speed</h3>
+      <h3>Performance monitor</h3>
       <p className={page.muted}>
         How long the phone API, this PC&apos;s calls and screen loads take, measured on this PC
         {snap ? ` since ${new Date(snap.since).toLocaleString()}` : ''}. p95: 95 of every 100 calls

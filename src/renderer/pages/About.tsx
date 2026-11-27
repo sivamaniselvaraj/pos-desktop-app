@@ -3,7 +3,7 @@ import type { UpdateStatus } from '@shared/types';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../context/ConfirmContext';
 import { installUpdateWithConfirm } from '../lib/updates';
-import { SpeedPanel } from '../components/SpeedPanel';
+import { PerformanceMonitor } from '../components/PerformanceMonitor';
 import styles from '../styles/Page.module.css';
 
 function describe(s: UpdateStatus): string {
@@ -97,7 +97,7 @@ export function About({ update }: { update: UpdateStatus | null }) {
         )}
       </section>
 
-      <SpeedPanel />
+      <PerformanceMonitor />
     </div>
   );
 }

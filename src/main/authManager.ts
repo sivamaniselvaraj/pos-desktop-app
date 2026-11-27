@@ -1,6 +1,9 @@
 import { config, setRuntimeOutletId } from './config';
+import { connection } from './connectionSetup';
 import { db, type UserProfile } from './data';
 import { refreshMenuCache, clearMenuCache } from './menuCache';
+import { refreshLocalCopy } from './offlineManager';
+import { setAccessSessionUser } from './accessManager';
 import type { AuthResult, AuthUser } from '../shared/types';
 
 /**
@@ -51,7 +54,9 @@ export async function signIn(email: string, password: string): Promise<AuthResul
       return { success: false, error: 'This account has been disabled. Contact an administrator.' };
     }
 
+    setAccessSessionUser(res.user.id); // phones' cached settings belong to this user now
     bindOutlet(profile.outletId);
+    void refreshLocalCopy(); // this user's permissions and settings for offline use
     return { success: true, user: await toAuthUser(res.user.id, res.user.email || email, profile) };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Sign in failed.' };
@@ -59,6 +64,7 @@ export async function signIn(email: string, password: string): Promise<AuthResul
 }
 
 export async function signOut(): Promise<void> {
+  setAccessSessionUser(null);
   if (!db.isConfigured()) return;
   try {
     await db.auth.signOut();
@@ -76,14 +82,19 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   if (!db.isConfigured()) return null;
   try {
     const user = await db.auth.getSessionUser();
-    if (!user) return null;
+    if (!user) {
+      setAccessSessionUser(null);
+      return null;
+    }
 
     const profile = await db.auth.loadProfile(user.id);
     if (!profile || !profile.isActive) {
       await db.auth.signOut();
       return null;
     }
+    setAccessSessionUser(user.id);
     bindOutlet(profile.outletId);
+    void refreshLocalCopy();
     return await toAuthUser(user.id, user.email, profile);
   } catch {
     return null;

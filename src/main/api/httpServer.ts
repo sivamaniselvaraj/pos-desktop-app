@@ -35,7 +35,7 @@ export function startHttpServer(): Promise<void> {
   // authentication BEFORE any request body is read.
   app.use(securityHeaders);
   app.use('/api', auditLog);
-  // Response time per route, in memory (About page > Speed, docs/TIMINGS.md).
+  // Response time per route, in memory (About page > Performance monitor, docs/TIMINGS.md).
   app.use('/api', apiTiming());
 
   // CORS: deny cross-origin BROWSER access by default; only origins listed in

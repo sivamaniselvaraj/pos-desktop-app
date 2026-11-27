@@ -10,7 +10,7 @@ import { startPrinterWatch, stopPrinterWatch } from './printerManager';
 import { destroyHtmlPrintWindow } from './htmlPrintHelper';
 import { startUpdateManager, stopUpdateManager } from './updateManager';
 import { startOfflineMode, stopOfflineMode } from './offlineManager';
-import { startLiveUpdates, stopLiveUpdates } from './liveUpdates';
+import { startLiveUpdates, stopLiveUpdates } from './liveUpdatesManager';
 import { IpcChannels } from '../shared/ipc';
 
 // First thing: copy every console line into the log file (see logger.ts), so
