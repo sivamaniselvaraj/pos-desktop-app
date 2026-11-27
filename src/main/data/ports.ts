@@ -385,6 +385,12 @@ export interface RemoteOrderRepository {
   }): Promise<{ orderId: string; orderNumber: number; invoiceNumber: string, duplicate: boolean }>;
   /** Open orders placed from phones, with their KOT state and the notification settings (get_phone_orders). */
   listPhoneOrders(): Promise<import('../kotNotifierCore').PhoneSnapshot>;
+  /**
+   * Every open order of the outlet (placed here, on another PC or from a phone) with its KOT state,
+   * and the same settings (get_order_watch, docs/DESKTOP_ALERTS.md). On a database without it,
+   * answers the phone orders only with `allOrders: false`.
+   */
+  listOrderWatch(): Promise<import('../kotNotifierCore').OrderWatchSnapshot>;
   /** The unsettled orders (not completed, not cancelled) this waiter placed in the outlet (get_my_orders). */
   listMyOrders(waiterId: string): Promise<import('../../shared/types').ApiMyOrder[]>;
   /** Sets one item of this waiter's own open order to 'served' (mark_item_served). Safe to repeat. */

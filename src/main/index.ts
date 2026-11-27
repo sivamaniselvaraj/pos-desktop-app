@@ -11,6 +11,8 @@ import { destroyHtmlPrintWindow } from './htmlPrintHelper';
 import { startUpdateManager, stopUpdateManager } from './updateManager';
 import { startOfflineMode, stopOfflineMode } from './offlineManager';
 import { startLiveUpdates, stopLiveUpdates } from './liveUpdatesManager';
+import { startDesktopAlerts } from './desktopAlerts';
+import { startNotificationHub } from './notificationHub';
 import { IpcChannels } from '../shared/ipc';
 
 // First thing: copy every console line into the log file (see logger.ts), so
@@ -181,6 +183,12 @@ app.whenReady().then(async () => {
   startMenuCache();
 
   createWindow();
+
+  // Desktop alerts (docs/DESKTOP_ALERTS.md): new phone orders, KOTs that did not
+  // print, late orders. The order watch is the phone notifications' own read;
+  // started here too so it runs even if the phone API could not start.
+  startDesktopAlerts(() => mainWindow);
+  startNotificationHub();
 
   // Live updates (docs/LIVE_UPDATES.md): screens and phones reload when this
   // outlet's orders or tables change, here or on another computer.

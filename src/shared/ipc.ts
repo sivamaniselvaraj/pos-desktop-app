@@ -4,6 +4,7 @@
 import type { ConnectionSetupInput, ConnectionSetupResult, ConnectionSetupStatus } from './connectionTypes';
 import type { LiveChange } from './liveTypes';
 import type { OfflineStatus } from './offlineTypes';
+import type { AlertPush, AlertSettings, AlertSnapshot, DesktopAlert } from './alertTypes';
 import type { TimingSnapshot } from './timingTypes';
 import type {
   ReportBucket,
@@ -221,6 +222,14 @@ export const IpcChannels = {
   INSTALL_UPDATE: 'install-update',
   SET_UPDATE_CHANNEL: 'set-update-channel',
   UPDATE_STATUS: 'update-status', // main -> renderer (send)
+  // desktop alerts (docs/DESKTOP_ALERTS.md)
+  GET_ALERTS: 'get-alerts',
+  MARK_ALERTS_READ: 'mark-alerts-read',
+  CLEAR_ALERTS: 'clear-alerts',
+  DISMISS_KOT_ALERT: 'dismiss-kot-alert',
+  SAVE_ALERT_SETTINGS: 'save-alert-settings',
+  ALERTS_CHANGED: 'alerts-changed', // main -> renderer (send)
+  ALERT_OPENED: 'alert-opened', // main -> renderer: a Windows notification was clicked
   // speed measurements (docs/TIMINGS.md)
   GET_TIMINGS: 'get-timings',
   RESET_TIMINGS: 'reset-timings',
@@ -403,6 +412,19 @@ export interface ElectronApi {
   /** Beta = this PC gets releases a few days early (saved in settings.json). */
   setUpdateChannel(channel: UpdateChannel): Promise<UpdateStatus>;
   onUpdateStatus(cb: (status: UpdateStatus) => void): () => void;
+  /** Desktop alerts on this computer: bell list, open failed KOTs, settings (docs/DESKTOP_ALERTS.md). */
+  getAlerts(): Promise<AlertSnapshot>;
+  /** The bell was opened: clears the unread count. */
+  markAlertsRead(): Promise<AlertSnapshot>;
+  /** Empties the bell list (open failed KOTs stay). */
+  clearAlerts(): Promise<AlertSnapshot>;
+  /** Hides the red "KOT did not print" banner for this order. */
+  dismissKotAlert(orderId: string): Promise<AlertSnapshot>;
+  saveAlertSettings(patch: Partial<AlertSettings>): Promise<AlertSnapshot>;
+  /** Every change; `fresh` is set when a new alert was raised (play its sound). */
+  onAlerts(cb: (push: AlertPush) => void): () => void;
+  /** A Windows notification for this alert was clicked. */
+  onAlertOpened(cb: (alert: DesktopAlert) => void): () => void;
   /** Speed measurements since the app started or the last reset (About page, docs/TIMINGS.md). */
   getTimings(): Promise<TimingSnapshot>;
   resetTimings(): Promise<void>;

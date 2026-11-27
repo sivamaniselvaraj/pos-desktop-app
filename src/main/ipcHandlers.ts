@@ -6,6 +6,8 @@ import { isServerRunning } from './api/httpServer';
 import { db } from './data';
 import { signIn, signOut, getCurrentUser } from './authManager';
 import { getOfflineStatus, isDatabaseConnected } from './offlineManager';
+import { clearAlerts, dismissKotProblem, getAlertSnapshot, markAlertsRead, saveAlertSettings } from './desktopAlerts';
+import type { AlertSettings } from '../shared/alertTypes';
 import { getConnectionStatus } from './connectionSetup';
 import { saveConnectionSetup } from './setupManager';
 import { listDevices, revokeDevice, resetDevicePin } from './api/apiSecurity';
@@ -382,6 +384,23 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   timedHandle(IpcChannels.SET_UPDATE_CHANNEL, (_e, channel: string) =>
     setUpdateChannel(channel === 'beta' ? 'beta' : 'stable'),
   );
+
+  // Desktop alerts (desktopAlerts.ts, docs/DESKTOP_ALERTS.md)
+  timedHandle(IpcChannels.GET_ALERTS, () => getAlertSnapshot());
+  timedHandle(IpcChannels.MARK_ALERTS_READ, () => markAlertsRead());
+  timedHandle(IpcChannels.CLEAR_ALERTS, () => clearAlerts());
+  timedHandle(IpcChannels.DISMISS_KOT_ALERT, (_e, orderId: unknown) => dismissKotProblem(String(orderId ?? '')));
+  timedHandle(IpcChannels.SAVE_ALERT_SETTINGS, (_e, patch: unknown) => {
+    const clean: Partial<AlertSettings> = {};
+    const keys: (keyof AlertSettings)[] = ['newOrder', 'kotFailed', 'late', 'sound', 'systemNotification'];
+    if (patch && typeof patch === 'object') {
+      for (const k of keys) {
+        const v = (patch as Record<string, unknown>)[k];
+        if (typeof v === 'boolean') clean[k] = v;
+      }
+    }
+    return saveAlertSettings(clean);
+  });
 
   // main -> renderer (forward manager events to the active window)
   const send = (channel: string, payload: unknown) => {

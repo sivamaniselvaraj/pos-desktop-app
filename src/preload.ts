@@ -45,6 +45,7 @@ import type {
 import type { ConnectionSetupInput, ConnectionSetupResult, ConnectionSetupStatus } from './shared/connectionTypes';
 import type { LiveChange } from './shared/liveTypes';
 import type { OfflineStatus } from './shared/offlineTypes';
+import type { AlertPush, AlertSnapshot, DesktopAlert } from './shared/alertTypes';
 import type { TimingSnapshot } from './shared/timingTypes';
 import type { MenuUploadLogBatch, MenuUploadPickResult, MenuUploadSummary } from './shared/menuUploadTypes';
 import type {
@@ -284,6 +285,13 @@ const api: ElectronApi = {
   setUpdateChannel: (channel) =>
     ipcRenderer.invoke(IpcChannels.SET_UPDATE_CHANNEL, channel) as Promise<UpdateStatus>,
   onUpdateStatus: (cb) => on<UpdateStatus>(IpcChannels.UPDATE_STATUS, cb),
+  getAlerts: () => ipcRenderer.invoke(IpcChannels.GET_ALERTS) as Promise<AlertSnapshot>,
+  markAlertsRead: () => ipcRenderer.invoke(IpcChannels.MARK_ALERTS_READ) as Promise<AlertSnapshot>,
+  clearAlerts: () => ipcRenderer.invoke(IpcChannels.CLEAR_ALERTS) as Promise<AlertSnapshot>,
+  dismissKotAlert: (orderId) => ipcRenderer.invoke(IpcChannels.DISMISS_KOT_ALERT, orderId) as Promise<AlertSnapshot>,
+  saveAlertSettings: (patch) => ipcRenderer.invoke(IpcChannels.SAVE_ALERT_SETTINGS, patch) as Promise<AlertSnapshot>,
+  onAlerts: (cb) => on<AlertPush>(IpcChannels.ALERTS_CHANGED, cb),
+  onAlertOpened: (cb) => on<DesktopAlert>(IpcChannels.ALERT_OPENED, cb),
   getTimings: () => ipcRenderer.invoke(IpcChannels.GET_TIMINGS) as Promise<TimingSnapshot>,
   resetTimings: () => ipcRenderer.invoke(IpcChannels.RESET_TIMINGS) as Promise<void>,
   recordScreenTiming: (screen, ms, failed) =>

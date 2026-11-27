@@ -1,5 +1,6 @@
 import { getAuthedClient } from './sessionClient';
-import type { NewOrderLine, RemoteOrderRepository } from '../ports';
+import type { RemoteOrderRepository } from '../ports';
+import { phoneSnapshot, type OrderWatchSnapshot } from '../../kotNotifierCore';
 import { OrderItem } from '../../../shared/types';
 
 function toJsonItems(items: OrderItem[]) {
@@ -10,6 +11,61 @@ function toJsonItems(items: OrderItem[]) {
     quantity: i.quantity,
     note: String(i.notes),
   }));
+}
+
+async function rpcJson(fn: string): Promise<unknown> {
+  const { data, error } = await getAuthedClient().rpc(fn);
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/** The function is not in the database yet (an older database). */
+function missingFunction(error: { code?: string; message?: string }, name: string): boolean {
+  return (
+    error.code === 'PGRST202' ||
+    error.code === '42883' ||
+    new RegExp(`${name}.*(not find|does not exist)|(not find|does not exist).*${name}`, 'i').test(
+      error.message ?? '',
+    )
+  );
+}
+
+/** get_order_watch and get_phone_orders answer the same shape. */
+function parseWatch(data: unknown, allOrders: boolean): OrderWatchSnapshot {
+  const d = (data ?? {}) as Record<string, unknown>;
+  const arr = (v: unknown): Record<string, unknown>[] =>
+    Array.isArray(v) ? (v as Record<string, unknown>[]) : [];
+  return {
+    allOrders,
+    steps: arr(d.steps).map((s) => ({
+      code: String(s.code),
+      name: String(s.name),
+      notifyWaiter: s.notify_waiter === true,
+      sortOrder: Number(s.sort_order ?? 0),
+    })),
+    levels: arr(d.levels).map((l) => ({
+      name: String(l.name),
+      fromMinutes: Number(l.from_minutes ?? 0),
+      notify: l.notify === true,
+    })),
+    orders: arr(d.orders)
+      .filter((o) => allOrders || o.device_id)
+      .map((o) => ({
+        orderId: String(o.order_id),
+        orderNumber: Number(o.order_number ?? 0),
+        deviceId: o.device_id ? String(o.device_id) : null,
+        tableNumber: o.table_number == null ? null : String(o.table_number),
+        orderType: String(o.order_type ?? ''),
+        status: String(o.status ?? ''),
+        statuses: Object.fromEntries(
+          Object.entries((o.statuses ?? {}) as Record<string, unknown>).map(([k, v]) => [
+            k,
+            Number(v),
+          ]),
+        ),
+        since: o.since ? String(o.since) : null,
+      })),
+  };
 }
 
 export const remoteOrders: RemoteOrderRepository = {
@@ -35,37 +91,18 @@ export const remoteOrders: RemoteOrderRepository = {
     return { orderId: String(d.order_id), orderNumber: Number(d.order_number ?? 0), invoiceNumber: String(d.invoice_number), duplicate: d.duplicate === true };
   },
   async listPhoneOrders() {
-    const { data, error } = await getAuthedClient().rpc('get_phone_orders');
-    if (error) throw new Error(error.message);
-    const d = (data ?? {}) as Record<string, unknown>;
-    const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
-    return {
-      steps: arr(d.steps).map((s) => ({
-        code: String(s.code),
-        name: String(s.name),
-        notifyWaiter: s.notify_waiter === true,
-        sortOrder: Number(s.sort_order ?? 0),
-      })),
-      levels: arr(d.levels).map((l) => ({
-        name: String(l.name),
-        fromMinutes: Number(l.from_minutes ?? 0),
-        notify: l.notify === true,
-      })),
-      orders: arr(d.orders)
-        .filter((o) => o.device_id)
-        .map((o) => ({
-          orderId: String(o.order_id),
-          orderNumber: Number(o.order_number ?? 0),
-          deviceId: String(o.device_id),
-          tableNumber: o.table_number == null ? null : String(o.table_number),
-          orderType: String(o.order_type ?? ''),
-          status: String(o.status ?? ''),
-          statuses: Object.fromEntries(
-            Object.entries((o.statuses ?? {}) as Record<string, unknown>).map(([k, v]) => [k, Number(v)]),
-          ),
-          since: o.since ? String(o.since) : null,
-        })),
-    };
+    const w = parseWatch(await rpcJson('get_phone_orders'), false);
+    return phoneSnapshot(w);
+  },
+  async listOrderWatch() {
+    const { data, error } = await getAuthedClient().rpc('get_order_watch');
+    if (error) {
+      // Database without db/migrations/order_watch.sql: phone orders only, as before.
+      if (missingFunction(error, 'get_order_watch'))
+        return parseWatch(await rpcJson('get_phone_orders'), false);
+      throw new Error(error.message);
+    }
+    return parseWatch(data, true);
   },
   async listMyOrders(waiterId) {
     const { data, error } = await getAuthedClient().rpc('get_my_orders', { p_waiter_id: waiterId });

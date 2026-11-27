@@ -19,6 +19,7 @@ import { TaxRates } from './TaxRates';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { ReceiptSettings } from '../components/ReceiptSettings';
 import { MenuUpload } from '../components/MenuUpload';
+import { AlertSettings } from '../components/AlertSettings';
 
 interface PrinterConfigs {
   [key: string]: string; // e.g., { printer_kitchen: "USB001", printer_cashier: "COM1" }
@@ -593,6 +594,8 @@ export function Settings() {
             })}
           </div>
         </div>
+
+        <AlertSettings />
 
         {/* Invoicing — needs invoicing.manage; real enforcement is server-side by the
             get_invoice_sequence_status()/reset_invoice_sequence() RPCs, this

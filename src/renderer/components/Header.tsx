@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from './Icon';
+import { AlertBell } from './AlertBell';
+import type { DesktopAlert } from '@shared/alertTypes';
 import { useAuth } from '../context/AuthContext';
 import type { ServerStatus } from '@shared/types';
 import type { OfflineStatus } from '@shared/offlineTypes';
@@ -13,6 +15,8 @@ interface HeaderProps {
   /** Installed app version (from the update status), shown as "Beta v1.0.0" beside the title. */
   version?: string;
   onRefresh: () => void;
+  /** A click on an alert in the bell, or its Settings link (docs/DESKTOP_ALERTS.md). */
+  onOpenAlert: (alert: DesktopAlert | 'settings') => void;
 }
 
 /**
@@ -33,7 +37,7 @@ function initials(name: string): string {
   return letters.toUpperCase();
 }
 
-export function Header({ server, offline, version, onRefresh }: HeaderProps) {
+export function Header({ server, offline, version, onRefresh, onOpenAlert }: HeaderProps) {
   const { user, signOut } = useAuth();
   const online = server?.running ?? false;
   const state = offline?.state ?? (server?.database === 'connected' ? 'online' : 'unknown');
@@ -128,6 +132,8 @@ export function Header({ server, offline, version, onRefresh }: HeaderProps) {
             )}
           </div>
         </div>
+
+        <AlertBell onOpen={onOpenAlert} />
 
         <button
           className={styles.iconBtn}

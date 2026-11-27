@@ -1,0 +1,97 @@
+/* "KOT did not print" banner under the header (docs/DESKTOP_ALERTS.md). Status colours stay fixed. */
+.banner {
+  display: flex;
+  gap: 12px;
+  padding: 10px 20px;
+  border-bottom: 2px solid #dc2626;
+  background: #fef2f2;
+  color: #7f1d1d;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.icon {
+  flex-shrink: 0;
+  display: flex;
+  padding-top: 1px;
+  color: #dc2626;
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+}
+
+.list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.row + .row {
+  border-top: 1px solid #fecaca;
+}
+
+.what {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.err {
+  font-weight: 600;
+  color: #b91c1c;
+}
+
+.primary,
+.secondary {
+  flex-shrink: 0;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primary {
+  border: 1px solid #dc2626;
+  background: #dc2626;
+  color: #fff;
+}
+
+.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.secondary {
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  opacity: 0.8;
+}
+
+.secondary:hover {
+  opacity: 1;
+}
+
+.more {
+  margin-top: 4px;
+}
+
+.link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: #991b1b;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}

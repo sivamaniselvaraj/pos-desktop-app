@@ -1,7 +1,13 @@
 import type { Response } from 'express';
-import { db } from './data';
+import { db, offline } from './data';
 import { config } from './config';
-import { diffStates, type Memory, type PhoneNotification } from './kotNotifierCore';
+import {
+  diffStates,
+  phoneSnapshot,
+  type Memory,
+  type OrderWatchSnapshot,
+  type PhoneNotification,
+} from './kotNotifierCore';
 import type { LiveChange } from '../shared/liveTypes';
 
 /**
@@ -14,9 +20,15 @@ import type { LiveChange } from '../shared/liveTypes';
  * it cannot keep one open, by asking (GET /api/notifications?after=<id>).
  * Nothing leaves the local network, and nothing is kept after the desktop app
  * closes.
+ *
+ * The same look (get_order_watch, all open orders of the outlet) also feeds the
+ * desktop's own late-order alerts (desktopAlerts.ts, docs/DESKTOP_ALERTS.md):
+ * one database call serves both. With no phone paired it is read only when the
+ * desktop wants it, every 30 s instead of every 5 s.
  */
 
 const POLL_MS = 5000;
+const DESKTOP_ONLY_POLL_MS = 30_000;
 const HEARTBEAT_MS = 20000;
 const KEEP_PER_DEVICE = 100;
 const MAX_AGE_MS = 6 * 60 * 60 * 1000;
@@ -38,6 +50,18 @@ const boxes = new Map<string, Box>();
 const memory: Memory = new Map();
 let timer: NodeJS.Timeout | null = null;
 let busy = false;
+let lastDesktopOnlyRead = 0;
+
+/** Something else on the desktop that uses each look at the open orders (desktopAlerts.ts). */
+export interface OrderWatchListener {
+  /** True when it needs the look even with no phone paired. */
+  wanted(): boolean;
+  onSnapshot(snap: OrderWatchSnapshot, now: Date): void;
+}
+const watchListeners: OrderWatchListener[] = [];
+export function addOrderWatchListener(l: OrderWatchListener): void {
+  watchListeners.push(l);
+}
 
 function box(deviceId: string): Box {
   let b = boxes.get(deviceId);
@@ -63,7 +87,11 @@ export function publish(n: PhoneNotification): void {
   const q: QueuedNotification = { ...n, id: b.nextId++, at: new Date().toISOString() };
   b.items.push(q);
   const cutoff = Date.now() - MAX_AGE_MS;
-  while (b.items.length > KEEP_PER_DEVICE || (b.items[0] && new Date(b.items[0].at).getTime() < cutoff)) b.items.shift();
+  while (
+    b.items.length > KEEP_PER_DEVICE ||
+    (b.items[0] && new Date(b.items[0].at).getTime() < cutoff)
+  )
+    b.items.shift();
   for (const c of b.clients) sse(c, q);
 }
 
@@ -109,14 +137,34 @@ export function openStream(deviceId: string, res: Response, lastId: number, live
 
 async function pollOnce(): Promise<void> {
   if (busy || !config.outletId || config.apiDevices.length === 0) return;
+  const phones = config.apiDevices.length > 0;
+  if (!phones) {
+      // Desktop alerts only: every 30 s, and only when they are switched on.
+      if (!watchListeners.some((l) => l.wanted())) return;
+      if (Date.now() - lastDesktopOnlyRead < DESKTOP_ONLY_POLL_MS) return;
+    }
+    if (offline.monitor.isOffline()) return; // nothing to read; compared again once back online
   busy = true;
   try {
-    const snap = await db.remoteOrders.listPhoneOrders();
-    for (const n of diffStates(memory, snap, new Date())) publish(n);
+    lastDesktopOnlyRead = Date.now();
+    const watch = await db.remoteOrders.listOrderWatch();
+    const now = new Date();
+    if (phones) for (const n of diffStates(memory, phoneSnapshot(watch), now)) publish(n);
+    for (const l of watchListeners) {
+      try {
+        l.onSnapshot(watch, now);
+      } catch (err) {
+        console.warn(
+          '[notify] order watch listener failed:',
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
   } catch (err) {
     // Signed out or offline: try again next round; no notifications are lost, the state is compared next time.
     const msg = err instanceof Error ? err.message : String(err);
-    if (!/JWT|Not authenticated|not signed in|session/i.test(msg)) console.warn('[notify] could not read orders:', msg);
+    if (!/JWT|Not authenticated|not signed in|session/i.test(msg))
+      console.warn('[notify] could not read orders:', msg);
   } finally {
     busy = false;
   }

@@ -97,13 +97,37 @@ const VARS: [keyof BrandTokens, string][] = [
   ['onBrand', '--on-brand'],
 ];
 
-/** Set the brand colour for the whole app. Null or an invalid value goes back to the default. */
+/** This computer's last brand colour, so the next start paints it at once (before sign-in finishes). */
+const SAVED_KEY = 'brandColor';
+
+/** Set the brand colour for the whole app and remember it on this computer. Null or an invalid value goes back to the default. */
 export function applyBrand(hex: string | null | undefined): void {
   const root = document.documentElement;
   if (!isValidBrand(hex) || hex.trim().toLowerCase() === DEFAULT_BRAND) {
     for (const [, v] of VARS) root.style.removeProperty(v);
+    try {
+      localStorage.removeItem(SAVED_KEY);
+    } catch {
+      /* storage unavailable: nothing to remember */
+    }
     return;
   }
   const t = deriveBrand(hex.trim());
   for (const [k, v] of VARS) root.style.setProperty(v, t[k]);
+  try {
+    localStorage.setItem(SAVED_KEY, t.brand);
+  } catch {
+    /* storage unavailable: the colour still applies for this run */
+  }
+}
+
+/** Apply the colour remembered from the last run. Called in main.tsx before the first render, so the old green never flashes. */
+export function applySavedBrand(): void {
+  let saved: string | null = null;
+  try {
+    saved = localStorage.getItem(SAVED_KEY);
+  } catch {
+    return;
+  }
+  if (isValidBrand(saved)) applyBrand(saved);
 }

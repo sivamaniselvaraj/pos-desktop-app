@@ -8,6 +8,7 @@ import { listManagedTables, saveManagedTable } from './tablesManager';
 import { tablesFromCards, toApiTables } from './phoneTables';
 import { ApiMyOrder, DINE_IN_ORDER_TYPE, PICK_UP_ORDER_TYPE, PRINT_KOT_ONLY, type ApiTable, type PhoneKotSettings, type RemoteOrderRequest, type RemoteOrderResult } from '../shared/types';
 import { BadRemoteOrder, NewTableRequest } from './remoteOrderValidation';
+import { alertNewPhoneOrder } from './desktopAlerts';
 
 export { BadRemoteOrder, validateNewTable, validateRemoteOrder } from './remoteOrderValidation';
 
@@ -26,7 +27,17 @@ export { BadRemoteOrder, validateNewTable, validateRemoteOrder } from './remoteO
  */
 let billsCarryTableFields: boolean | null = null; // learnt from the first read
 
+/** Table id -> number from the last tables read, so a new-order alert can name the table without a database call. */
+const tableNumbers = new Map<string, string>();
+
 async function loadTables(): Promise<ApiTable[]> {
+  const tables = await readTables();
+  tableNumbers.clear();
+  for (const t of tables) tableNumbers.set(t.tableId, t.tableNumber);
+  return tables;
+}
+
+async function readTables(): Promise<ApiTable[]> {
   // Older database already seen: both reads side by side, as before.
   const managedEarly = billsCarryTableFields === false ? listManagedTables() : null;
   const cards = await db.tables.listCards();
@@ -61,7 +72,6 @@ const tablesCache = createSwrCache<ApiTable[]>({
 export function invalidateTablesForPhones(): void {
   tablesCache.invalidate(); // a read started before the change is not kept either
 }
-let tablesGeneration = 0;
 
 /** Tables of this outlet with status and details, through the cache above. */
 export function getTablesForPhones(): Promise<ApiTable[]> {
@@ -144,6 +154,19 @@ export async function placeRemoteOrder(
     clientRequestId: req.clientRequestId,
   });
   invalidateTablesForPhones(); // the table just changed
+
+  if (!result.duplicate) {
+    // Desktop alert (docs/DESKTOP_ALERTS.md): no database call, the table number comes from the last tables read.
+    alertNewPhoneOrder({
+      orderId: result.orderId,
+      orderNumber: result.orderNumber,
+      tableNumber: req.orderType === DINE_IN_ORDER_TYPE && req.tableId ? (tableNumbers.get(req.tableId) ?? null) : null,
+      orderType: req.orderType === DINE_IN_ORDER_TYPE ? DINE_IN_ORDER_TYPE : PICK_UP_ORDER_TYPE,
+      itemCount: req.items.reduce((n, i) => n + (Number(i.quantity) || 0), 0),
+      deviceId,
+      deviceName,
+    });
+  }
 
   if (config.outletId) {
     printQueue

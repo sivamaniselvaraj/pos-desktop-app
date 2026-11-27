@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import type { DesktopAlert } from '@shared/alertTypes';
 import type { ConnectionSetupStatus } from '@shared/connectionTypes';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -17,6 +18,7 @@ import { useUpdateStatus } from './hooks/useUpdateStatus';
 import { useOfflineStatus } from './hooks/useOfflineStatus';
 import { OfflineBanner } from './components/OfflineBanner';
 import { UpdateBanner, UpdateRequired } from './components/UpdateBanner';
+import { KotAlertBanner } from './components/KotAlertBanner';
 import { useAuth } from './context/AuthContext';
 import { markPageOpen } from './lib/timing';
 import styles from './styles/App.module.css';
@@ -57,6 +59,10 @@ export default function App() {
       .then(setSetup)
       .catch(() => setSetup(null));
   }, []);
+
+  // A click on a Windows notification opens the page for that alert (docs/DESKTOP_ALERTS.md).
+  const openAlertRef = useRef<(a: DesktopAlert | 'settings') => void>(() => undefined);
+  useEffect(() => window.api.onAlertOpened((a:any) => openAlertRef.current(a)), []);
 
   const handleRefresh = () => {
     window.location.reload();
@@ -117,6 +123,22 @@ export default function App() {
   const allowed = new Set(access.menus.map((m) => m.code));
   const current = allowed.has(page) ? page : access.menus[0].code;
 
+  const go = (next: string) => {
+    if (!allowed.has(next) || next === current) return;
+    setPresetTable(null);
+    markPageOpen(next);
+    setPage(next);
+  };
+  // The page for an alert, if this user may open it: failed KOT -> Unprinted KOTs, late -> KDS board, new order -> Dashboard.
+  const openAlert = (a: DesktopAlert | 'settings') => {
+    if (a === 'settings') return go('settings');
+    const pages =
+      a.kind === 'kot-failed' ? ['unprinted-kots', 'orders-list'] : a.kind === 'late' ? ['kot-board', 'orders-list', 'dashboard'] : ['dashboard', 'orders-list'];
+    const target = pages.find((p) => allowed.has(p));
+    if (target) go(target);
+  };
+  openAlertRef.current = openAlert;
+
   return (
     <div className={styles.app}>
       <Sidebar
@@ -131,8 +153,15 @@ export default function App() {
         printers={printers}
       />
       <main className={styles.main}>
-        <Header server={server} offline={offline} version={update?.currentVersion} onRefresh={handleRefresh} />
+        <Header
+          server={server}
+          offline={offline}
+          version={update?.currentVersion}
+          onRefresh={handleRefresh}
+          onOpenAlert={openAlert}
+        />
         <OfflineBanner status={offline} />
+        <KotAlertBanner onOpenUnprinted={allowed.has('unprinted-kots') ? () => go('unprinted-kots') : undefined} />
         <UpdateBanner status={update} />
         <div className={styles.body}>
           <Suspense fallback={pageLoading}>

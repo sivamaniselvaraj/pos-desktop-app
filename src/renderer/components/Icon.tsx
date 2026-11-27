@@ -35,7 +35,8 @@ type IconName =
   | 'taxIcon'
   | 'kdsIcon'
   | 'kotIcon'
-  | 'upload';
+  | 'upload'
+  | 'bell';
 
 interface IconProps {
   name: IconName;
@@ -191,6 +192,19 @@ const paths: Record<IconName, ReactElement> = {
       />
       <line x1="12" y1="9" x2="12" y2="13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       <line x1="12" y1="17" x2="12.01" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </>
+  ),
+  bell: (
+    <>
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"
+      />
+      <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" d="M13.73 21a2 2 0 0 1-3.46 0" />
     </>
   ),
   pending: (

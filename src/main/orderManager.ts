@@ -69,9 +69,14 @@ class OrderManager extends EventEmitter {
     // between the print and the update does not print the ticket or bill again.
     // Loaded on first use, after Electron has set up the app paths.
     private pending: { kotStamps: PersistentIdSet; settles: PersistentIdSet } | null = null;
+  private get pendingKotStamps(): PersistentIdSet {
+    return (this.pending ??= loadPendingPrintState()).kotStamps; // order_items ids
+  }
     private get pendingSettles(): PersistentIdSet {
       return (this.pending ??= loadPendingPrintState()).settles; // orders ids
     }
+  private recentBills = new Map<string, { at: number; response: PrintOrderResponse }>();
+
 
   getAll(): OrderWithStatus[] {
     return Array.from(this.orders.values()).sort(
@@ -81,6 +86,21 @@ class OrderManager extends EventEmitter {
 
   get(orderId: string): OrderWithStatus | undefined {
     return this.orders.get(orderId);
+  }
+
+  /**
+   * Tells desktop alerts (desktopAlerts.ts) how a KOT went: 'kot-failed'
+   * (order, reason) or 'kot-printed' (orderId). A listener's error never
+   * reaches the print path.
+   */
+  private tellKot(event: 'kot-failed', order: FoodOrder, reason: string): void;
+  private tellKot(event: 'kot-printed', orderId: string): void;
+  private tellKot(event: 'kot-failed' | 'kot-printed', ...args: unknown[]): void {
+    try {
+      this.emit(event, ...args);
+    } catch (err) {
+      console.warn(`[orderManager] ${event} listener failed:`, err instanceof Error ? err.message : err);
+    }
   }
 
   /** Write an order into the display cache and notify the UI. */
@@ -138,6 +158,7 @@ class OrderManager extends EventEmitter {
           const roleLabel = targetRole === 'waiter' ? 'Waiter' : 'Kitchen';
           const msg = `No ${roleLabel.toLowerCase()} printer configured. Add a "${roleLabel}" printer in Settings to print KOTs.`;
           this.cacheForDisplay({ ...order, printStatus: 'failed', errorMessage: msg, retryCount: 0 });
+          this.tellKot('kot-failed', order, msg);
           return { success: false, orderId, message: msg, printStatus: 'failed', error: 'NO_PRINTER' };
         }
 
@@ -148,6 +169,8 @@ class OrderManager extends EventEmitter {
     }
     if (deltaItems.length === 0) {
       // Nothing new since the last KOT — idempotent no-op, nothing to cache.
+       // (Printed elsewhere meanwhile: an open "did not print" alert can go.)
+      this.tellKot('kot-printed', orderId);
       const existing = this.orders.get(orderId);
       return {
         success: true,
@@ -170,6 +193,7 @@ class OrderManager extends EventEmitter {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown print error';
       this.cacheForDisplay({ ...kotOrder, printStatus: 'failed', errorMessage: message });
+      this.tellKot('kot-failed', order, message);
       return { success: false, orderId, message, printStatus: 'failed', error: 'PRINT_FAILED' };
     }
 

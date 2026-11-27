@@ -11,6 +11,7 @@ interface Row {
   color: string;
   actionLabel: string;
   showOnBoard: boolean;
+  notifyWaiter: boolean;
   backKeys: string[];
   kotCount: number;
 }
@@ -28,6 +29,7 @@ function toRows(w: Workflow): Row[] {
     color: s.color,
     actionLabel: s.actionLabel,
     showOnBoard: s.showOnBoard,
+    notifyWaiter: s.notifyWaiter,
     backKeys: s.backTo.map((p) => keys[p - 1]).filter(Boolean),
     kotCount: s.kotCount ?? 0,
   }));
@@ -81,7 +83,7 @@ export function KotWorkflow() {
     setRows((r) => {
       const next = [...r];
       next.splice(Math.max(next.length - 1, 0), 0, {
-        key: newKey(), code: KOT_STATUS_CODES.find((c) => !next.some((r) => r.code === c)) ?? '', name: '', color: '#2980b9', actionLabel: '', showOnBoard: true, backKeys: [], kotCount: 0,
+        key: newKey(), code: KOT_STATUS_CODES.find((c) => !next.some((r) => r.code === c)) ?? '', name: '', color: '#2980b9', actionLabel: '', showOnBoard: true, notifyWaiter: true, backKeys: [], kotCount: 0,
       });
       return next;
     });
@@ -114,6 +116,7 @@ export function KotWorkflow() {
           color: r.color,
           actionLabel: r.actionLabel.trim(),
           showOnBoard: r.showOnBoard,
+          notifyWaiter: r.notifyWaiter,
           backTo: r.backKeys.map((k) => pos.get(k) ?? 0).filter((p) => p > 0 && p < i + 1).sort((a, b) => a - b),
         })),
         levels: levels.map((l) => ({ ...l, name: l.name.trim(), fromMinutes: Number(l.fromMinutes) || 0 })),
@@ -190,10 +193,17 @@ export function KotWorkflow() {
                   <label><input type="checkbox" checked={r.showOnBoard} onChange={(e) => editRow(i, { showOnBoard: e.target.checked })} /> Yes</label>
                 )}
               </span>
+              <span className={styles.flag}>
+                {first ? (
+                  '-'
+                ) : (
+                  <label><input type="checkbox" checked={r.notifyWaiter} onChange={(e) => editRow(i, { notifyWaiter: e.target.checked })} /> Yes</label>
+                )}
+              </span>
               <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <button className={`${styles.btn} ${styles.danger}`} onClick={() => removeStep(i)}
-                        disabled={first || last || r.kotCount > 0}
-                        title={r.kotCount > 0 ? `${r.kotCount} KOT(s) are in this step` : first || last ? 'The first and last steps stay' : 'Remove step'}>
+                        disabled={last || rows.length <= 2 || r.kotCount > 0}
+                        title={r.kotCount > 0 ? `${r.kotCount} KOT(s) are in this step` : last ? 'The last step stays' : rows.length <= 2 ? 'A workflow needs at least two steps' : 'Remove step'}>
                   Remove
                 </button>
               </span>
@@ -201,21 +211,21 @@ export function KotWorkflow() {
           );
         })}
         <span className={styles.hint}>
-          The first step (New) and the last step (Served) are fixed: every new item starts at New, and Served takes the card off the board. The last step is final and takes the card off the board.
+          Every new item starts at the first step, so put the step you want new KOTs to begin in at the top (any status value except cancelled). The last step (Served) is fixed: it is final and takes the card off the board.
           Each step uses one of the six status values (new, cancelled, confirmed, preparing, ready, served), so at most six steps. Forward always goes to the next step; going back is only possible to the steps ticked in &ldquo;Can go back to&rdquo;.
-          A step that still holds KOTs cannot be removed.
+          A step that still holds KOTs cannot be removed. &ldquo;Tell phone&rdquo; sends a notification to the phone that placed the order when its order reaches the step (phones on the same network only).
         </span>
       </div>
 
       <div className={styles.card}>
         <div className={styles.head}>
           <h2>Waiting-time colours</h2>
-          <button className={styles.btn} onClick={() => { setLevels((l) => [...l, { name: '', fromMinutes: (l[l.length - 1]?.fromMinutes ?? 0) + 10, color: '#c0392b' }]); setDirty(true); }}>
+          <button className={styles.btn} onClick={() => { setLevels((l) => [...l, { name: '', fromMinutes: (l[l.length - 1]?.fromMinutes ?? 0) + 10, color: '#c0392b', notify: false }]); setDirty(true); }}>
             Add level
           </button>
         </div>
         <div className={`${styles.cols} ${styles.levelsGrid}`}>
-          <span>Level</span><span>Starts after (minutes)</span><span>Colour</span><span></span>
+          <span>Level</span><span>Starts after (minutes)</span><span>Colour</span><span>Tell phone</span><span></span>
         </div>
         {levels.map((l, i) => (
           <div key={i} className={`${styles.row} ${styles.levelsGrid}`}>
@@ -223,6 +233,9 @@ export function KotWorkflow() {
             <input className={styles.input} type="number" min={0} value={i === 0 ? 0 : l.fromMinutes} disabled={i === 0}
                    onChange={(e) => editLevel(i, { fromMinutes: Number(e.target.value) })} />
             <input type="color" className={styles.color} value={l.color} onChange={(e) => editLevel(i, { color: e.target.value })} />
+            <span className={styles.flag}>
+              {i === 0 ? '-' : <label><input type="checkbox" checked={l.notify === true} onChange={(e) => editLevel(i, { notify: e.target.checked })} /> Yes</label>}
+            </span>
             <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button className={`${styles.btn} ${styles.danger}`} disabled={i === 0 || levels.length <= 1}
                       onClick={() => { setLevels((x) => x.filter((_, j) => j !== i)); setDirty(true); }}>Remove</button>

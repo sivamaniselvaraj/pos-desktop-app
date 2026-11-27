@@ -34,7 +34,27 @@ export interface PhoneSnapshot {
   orders: PhoneOrder[];
 }
 
-export type NotificationType = 'status' | 'delay' | 'cancelled';
+/** An open order of the outlet, placed anywhere (desktop alerts watch these). deviceId is null for desktop orders. */
+export type WatchOrder = Omit<PhoneOrder, 'deviceId'> & { deviceId: string | null };
+export interface OrderWatchSnapshot {
+  steps: PhoneStep[];
+  levels: PhoneLevel[];
+  orders: WatchOrder[];
+  /** False when the database has no get_order_watch yet: only phone orders are in `orders`. */
+  allOrders: boolean;
+}
+
+/** The phone-placed orders of a watch snapshot, for diffStates. */
+export function phoneSnapshot(w: OrderWatchSnapshot): PhoneSnapshot {
+  return {
+    steps: w.steps,
+    levels: w.levels,
+    orders: w.orders.filter((o): o is PhoneOrder => Boolean(o.deviceId)),
+  };
+}
+
+/** 'kot-failed': the order's kitchen ticket did not print (sent by desktopAlerts.ts, 2026-11-27). */
+export type NotificationType = 'status' | 'delay' | 'cancelled' | 'kot-failed';
 export interface PhoneNotification {
   type: NotificationType;
   deviceId: string;
@@ -61,7 +81,7 @@ export interface OrderMemory {
 export type Memory = Map<string, OrderMemory>;
 
 /** The order's step is that of its least advanced live item. Null when no item is live. */
-export function currentStep(o: PhoneOrder, steps: PhoneStep[]): PhoneStep | null {
+export function currentStep(o: Pick<PhoneOrder, 'statuses'>, steps: PhoneStep[]): PhoneStep | null {
   let best: PhoneStep | null = null;
   for (const s of steps) {
     if ((o.statuses[s.code] ?? 0) > 0 && s.code !== 'cancelled') {
@@ -71,7 +91,7 @@ export function currentStep(o: PhoneOrder, steps: PhoneStep[]): PhoneStep | null
   return best;
 }
 
-function levelIndexFor(minutes: number, levels: PhoneLevel[]): number {
+export function levelIndexFor(minutes: number, levels: PhoneLevel[]): number {
   let idx = -1;
   levels.forEach((l, i) => {
     if (minutes >= l.fromMinutes) idx = i;
@@ -79,7 +99,7 @@ function levelIndexFor(minutes: number, levels: PhoneLevel[]): number {
   return idx;
 }
 
-function where(o: PhoneOrder): string {
+export function where(o: Pick<PhoneOrder, 'tableNumber' | 'orderType'>): string {
   return o.tableNumber ? `Table ${o.tableNumber}` : o.orderType === 'pickup' ? 'Takeaway' : 'Order';
 }
 

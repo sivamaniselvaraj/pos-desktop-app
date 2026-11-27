@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 //import { embeddedConfig } from './embeddedConfig';
 import { connection } from './connectionSetup';
 import type { PrintMethod } from '../shared/types';
+import { DEFAULT_ALERT_SETTINGS, type AlertSettings } from '../shared/alertTypes';
 
 // Loads config from three layers, in priority order:
 //   1. process.env (OS-level env vars, or .env.local loaded by index.ts's
@@ -21,7 +22,7 @@ import type { PrintMethod } from '../shared/types';
 // clearly has it) and BOTH have actually occurred in this file at different
 // times:
 //   (a) A plain object literal for provider settings/config.http would freeze
-//       process.env.SUPABASE_URL etc. at module-import time. Fixed by
+//       process.env.DB_URL etc. at module-import time. Fixed by
 //       making these GETTERS, which re-read process.env on every access.
 //   (b) Less obviously: a getter alone isn't enough if it's backed by a
 //       memoized function. config.cashierPrinter used to call load(), which
@@ -54,6 +55,8 @@ interface PersistedSettings {
   updateChannel?: 'stable' | 'beta';
   /** Paired API devices. Only a SHA-256 of each token's secret is stored. */
   apiDevices?: StoredApiDevice[];
+  /** Desktop alerts on this computer (docs/DESKTOP_ALERTS.md). Missing = all on. */
+  alertSettings?: Partial<AlertSettings>;
 }
 
 export interface StoredApiDevice {
@@ -154,11 +157,12 @@ export const config = {
     };
   },
   // Which outlet THIS machine serves. Deliberately never read from
-  // embeddedConfig — unlike SUPABASE_URL/ANON_KEY (the same value for every
+  // embeddedConfig — unlike DB_URL/DB_KEY (the same value for every
   // install of this app), this is different per physical machine, so
   // baking one into a shared installer would silently misconfigure every
   // install except whichever machine's value happened to get baked in.
-  // Set only via a machine-local .env.local. (scripts/embed-config.js
+  // Set on the setup screen (connection.json, see connectionSetup.ts) or, for
+  // older installs, OUTLET_ID in a machine-local .env.local. (scripts/embed-config.js
   // already warns and ignores unrecognized .env.build keys, which covers
   // OUTLET_ID automatically since it's intentionally not in that script's
   // safe-keys list.)
@@ -176,10 +180,10 @@ export const config = {
   // cached) and only falls back to it when settings.json has no value yet.
   // All three printer roles (Cashier/Waiter/Kitchen) live here — this file
   // is the SINGLE source of truth for printer mapping, deliberately not
-  // Supabase. Printer selection is inherently a per-machine, physical-
+  // the database. Printer selection is inherently a per-machine, physical-
   // hardware concern (which printer THIS specific machine's OS talks to),
   // not shared business data — it doesn't belong in a multi-tenant DB, and
-  // reading it locally means it works even if Supabase is unreachable.
+  // reading it locally means it works even if the database is unreachable.
   get cashierPrinter(): string {
     return loadFile().cashierPrinter ?? process.env.CASHIER_PRINTER ?? '';
   },
@@ -227,6 +231,15 @@ export const config = {
   },
   set updateChannel(value: 'stable' | 'beta') {
     persist({ updateChannel: value === 'beta' ? 'beta' : 'stable' });
+  },
+  get alertSettings(): AlertSettings {
+    const saved = loadFile().alertSettings ?? {};
+    const out = { ...DEFAULT_ALERT_SETTINGS };
+    for (const k of Object.keys(out) as (keyof AlertSettings)[]) if (typeof saved[k] === 'boolean') out[k] = saved[k] as boolean;
+    return out;
+  },
+  set alertSettings(value: AlertSettings) {
+    persist({ alertSettings: { ...value } });
   },
   get autoRetry(): boolean {
     return loadFile().autoRetry ?? true;
