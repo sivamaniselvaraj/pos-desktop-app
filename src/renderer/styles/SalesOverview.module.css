@@ -180,7 +180,7 @@
 }
 
 .shortcutBtn:hover {
-  background: #f0f8f0;
+  background: var(--brand-softer);
   border-color: var(--brand);
-  color: #2e7d32;
+  color: var(--brand-text);
 }

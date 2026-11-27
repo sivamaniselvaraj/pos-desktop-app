@@ -74,6 +74,9 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: #7f8c8d; }
 .cnew { color: #1d6fd1; } .cupdate { color: #b26a00; } .cunchanged { color: #6b7780; } .cerror { color: #c0392b; }
 .actions { display: flex; gap: 10px; align-items: center; }
 
+.logRow { border-top: 1px solid #eceff1; }
+.logHead { width: 100%; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 0; background: none; border: none; font: inherit; font-size: 13px; color: #2c3e50; cursor: pointer; text-align: left; }
+.logItems { margin: 0 0 10px; padding: 0 0 0 4px; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #2c3e50; max-height: 260px; overflow-y: auto; }
 .working { display: flex; gap: 14px; align-items: center; }
 .spinner { width: 26px; height: 26px; border: 3px solid var(--brand-soft); border-top-color: var(--brand); border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

@@ -88,6 +88,22 @@
   box-shadow: 0 0 0 3px #fecaca;
 }
 
+/* Offline mode: syncing (blue) and checking (grey). Status colours stay fixed. */
+.sync .dotMark {
+  background: #3b82f6;
+  animation: syncPulse 1.2s ease-in-out infinite;
+}
+
+.wait .dotMark {
+  background: var(--text-muted);
+}
+
+@keyframes syncPulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
 /* Info icon with a hover / focus tooltip. */
 .info {
   position: relative;
