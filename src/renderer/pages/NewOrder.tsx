@@ -582,7 +582,7 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
           </div>
         )}
 
-        {orderType === DINE_IN_ORDER_TYPE ? (
+        {orderType === DINE_IN_ORDER_TYPE && (<>
           <div className={styles.tables}>
             <div className={styles.label}>Table</div>
             <div className={styles.floors}>
@@ -623,7 +623,8 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
               ))}
             </div>
           </div>
-        ) : (
+         </>
+        )}
           <div className={styles.info}>
             <div className={styles.searchRow}>
               <div className={`${styles.search} ${q ? styles.searchOn : ''}`}>
@@ -652,7 +653,7 @@ export function NewOrder({ initialTableId, initialOrderType }: { initialTableId?
               </div>
             )}
           </div>
-        )}
+
 
         <div className={styles.browse}>
           <nav className={`${styles.rail} ${q ? styles.railIdle : ''}`} aria-label="Menu categories">
