@@ -4942,7 +4942,7 @@ begin
     raise exception 'Table "%" already exists in this outlet', v_number;
   end if;
 
-  insert into tables (outlet_id, table_number, floor, capacity, status, created_by)
+  insert into tables (outlet_id, table_number, floor_area, capacity, status, created_by)
   values (p_outlet_id, v_number, v_floor, p_capacity, v_state, v_actor)
   returning id into v_id;
   return v_id;
