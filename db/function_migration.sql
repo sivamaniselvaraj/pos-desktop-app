@@ -219,7 +219,7 @@ declare
   v_org jsonb;
   v_groups jsonb;
 begin
-  select p.role into v_role
+  select p.user_role into v_role
   from profiles p
   where p.user_id = auth.uid() and coalesce(p.is_active, true);
 
@@ -1078,7 +1078,7 @@ begin
   update profiles
      set first_name = p_full_name,
          phone = p_phone,
-         role = p_role,
+         user_role = p_role,
          outlet_id = p_outlet_id
    where user_id = p_user_id and org_id = v_org;
 end;
@@ -1296,7 +1296,7 @@ begin
   if not has_permission('users.manage') or v_org is null then
     raise exception 'Only admins can view user access';
   end if;
-  select p.role into v_role from profiles p where p.user_id = p_user_id and p.org_id = v_org;
+  select p.user_role into v_role from profiles p where p.user_id = p_user_id and p.org_id = v_org;
   if not found then
     raise exception 'User not found in your organization';
   end if;

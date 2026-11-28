@@ -43,25 +43,44 @@ insert into app_menus (code, label, icon, sort_order, required_permission) value
 on conflict (code) do nothing;
 
 
-insert into kot_statuses (outlet_id, code, name, color, action_label, sort_order, is_initial, is_final, show_on_board)
+-- The default workflow for an outlet. Does nothing when the outlet has steps.
+create or replace function seed_kot_workflow(p_outlet uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  s_new uuid; s_prep uuid; s_ready uuid; s_served uuid;
+begin
+  if exists (select 1 from kot_statuses where outlet_id = p_outlet) then
+    return;
+  end if;
+  insert into kot_statuses (outlet_id, code, name, color, action_label, sort_order, is_initial, is_final, show_on_board)
   values (p_outlet, 'new', 'New', '#7f8c8d', null, 10, true, false, true)
-  insert into kot_statuses (outlet_id, code, name, color, action_label, sort_order)
-  values (p_outlet, 'preparing', 'Preparing', '#2980b9', 'Start preparing', 20)
-  insert into kot_statuses (outlet_id, code, name, color, action_label, sort_order)
-  values (p_outlet, 'ready', 'Ready', '#1e8449', 'Mark ready', 30)
-  insert into kot_statuses (outlet_id, code, name, color, action_label, sort_order, is_final, show_on_board)
-  values (p_outlet, 'served', 'Served', '#34495e', 'Served', 40, true, false)
-  on conflict do nothing;
+  returning id into s_new;
+  insert into kot_statuses (outlet_id, code, name, color, action_label, sort_order, notify_waiter)
+  values (p_outlet, 'preparing', 'Preparing', '#2980b9', 'Start preparing', 20, true)
+  returning id into s_prep;
+  insert into kot_statuses (outlet_id, code, name, color, action_label, sort_order, notify_waiter)
+  values (p_outlet, 'ready', 'Ready', '#1e8449', 'Mark ready', 30, true)
+  returning id into s_ready;
+  insert into kot_statuses (outlet_id, code, name, color, action_label, sort_order, is_final, show_on_board, notify_waiter)
+  values (p_outlet, 'served', 'Served', '#34495e', 'Served', 40, true, false, true)
+  returning id into s_served;
 
   insert into kot_transitions (from_status, to_status) values
     (s_new, s_prep), (s_prep, s_ready), (s_ready, s_served),
     (s_prep, s_new), (s_ready, s_prep);
 
-  insert into kot_time_levels (outlet_id, name, from_minutes, color) values
-    (p_outlet, 'On time', 0, '#1e8449'),
-    (p_outlet, 'Getting late', 10, '#f1c40f'),
-    (p_outlet, 'Late', 20, '#c0392b')
+  insert into kot_time_levels (outlet_id, name, from_minutes, color, notify) values
+    (p_outlet, 'On time', 0, '#1e8449', false),
+    (p_outlet, 'Getting late', 10, '#f1c40f', true),
+    (p_outlet, 'Late', 20, '#c0392b', false)
   on conflict do nothing;
+end;
+$$;
+revoke all on function seed_kot_workflow(uuid) from public, anon, authenticated;
 
 insert into permissions (code, description) values
   ('reports.menu_availability', 'See the Menu availability report (when items were turned off, why, for how long)')
