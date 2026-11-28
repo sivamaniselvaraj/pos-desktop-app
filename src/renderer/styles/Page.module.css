@@ -1,7 +1,5 @@
 .page {
-  flex: 1;
-  overflow-y: auto;
-  padding: 28px;
+  composes: page from './shared.module.css';
 }
 
 .page h2 {

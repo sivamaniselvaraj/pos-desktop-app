@@ -72,12 +72,7 @@
 }
 
 .error {
-  color: #b91c1c;
-  background: #fee2e2;
-  padding: 8px 12px;
-  border-radius: 6px;
-  margin-bottom: 12px;
-  font-size: 13px;
+  composes: errorBox from './shared.module.css';
 }
 
 .success {

@@ -1,4 +1,4 @@
-.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); display: flex; align-items: center; justify-content: center; z-index: 1100; }
+.overlay { composes: overlay from './shared.module.css'; background: rgba(0, 0, 0, 0.4); z-index: 1100; }
 .modal { background: #fff; border-radius: 10px; padding: 22px 24px; width: 460px; max-width: 92vw; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2); }
 .modal h3 { margin: 0 0 4px; font-size: 17px; }
 .sub { margin: 0 0 12px; font-size: 13px; color: #666; }

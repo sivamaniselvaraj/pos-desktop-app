@@ -1,6 +1,6 @@
 .wrap { display: flex; flex-direction: column; gap: 14px; max-width: 520px; }
 .wrap h3 { margin: 0; font-size: 16px; }
-.muted { margin: 0; font-size: 13px; color: var(--gray); }
+.muted { composes: mutedText from './shared.module.css'; margin: 0; }
 .swatches { display: flex; flex-wrap: wrap; gap: 10px; }
 .swatch { width: 34px; height: 34px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--border); cursor: pointer; padding: 0; }
 .swatchOn { box-shadow: 0 0 0 3px var(--dark); }

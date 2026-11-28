@@ -106,12 +106,7 @@
 }
 
 .error {
-  color: #b91c1c;
-  background: #fee2e2;
-  padding: 8px 12px;
-  border-radius: 6px;
-  margin-bottom: 12px;
-  font-size: 13px;
+  composes: errorBox from './shared.module.css';
 }
 
 .success {
@@ -229,23 +224,14 @@
 
 /* Modal */
 .modalOverlay {
-  position: fixed;
-  inset: 0;
+  composes: overlay from './shared.module.css';
   background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   z-index: 1000;
 }
 
 .modal {
-  background: white;
-  border-radius: 10px;
-  padding: 24px;
+  composes: modal modalScroll from './shared.module.css';
   width: 560px;
-  max-height: 85vh;
-  overflow-y: auto;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
 }
 
 .modal h3 {
@@ -372,19 +358,12 @@
 }
 
 .modalActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
+  composes: modalActions from './shared.module.css';
   margin-top: 12px;
 }
 
 .cancelBtn {
-  padding: 8px 16px;
-  background: white;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
+  composes: cancelBtn from './shared.module.css';
 }
 
 .dangerBtn {

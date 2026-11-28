@@ -113,12 +113,7 @@
 }
 
 .error {
-  color: #b91c1c;
-  background: #fee2e2;
-  padding: 8px 12px;
-  border-radius: 6px;
-  margin-bottom: 12px;
-  font-size: 13px;
+  composes: errorBox from './shared.module.css';
 }
 
 .success {
@@ -132,15 +127,13 @@
 
 /* Modal */
 .modalOverlay {
-  position: fixed;
-  inset: 0;
+  composes: overlay from './shared.module.css';
   background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   z-index: 1000;
 }
 
+/* Not composed from shared.module.css: .modalWide and .groupModal (GroupsPanel) change
+   padding, max-height and overflow on the same element, and must win over these. */
 .modal {
   background: white;
   border-radius: 10px;
@@ -157,12 +150,7 @@
 }
 
 .formLabel {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  color: #555;
-  margin-bottom: 14px;
+  composes: formLabel from './shared.module.css';
 }
 
 .formLabel input,
@@ -180,35 +168,20 @@
 }
 
 .hint {
-  color: #999;
-  font-size: 11px;
+  composes: fieldHint from './shared.module.css';
 }
 
 .modalActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
+  composes: modalActions from './shared.module.css';
   margin-top: 8px;
 }
 
 .cancelBtn {
-  padding: 8px 16px;
-  background: white;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
+  composes: cancelBtn from './shared.module.css';
 }
 
 .saveBtn {
-  padding: 8px 16px;
-  background: var(--brand);
-  color: var(--on-brand);
-  border: none;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
+  composes: saveBtn from './shared.module.css';
 }
 
 .saveBtn:disabled,

@@ -1,20 +1,20 @@
-.page { flex: 1; overflow-y: auto; padding: 28px; }
-.header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+.page { composes: page from './shared.module.css'; }
+.header { composes: pageHeader from './shared.module.css'; }
 .header h2 { margin: 0 0 4px; font-size: 22px; }
 .sub { margin: 0; font-size: 13px; color: var(--gray); max-width: 620px; }
 .headActions { display: flex; gap: 8px; flex-wrap: wrap; }
-.ghost { background: #fff; color: var(--dark); border: 1px solid var(--border); padding: 8px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; white-space: nowrap; }
+.ghost { composes: ghostBtn from './shared.module.css'; }
 .ghost:disabled { opacity: 0.55; cursor: not-allowed; }
 .filters { margin-bottom: 10px; }
-.range { font-size: 13px; color: var(--gray); margin-bottom: 14px; }
-.error { color: #b91c1c; background: #fee2e2; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 13px; }
+.range { composes: range from './shared.module.css'; }
+.error { composes: errorBox from './shared.module.css'; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .tile { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
 .tile span { font-size: 12px; color: var(--gray); }
 .tile b { font-size: 18px; color: var(--dark); }
 .tile small { font-size: 11px; color: var(--gray); }
 .tileKey { border-color: var(--primary); background: var(--brand-softer); }
-.empty { background: #fff; border: 1px dashed var(--border); border-radius: 10px; padding: 36px; text-align: center; color: var(--gray); font-size: 14px; }
+.empty { composes: emptyBox from './shared.module.css'; }
 .card { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 18px; }
 .card h3 { margin: 0 0 12px; font-size: 15px; display: flex; align-items: center; gap: 10px; }
 .twoCol { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; }
@@ -23,7 +23,7 @@
 .table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .table th { text-align: left; font-size: 11px; text-transform: uppercase; color: #888; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .table td { padding: 9px 10px; border-bottom: 1px solid #f1f1f1; vertical-align: middle; }
-.num { text-align: right !important; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.num { composes: num from './shared.module.css'; }
 .strong { font-weight: 700; }
 .clickRow { cursor: pointer; }
 .clickRow:hover { background: #fafafa; }

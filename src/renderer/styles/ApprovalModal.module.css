@@ -1,10 +1,6 @@
 .overlay {
-  position: fixed;
-  inset: 0;
+  composes: overlay from './shared.module.css';
   background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   z-index: 2000; /* above the order detail modal (1000) */
 }
 
@@ -43,27 +39,15 @@
 }
 
 .error {
-  background: #fdecea;
-  color: #b71c1c;
-  border-radius: 6px;
-  padding: 8px 10px;
-  font-size: 13px;
-  margin: 0 0 12px;
+  composes: formError from './shared.module.css';
 }
 
 .actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
+  composes: modalActions from './shared.module.css';
 }
 
 .cancelBtn {
-  padding: 8px 16px;
-  background: white;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
+  composes: cancelBtn from './shared.module.css';
 }
 
 .approveBtn {

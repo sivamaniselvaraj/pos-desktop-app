@@ -32,9 +32,7 @@
 }
 
 .num {
-  text-align: right !important;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  composes: num from './shared.module.css';
 }
 
 .slow {

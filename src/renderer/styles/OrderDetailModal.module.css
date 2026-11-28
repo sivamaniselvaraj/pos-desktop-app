@@ -1,21 +1,12 @@
 .modalOverlay {
-  position: fixed;
-  inset: 0;
+  composes: overlay from './shared.module.css';
   background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   z-index: 1000;
 }
 
 .modal {
-  background: white;
-  border-radius: 10px;
-  padding: 24px;
+  composes: modal modalScroll from './shared.module.css';
   width: 560px;
-  max-height: 85vh;
-  overflow-y: auto;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
 }
 
 /* Title + × close, kept in view while the modal scrolls (the modal has 24px padding). */
@@ -57,8 +48,7 @@
 }
 
 .muted {
-  color: var(--gray, #888);
-  font-size: 13px;
+  composes: mutedText from './shared.module.css';
   margin-bottom: 12px;
   line-height: 1.5;
 }
@@ -277,9 +267,7 @@
 }
 
 .modalActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
+  composes: modalActions from './shared.module.css';
   margin-top: 12px;
 }
 

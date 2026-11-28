@@ -3,7 +3,7 @@
 .form { display: flex; flex-direction: column; gap: 14px; }
 @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
 .wrap h3 { margin: 0; font-size: 16px; }
-.muted { margin: 0; font-size: 13px; color: var(--gray); }
+.muted { composes: mutedText from './shared.module.css'; margin: 0; }
 .field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
 .field input { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-family: monospace; font-size: 13px; resize: vertical; font-weight: 400; }
 .field textarea { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-family: monospace; font-size: 13px; resize: vertical; font-weight: 400; }
