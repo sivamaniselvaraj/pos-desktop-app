@@ -3,7 +3,8 @@ import { db, offline } from './data';
 import { config } from './config';
 import {
   diffStates,
-  phoneSnapshot,
+  routeOrders,
+  type OrderRoute,
   type Memory,
   type OrderWatchSnapshot,
   type PhoneNotification,
@@ -51,6 +52,12 @@ const memory: Memory = new Map();
 let timer: NodeJS.Timeout | null = null;
 let busy = false;
 let lastDesktopOnlyRead = 0;
+let lastRoutes = new Map<string, OrderRoute>();
+
+/** The phones that hear about this order, from the last look (empty when unknown). */
+export function phonesForOrder(orderId: string): string[] {
+  return lastRoutes.get(orderId)?.deviceIds ?? [];
+}
 
 /** Something else on the desktop that uses each look at the open orders (desktopAlerts.ts). */
 export interface OrderWatchListener {
@@ -149,7 +156,12 @@ async function pollOnce(): Promise<void> {
     lastDesktopOnlyRead = Date.now();
     const watch = await db.remoteOrders.listOrderWatch();
     const now = new Date();
-    if (phones) for (const n of diffStates(memory, phoneSnapshot(watch), now)) publish(n);
+    if (phones) {
+      // Who hears about each order: the phone that placed it and its waiter's other phones, and for
+      // an order typed on a desktop, the waiter(s) already serving its table (routeOrders).
+      lastRoutes = routeOrders(watch.orders, config.apiDevices);
+      for (const n of diffStates(memory, watch, now, lastRoutes)) publish(n);
+    } else lastRoutes = new Map();
     for (const l of watchListeners) {
       try {
         l.onSnapshot(watch, now);

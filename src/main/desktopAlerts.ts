@@ -1,7 +1,7 @@
 import { Notification, type BrowserWindow } from 'electron';
 import { config } from './config';
 import { orderManager } from './orderManager';
-import { addOrderWatchListener, publish } from './notificationHub';
+import { addOrderWatchListener, phonesForOrder, publish } from './notificationHub';
 import { lateAlerts, type LateMemory } from './desktopAlertCore';
 import { where, type OrderWatchSnapshot } from './kotNotifierCore';
 import { IpcChannels } from '../shared/ipc';
@@ -154,8 +154,14 @@ function onKotFailed(order: FoodOrder, reason: string): void {
   });
   if (!alert) return;
   problems.set(order.id, alert);
-  const deviceId = deviceByOrder.get(order.id);
-  if (deviceId) {
+  // The phones that hear about this order (its own phone, its waiter's other phones, or the
+  // waiter serving the table of a counter order); a phone order the watch has not seen yet: its phone.
+  const routed = phonesForOrder(order.id);
+  const phones =
+    routed.length > 0
+      ? routed
+      : [deviceByOrder.get(order.id)].filter((d): d is string => Boolean(d));
+  for (const deviceId of phones) {
     publish({
       type: 'kot-failed',
       deviceId,

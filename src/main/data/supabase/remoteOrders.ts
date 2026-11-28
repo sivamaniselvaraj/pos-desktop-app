@@ -54,6 +54,7 @@ function parseWatch(data: unknown, allOrders: boolean): OrderWatchSnapshot {
         orderId: String(o.order_id),
         orderNumber: Number(o.order_number ?? 0),
         deviceId: o.device_id ? String(o.device_id) : null,
+        userId: o.user_id ? String(o.user_id) : null,
         tableNumber: o.table_number == null ? null : String(o.table_number),
         orderType: String(o.order_type ?? ''),
         status: String(o.status ?? ''),
@@ -146,7 +147,8 @@ export const remoteOrders: RemoteOrderRepository = {
         })
     if (error) throw new Error(error.message);
     const d = (data ?? {}) as Record<string, unknown>;
-    const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
+    const arr = (v: unknown): Record<string, unknown>[] =>
+      Array.isArray(v) ? (v as Record<string, unknown>[]) : [];
     return {
       serverTime: String(d.now ?? new Date().toISOString()),
       levels: arr(d.levels).map((l) => ({
