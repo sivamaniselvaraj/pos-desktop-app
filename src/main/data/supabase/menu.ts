@@ -184,6 +184,7 @@ export const menu: MenuRepository = {
         incentive_applicable: i.incentiveApplicable,
         incentive_type: i.incentiveType,
         incentive_value: i.incentiveValue,
+        search_key: i.searchKey,
       })),
     });
     if (error) throw new Error(error.message);

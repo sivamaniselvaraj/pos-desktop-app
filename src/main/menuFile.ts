@@ -6,7 +6,7 @@ import type { ExportResult } from '../shared/reportTypes';
 /**
  * menuFile.ts
  * ---------------------------------------------------------------------------
- * The menu file (docs/MENU_UPLOAD.md): one column list used by the Menu Items export,
+ * The menu file (docs/MENU_UPLOAD.md): one column list used by
  * "Download current menu" and "Download template", and read back by the upload.
  * Excel (.xlsx) or CSV. No Item id: items are matched by name.
  * ---------------------------------------------------------------------------
@@ -32,6 +32,7 @@ export const MENU_FILE_COLUMNS = [
   'Incentive value',
   'Cost price',
   'Cooking time',
+  'Search key',
 ] as const;
 export type MenuFileColumn = (typeof MENU_FILE_COLUMNS)[number];
 
@@ -78,6 +79,7 @@ export function recordToCells(i: Record<string, unknown>, categoryName: string):
     i.incentive_applicable ? numOrNull(i.incentive_value) : null,
     numOrNull(i.cost_price),
     numOrNull(i.cooking_time),
+    text(i.search_key),
   ];
 }
 
@@ -100,6 +102,7 @@ export const MENU_FILE_HELP: Array<[string, string, string]> = [
   ['Incentive value', 'When Incentive is Yes', '0 or more (at most 100 for percent).'],
   ['Cost price', 'Optional', 'A number, 0 or more.'],
   ['Cooking time', 'Optional', 'Whole minutes.'],
+  ['Search key', 'Optional', 'Extra words the New order search finds the item by (for example: tandoor spicy starter). Blank: none for a new item, unchanged for an existing one.'],
 ];
 
 /** Quote a CSV field only when it needs it (comma, quote, or newline present). */
@@ -189,6 +192,10 @@ const HEADER_ALIASES: Record<string, MenuFileColumn> = {
   'container charge %': 'Container charge',
   'cooking time (min)': 'Cooking time',
   'cooking time (minutes)': 'Cooking time',
+  'search_key': 'Search key',
+  'search keys': 'Search key',
+  'search keywords': 'Search key',
+  'keywords': 'Search key',
 };
 
 function cleanCell(v: unknown): Cell {

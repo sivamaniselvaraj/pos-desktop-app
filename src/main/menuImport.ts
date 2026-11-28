@@ -67,6 +67,7 @@ interface ItemState {
   incValue: number | null;
   cost: number | null;
   cooking: number;
+  searchKey: string | null;
 }
 
 interface ExistingItem extends ItemState {
@@ -97,6 +98,7 @@ function existingFrom(i: Record<string, unknown>, categoryName: string): Existin
     incValue: numOrNull(i.incentive_value),
     cost: numOrNull(i.cost_price),
     cooking: numOrNull(i.cooking_time) ?? 0,
+    searchKey: i.search_key ? String(i.search_key).trim() || null : null,
   };
 }
 
@@ -203,6 +205,7 @@ function diff(before: ExistingItem, after: ItemState): MenuUploadChange[] {
   if (after.incentive && !sameNum(before.incValue, after.incValue)) add('Incentive value', money(before.incValue), money(after.incValue));
   if (!sameNum(before.cost, after.cost)) add('Cost price', money(before.cost), money(after.cost));
   if (before.cooking !== after.cooking) add('Cooking time', String(before.cooking), `${after.cooking} min`);
+  if ((before.searchKey ?? '') !== (after.searchKey ?? '')) add('Search key', before.searchKey ?? '', after.searchKey ?? '');
   return out;
 }
 
@@ -243,6 +246,7 @@ function evaluateRow(r: ParsedMenuRow, existing: ExistingItem | null, ctx: Conte
   const incValue = parseNumber(c['Incentive value'], 'Incentive value must be a number, 0 or more.', 0, 1_000_000);
   const cost = parseNumber(c['Cost price'], 'Cost price must be a number, 0 or more.', 0, 1_000_000);
   const cooking = parseNumber(c['Cooking time'], 'Cooking time must be whole minutes.', 0, 1000, true);
+  const searchKey = text(c['Search key']);
 
   const tax = resolveTax(ctx.taxOptions, existing, text(c.Tax), taxPct);
   if (!existing && !tax) throw new RowError('Tax is required for a new item.');
@@ -263,6 +267,7 @@ function evaluateRow(r: ParsedMenuRow, existing: ExistingItem | null, ctx: Conte
     incValue: null,
     cost: null,
     cooking: 0,
+    searchKey: null,
   };
   const fin: ItemState = {
     ...base,
@@ -279,6 +284,7 @@ function evaluateRow(r: ParsedMenuRow, existing: ExistingItem | null, ctx: Conte
     incValue: incValue ?? base.incValue,
     cost: cost ?? base.cost,
     cooking: cooking ?? base.cooking,
+    searchKey: searchKey ?? base.searchKey,
   };
 
   if (fin.incentive) {
@@ -323,6 +329,7 @@ function evaluateRow(r: ParsedMenuRow, existing: ExistingItem | null, ctx: Conte
           incentiveApplicable: fin.incentive,
           incentiveType: fin.incentive ? fin.incType : null,
           incentiveValue: fin.incentive ? fin.incValue : null,
+          searchKey: fin.searchKey,
         };
   return { result, changes, newCategory: !cat, item };
 }

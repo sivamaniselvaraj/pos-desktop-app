@@ -326,6 +326,8 @@ export interface MenuImportItem {
   incentiveApplicable: boolean;
   incentiveType: 'percent' | 'fixed' | null;
   incentiveValue: number | null;
+  /** Search keywords (New order search). The final value: the item's current key when the file cell is blank; null = none. */
+  searchKey: string | null;
 }
 
 export interface MenuRepository {

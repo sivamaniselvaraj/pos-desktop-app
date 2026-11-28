@@ -5363,8 +5363,8 @@ begin
         if char_length(v_catn) < 1 or char_length(v_catn) > 60 then
           raise exception 'The category name must be 1 to 60 characters';
         end if;
-        insert into categories (name, org_id, outlet_id, is_active, sort_order)
-        values (v_catn, v_org, v_outlet, true,
+        insert into categories (name, outlet_id, is_active, sort_order)
+        values (v_catn, v_outlet, true,
                 (select coalesce(max(c.sort_order), 0) + 10 from categories c where c.outlet_id = v_outlet))
         returning id into v_cat;
         v_cats_created := v_cats_created + 1;
@@ -5390,6 +5390,8 @@ begin
              incentive_applicable = v_inc,
              incentive_type = case when v_inc then v_it->>'incentive_type' else null end,
              incentive_value = case when v_inc then v_incv else null end,
+             search_key = case when v_it ? 'search_key' then nullif(btrim(coalesce(v_it->>'search_key', '')), '')
+                               else search_key end,
              change_scope = 'item',
              change_batch = v_batch,
              updated_at = now()
@@ -5407,12 +5409,13 @@ begin
       insert into menu_items (outlet_id, name, category_id, price, is_veg, is_active, inactive_reason,
                               container_charge, cost_price, cooking_time, tax_name, tax_rate_percent,
                               price_includes_tax, incentive_applicable, incentive_type, incentive_value,
-                              change_scope, change_batch)
+                              search_key, change_scope, change_batch)
       values (v_outlet, v_name, v_cat, v_price, coalesce((v_it->>'is_veg')::boolean, true), v_active, v_reason,
               v_cc, v_cost, v_cook, btrim(v_it->>'tax_name'), v_taxp,
               coalesce((v_it->>'price_includes_tax')::boolean, false), v_inc,
               case when v_inc then v_it->>'incentive_type' else null end,
               case when v_inc then v_incv else null end,
+              nullif(btrim(coalesce(v_it->>'search_key', '')), ''),
               'item', v_batch)
       returning * into v_new;
       v_created := v_created + 1;
