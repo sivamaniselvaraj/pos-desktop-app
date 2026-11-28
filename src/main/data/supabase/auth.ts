@@ -23,7 +23,7 @@ export const auth: AuthRepository = {
   async loadProfile(userId): Promise<UserProfile | null> {
     const { data, error } = await getAuthedClient()
       .from('profiles')
-      .select('user_id, email, first_name, role, is_active, outlet_id')
+      .select('user_id, email, first_name, user_role, is_active, outlet_id')
       .eq('user_id', userId)
       .single();
     if (error || !data) return null;  

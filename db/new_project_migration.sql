@@ -64,6 +64,11 @@ alter table permissions      enable row level security;
 drop policy if exists "authenticated read permissions" on permissions;
 create policy "authenticated read permissions" on permissions for select to authenticated using (true);
 
+-- Platform staff (you), managed only with SQL / the service role.
+create table if not exists platform_admins (
+  user_id uuid primary key references auth.users(id) on delete cascade
+);
+alter table platform_admins enable row level security; 
 
 create table if not exists app_menus (
   code                text primary key,          -- the route id the app knows about
@@ -98,7 +103,6 @@ create table if not exists outlets (
   is_active boolean not null default true,
   constraint outlets_pkey primary key (id)
 );
-create policy "authenticated read outlets" on outlets for select to authenticated using (true);
 
 create trigger update_outlets_updated_at BEFORE
 update on outlets for EACH row
@@ -161,29 +165,11 @@ create table if not exists public.profiles (
   constraint profiles_pkey primary key (id),
   constraint profiles_user_id_key unique (user_id),
   constraint profiles_org_id_fkey foreign KEY (org_id) references organizations (id),
-  constraint profiles_outlet_id_fkey foreign KEY (outlet_id) references outlets (id) on delete CASCADE,
-  constraint profiles_role_check check (
-    (
-      role = any (
-        array[
-          'admin'::text,
-          'staff'::text,
-          'editor'::text,
-          'manager'::text,
-          'cashier'::text,
-          'waiter'::text,
-          'kitchen_staff'::text
-        ]
-      )
-    )
-  )
+  constraint profiles_outlet_id_fkey foreign KEY (outlet_id) references outlets (id) on delete CASCADE
 );
 
 create index IF not exists idx_profiles_org on public.profiles using btree (org_id);
 
-create trigger update_profiles_updated_at BEFORE
-update on profiles for EACH row
-execute FUNCTION update_updated_at_column ();
 
 -- A signed-in user may read and update only their own profile.
 drop policy if exists "read own profile" on profiles;
@@ -219,10 +205,10 @@ create policy "managers manage own outlet tax" on tax_settings
   for all to authenticated
   using (exists (select 1 from profiles p
                   where p.user_id = auth.uid() and p.outlet_id = tax_settings.outlet_id
-                    and p.role in ('manager', 'owner', 'admin')))
+                    ))
   with check (exists (select 1 from profiles p
                   where p.user_id = auth.uid() and p.outlet_id = tax_settings.outlet_id
-                    and p.role in ('manager', 'owner', 'admin')));
+                    ));
 
 -- ============================================================================
 -- MULTI-TENANT FOUNDATION: organizations
@@ -433,18 +419,18 @@ create trigger update_menu_items_updated_at BEFORE
 update on menu_items for EACH row
 execute FUNCTION update_updated_at_column ();
 
-create policy "insert own menu items rows"
-on "public"."menu_items"
-as PERMISSIVE
-for INSERT
-to authenticated
-using (
-  exists (
-    select 1 from profiles p       
-    where p.user_id = auth.uid() 
-    and has_permission('menu.edit')    
-  )
-);
+-- create policy "insert own menu items rows"
+-- on "public"."menu_items"
+-- as PERMISSIVE
+-- for INSERT
+-- to authenticated
+-- using (
+--   exists (
+--     select 1 from profiles p       
+--     where p.user_id = auth.uid() 
+--     and has_permission('menu.edit')    
+--   )
+-- );
 
 create policy "update own menu items rows"
 on "public"."menu_items"
@@ -592,8 +578,7 @@ create table if not exists invoice_sequences (
   reset_by uuid references auth.users(id)
 );
 
-
-create table public.order_items (
+create table if not exists public.order_items (
   id uuid not null default gen_random_uuid (),
   order_id uuid not null,
   menu_item_id uuid not null,
@@ -1038,7 +1023,7 @@ using
 (EXISTS ( SELECT 1
    FROM (orders o
      JOIN profiles p ON ((p.user_id = auth.uid())))
-  WHERE (has_permission('orders.complete'::text) AND (p.outlet_id = o.outlet_id) AND (o.status not in ('completed', 'cancelled')))))
+  WHERE (has_permission('orders.complete'::text) AND (p.outlet_id = o.outlet_id) AND (o.status not in ('completed', 'cancelled')))));
 
 
 -- ============================================================================
@@ -1165,3 +1150,8 @@ begin
     execute 'revoke all on outlet_live_versions from authenticated';
   end if;
 end $$;
+
+
+-- Receipt header / footer lines (Settings > Receipt): one text per outlet, one line per row.
+alter table outlets add column if not exists receipt_header text;
+alter table outlets add column if not exists receipt_footer text;

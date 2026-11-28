@@ -519,7 +519,7 @@ begin
 
   return query
     select r.id, r.category_id, r.name, r.rate_percent, r.effective_from, r.created_at,
-           coalesce(nullif(btrim(pr.full_name), ''), pr.email),
+           coalesce(nullif(btrim(pr.first_name), ''), pr.email),
            case
              when r.effective_from > now() then 'scheduled'
              when r.effective_from = (select max(x.effective_from) from tax_rates x
@@ -1019,9 +1019,9 @@ as $$
   select
     pr.user_id,
     pr.email,
-    pr.full_name,
+    pr.first_name,
     pr.phone,
-    pr.role,
+    pr.user_role,
     pr.is_active,
     pr.outlet_id,
     o.name as outlet_name,
@@ -1030,7 +1030,7 @@ as $$
   left join outlets o on o.id = pr.outlet_id
   where has_permission('users.manage')
     and pr.org_id = current_org_id()
-  order by pr.full_name nulls last, pr.email;
+  order by pr.first_name nulls last, pr.email;
 $$;
 
 grant execute on function list_users() to authenticated;
@@ -1061,7 +1061,7 @@ begin
     raise exception 'Only admins can update user profiles';
   end if;
 
-  select pr.role into v_current_role
+  select pr.user_role into v_current_role
     from profiles pr
    where pr.user_id = p_user_id and pr.org_id = v_org;
   if not found then
@@ -4109,7 +4109,7 @@ as $$
     p.outlet_id,
     coalesce(s.current_seq, 0) as current_seq,
     s.last_reset_at,
-    coalesce(rb.full_name, rb.email) as reset_by_name
+    coalesce(rb.first_name, rb.email) as reset_by_name
   from profiles p
   left join invoice_sequences s on s.outlet_id = p.outlet_id
   left join profiles rb on rb.user_id = s.reset_by
